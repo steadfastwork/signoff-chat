@@ -1,0 +1,13 @@
+{
+  "extends": "expo/tsconfig.base",
+  "compilerOptions": {
+    "strict": true,
+    "paths": {
+      "@signoff/types": ["../../packages/types/index.ts"],
+      "@signoff/validators": ["../../packages/validators/index.ts"],
+      "@signoff/config": ["../../packages/config/index.ts"],
+      "@signoff/api-client": ["../../packages/api-client/index.ts"]
+    }
+  },
+  "include": ["**/*.ts", "**/*.tsx", ".expo/types/**/*.ts", "expo-env.d.ts"]
+}

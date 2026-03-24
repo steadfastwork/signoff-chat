@@ -1,0 +1,69 @@
+{
+  "expo": {
+    "name": "Signoff Chat",
+    "slug": "signoffchat",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "scheme": "signoffchat",
+    "userInterfaceStyle": "automatic",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0d0d0b"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.signoffchat.app"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#0d0d0b"
+      },
+      "package": "com.signoffchat.app"
+    },
+    "web": {
+      "bundler": "metro"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      "expo-font",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png",
+          "color": "#f5c842",
+          "sounds": []
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Signoff Chat accesses your photos to let you share images.",
+          "cameraPermission": "Signoff Chat accesses your camera to let you take and share photos."
+        }
+      ],
+      [
+        "@stripe/stripe-react-native",
+        {
+          "merchantIdentifier": "merchant.com.signoffchat.app",
+          "enableGooglePay": false
+        }
+      ],
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "extra": {
+      "EXPO_PUBLIC_API_URL": "",
+      "EXPO_PUBLIC_SOKETI_KEY": "",
+      "EXPO_PUBLIC_SOKETI_HOST": "",
+      "EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY": "",
+      "eas": {
+        "projectId": ""
+      }
+    }
+  }
+}

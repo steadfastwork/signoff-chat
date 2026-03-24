@@ -1,0 +1,13 @@
+{
+  "framework": "nextjs",
+  "buildCommand": "prisma generate && prisma migrate deploy && next build",
+  "nodeVersion": "20.x",
+  "crons": [
+    { "path": "/api/cron/rotate-rate-limit-salt",   "schedule": "0 0 * * *" },
+    { "path": "/api/cron/purge-messages",           "schedule": "0 3 * * *" },
+    { "path": "/api/cron/cleanup-channel-messages", "schedule": "0 3 * * *" },
+    { "path": "/api/cron/archive-board-posts",      "schedule": "0 4 * * *" },
+    { "path": "/api/cron/cleanup-invite-links",     "schedule": "0 5 * * *" },
+    { "path": "/api/cron/rotate-channel-keys",      "schedule": "0 */6 * * *" }
+  ]
+}

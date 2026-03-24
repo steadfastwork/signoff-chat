@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json.eas.dev/eas.json",
+  "cli": {
+    "version": ">= 14.0.0",
+    "requireCommit": true
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "channel": "development",
+      "ios": {
+        "simulator": false,
+        "buildConfiguration": "Debug"
+      },
+      "android": {
+        "buildType": "apk",
+        "gradleCommand": ":app:assembleDebug"
+      },
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://dev.signoffchat.com",
+        "EXPO_PUBLIC_SOKETI_KEY": "",
+        "EXPO_PUBLIC_SOKETI_HOST": "ws.dev.signoffchat.com",
+        "EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY": ""
+      }
+    },
+    "preview": {
+      "distribution": "internal",
+      "channel": "preview",
+      "ios": {
+        "buildConfiguration": "Release"
+      },
+      "android": {
+        "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://signoffchat.com",
+        "EXPO_PUBLIC_SOKETI_KEY": "",
+        "EXPO_PUBLIC_SOKETI_HOST": "ws.signoffchat.com",
+        "EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY": ""
+      }
+    },
+    "production": {
+      "autoIncrement": true,
+      "channel": "production",
+      "ios": {
+        "buildConfiguration": "Release",
+        "image": "latest"
+      },
+      "android": {
+        "buildType": "app-bundle",
+        "image": "latest"
+      },
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://signoffchat.com",
+        "EXPO_PUBLIC_SOKETI_KEY": "",
+        "EXPO_PUBLIC_SOKETI_HOST": "ws.signoffchat.com",
+        "EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY": ""
+      }
+    }
+  },
+  "submit": {
+    "production": {
+      "ios": {
+        "appleId": "",
+        "ascAppId": "",
+        "appleTeamId": ""
+      },
+      "android": {
+        "serviceAccountKeyPath": "./google-service-account.json",
+        "track": "production",
+        "releaseStatus": "completed"
+      }
+    }
+  }
+}

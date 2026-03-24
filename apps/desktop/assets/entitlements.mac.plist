@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- Required for hardened runtime -->
+  <key>com.apple.security.cs.allow-jit</key>
+  <true/>
+  <!-- Allow unsigned code (needed for Electron's V8 JIT and some Node native modules) -->
+  <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+  <true/>
+  <!-- Disable library validation to allow native modules (better-sqlite3) -->
+  <key>com.apple.security.cs.disable-library-validation</key>
+  <true/>
+  <!-- Network client access for connecting to signoffchat.com -->
+  <key>com.apple.security.network.client</key>
+  <true/>
+  <!-- Notifications -->
+  <key>com.apple.security.application-groups</key>
+  <array>
+    <string>com.signoffchat.app</string>
+  </array>
+</dict>
+</plist>

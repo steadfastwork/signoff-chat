@@ -1,0 +1,105 @@
+appId: com.signoffchat.app
+productName: Signoff Chat
+copyright: "Copyright © 2025 Signoff Chat"
+
+directories:
+  output: release
+  buildResources: assets
+
+# Compiled JS + assets; node_modules handled by asar
+files:
+  - dist/**/*
+  - assets/**/*
+  - "!assets/entitlements.mac.plist"
+  - "!assets/icon-1024.png"
+
+# Bundle Next.js standalone output alongside the app
+extraResources:
+  - from: "../web/.next/standalone"
+    to: web
+    filter: "**/*"
+  - from: "../web/.next/static"
+    to: web/.next/static
+    filter: "**/*"
+  - from: "../web/public"
+    to: web/public
+    filter: "**/*"
+
+asar: true
+
+# Sound files need a real filesystem path for afplay/aplay/PowerShell
+asarUnpack:
+  - assets/sounds/**
+
+# Rebuild native modules (better-sqlite3) for the packaged Electron version
+npmRebuild: true
+
+# ── macOS ──────────────────────────────────────────────────────────────────
+mac:
+  category: public.app-category.social-networking
+  icon: assets/icon.icns
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: assets/entitlements.mac.plist
+  entitlementsInherit: assets/entitlements.mac.plist
+  target:
+    - target: dmg
+      arch: [x64, arm64]
+    - target: zip
+      arch: [x64, arm64]
+  # electron-builder v24+ built-in notarization — requires APPLE_ID +
+  # APPLE_APP_SPECIFIC_PASSWORD env vars at build time
+  notarize:
+    teamId: ${APPLE_TEAM_ID}
+
+dmg:
+  title: "${productName} ${version}"
+  backgroundColor: "#0d0d0b"
+  window:
+    width: 540
+    height: 380
+  contents:
+    - x: 130
+      y: 220
+      type: file
+    - x: 410
+      y: 220
+      type: link
+      path: /Applications
+
+# ── Windows ────────────────────────────────────────────────────────────────
+win:
+  icon: assets/icon.ico
+  publisherName: Signoff Chat
+  verifyUpdateCodeSignature: false
+  target:
+    - target: nsis
+      arch: [x64]
+    - target: portable
+      arch: [x64]
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  deleteAppDataOnUninstall: false
+  installerIcon: assets/icon.ico
+  uninstallerIcon: assets/icon.ico
+
+# ── Linux ──────────────────────────────────────────────────────────────────
+linux:
+  icon: assets/icon.png
+  category: Network;InstantMessaging;Chat
+  description: "Signoff Chat — speak freely. disconnect proudly."
+  maintainer: "Signoff Chat <support@signoffchat.com>"
+  target:
+    - target: AppImage
+      arch: [x64]
+    - target: deb
+      arch: [x64]
+
+# ── Auto-update (GitHub Releases) ──────────────────────────────────────────
+publish:
+  provider: github
+  owner: YOUR_GITHUB_USERNAME
+  repo: signoffchat
+  releaseType: release

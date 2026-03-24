@@ -1,0 +1,597 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+enum UserStatus {
+  ONLINE
+  AWAY
+  IDLE
+  INVISIBLE
+  OFFLINE
+}
+
+enum PostPrivacy {
+  PUBLIC
+  BUDDIES_ONLY
+}
+
+enum BuddyStatus {
+  PENDING
+  ACCEPTED
+  BLOCKED
+}
+
+enum ChannelType {
+  PUBLIC
+  INVITE_ONLY
+  SECRET
+}
+
+enum BoardType {
+  PUBLIC
+  INVITE_ONLY
+  SECRET
+}
+
+enum MediaType {
+  IMAGE
+  VIDEO
+  GIF
+}
+
+enum ReportReason {
+  SPAM
+  HARASSMENT
+  CSAM
+  THREAT
+  IMPERSONATION
+  OTHER
+}
+
+enum ReportStatus {
+  PENDING
+  REVIEWED
+  ACTIONED
+  DISMISSED
+}
+
+// ---------------------------------------------------------------------------
+// User
+// ---------------------------------------------------------------------------
+
+model User {
+  id           String     @id @default(cuid())
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  screenname   String     @unique
+  // Email is never stored in plaintext.
+  // emailHash = sha256(normalize(email) + EMAIL_PEPPER) — see lib/crypto/email.ts
+  emailHash    String     @unique
+  passwordHash String
+  bio          String?    @db.VarChar(160)
+  awayMessage  String?    @db.VarChar(140)
+  status       UserStatus @default(OFFLINE)
+  // lastSeen intentionally omitted — we do not record activity timestamps.
+  // See PRIVACY-ARCHITECTURE.md §4.
+  isGoldMember      Boolean    @default(false)
+  isAdmin           Boolean    @default(false)
+  profileTheme      String?
+  stripeCustomerId  String?    @unique
+
+  // Push notifications — cleared on logout and account deletion
+  expoPushToken   String?
+
+  // Safety / moderation
+  isSuspended     Boolean   @default(false)
+  suspendedAt     DateTime?
+  suspendedUntil  DateTime? // null = permanent
+  suspendReason   String?
+  warningCount    Int       @default(0)
+
+  // Post-quantum encryption
+  mlkemPublicKey     String?   // base64 ML-KEM-1024 public key (1568 bytes); secret key lives client-side only
+  hasConfirmedBackup Boolean   @default(false)  // user has saved their 24-word recovery phrase
+
+  posts               Post[]           @relation("AuthoredPosts")
+  replies             Reply[]
+  nudges              Nudge[]
+  sentRequests        BuddyRelation[]  @relation("Requester")
+  receivedRequests    BuddyRelation[]  @relation("Addressee")
+  createdChannels     Channel[]
+  channelMemberships  ChannelMember[]
+  channelMessages     ChannelMessage[]
+  sentTips            Tip[]            @relation("TipSender")
+  receivedTips        Tip[]            @relation("TipRecipient")
+  createdBoards       Board[]
+  boardMemberships    BoardMember[]
+  boardPosts          BoardPost[]
+  boardComments       BoardComment[]
+  boardNudges         BoardNudge[]
+  boardCommentNudges  BoardCommentNudge[]
+  channelThreadMessages    ChannelThreadMessage[]
+  savedBoardPosts          SavedBoardPost[]
+
+  // Safety relations
+  blocking   Block[] @relation("Blocker")
+  blockedBy  Block[] @relation("Blocked")
+  muting     Mute[]  @relation("Muter")
+  mutedBy    Mute[]  @relation("Muted")
+  reports    Report[] @relation("Reporter")
+
+  @@map("users")
+}
+
+// ---------------------------------------------------------------------------
+// Post
+// ---------------------------------------------------------------------------
+
+model Post {
+  id            String      @id @default(cuid())
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  content       String      @db.VarChar(512)
+  authorId      String
+  author        User        @relation("AuthoredPosts", fields: [authorId], references: [id], onDelete: Cascade)
+  privacy       PostPrivacy @default(PUBLIC)
+  isAwayMessage Boolean     @default(false)
+  mediaUrl      String?
+  mediaType     MediaType?
+
+  replies       Reply[]
+  nudges        Nudge[]
+
+  @@map("posts")
+}
+
+// ---------------------------------------------------------------------------
+// Reply
+// ---------------------------------------------------------------------------
+
+model Reply {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  content   String   @db.VarChar(256)
+  authorId  String
+  author    User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  postId    String
+  post      Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@map("replies")
+}
+
+// ---------------------------------------------------------------------------
+// Nudge  (one per user per post)
+// ---------------------------------------------------------------------------
+
+model Nudge {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  postId    String
+  post      Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, postId])
+  @@map("nudges")
+}
+
+// ---------------------------------------------------------------------------
+// BuddyRelation
+// No timestamp — we do not record when friendships formed. See §3.
+// On DECLINE or WITHDRAW: hard delete immediately (no soft state).
+// ---------------------------------------------------------------------------
+
+model BuddyRelation {
+  id          String      @id @default(cuid())
+  requesterId String
+  requester   User        @relation("Requester", fields: [requesterId], references: [id], onDelete: Cascade)
+  addresseeId String
+  addressee   User        @relation("Addressee", fields: [addresseeId], references: [id], onDelete: Cascade)
+  status      BuddyStatus @default(PENDING)
+
+  @@unique([requesterId, addresseeId])
+  @@map("buddy_relations")
+}
+
+// ---------------------------------------------------------------------------
+// Channel  (formerly Room)
+// ---------------------------------------------------------------------------
+
+model Channel {
+  id              String      @id @default(cuid())
+  createdAt       DateTime    @default(now())
+  name            String      @unique
+  description     String?
+  isPrivate       Boolean     @default(false)
+  creatorId       String
+  creator         User        @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+  type            ChannelType @default(PUBLIC)
+  slowModeMinutes Int         @default(10)
+  memberCap       Int?
+
+  members         ChannelMember[]
+  messages        ChannelMessage[]
+  threads         ChannelThread[]
+  inviteLinks     InviteLink[]
+  channelKeys     ChannelKey[]
+  bans            ChannelBan[]
+
+  @@map("rooms")
+}
+
+// ---------------------------------------------------------------------------
+// ChannelMember  (formerly RoomMember)
+// ---------------------------------------------------------------------------
+
+model ChannelMember {
+  id            String    @id @default(cuid())
+  joinedAt      DateTime  @default(now())
+  lastMessageAt DateTime?
+  userId        String
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  channelId     String
+  channel       Channel   @relation(fields: [channelId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, channelId])
+  @@map("room_members")
+}
+
+// ---------------------------------------------------------------------------
+// ChannelMessage  (formerly RoomMessage)
+// ---------------------------------------------------------------------------
+
+model ChannelMessage {
+  id        String     @id @default(cuid())
+  createdAt DateTime   @default(now())
+  content   String     @db.VarChar(512)
+  mediaUrl  String?
+  mediaType MediaType?
+  authorId  String
+  author    User       @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  channelId String
+  channel   Channel    @relation(fields: [channelId], references: [id], onDelete: Cascade)
+
+  // Message expiry (§6) — hard-deleted by cron at 3am UTC
+  // Default: 30 days. Gold sender: 90 days. Delivered-to-all: 24h.
+  expiresAt      DateTime @default(dbgenerated("now() + interval '30 days'"))
+  deliveredToAll Boolean  @default(false)
+
+  // Hybrid post-quantum encryption (AES-256-GCM + ML-KEM-1024)
+  isEncrypted      Boolean @default(false)
+  encryptedContent String?
+  encapsulatedKey  String?
+  iv               String?
+  keyVersion       Int?
+
+  threads   ChannelThread[]
+
+  @@map("room_messages")
+}
+
+// ---------------------------------------------------------------------------
+// ChannelKey  (group session key per epoch)
+// ---------------------------------------------------------------------------
+
+model ChannelKey {
+  id            String   @id @default(cuid())
+  createdAt     DateTime @default(now())
+  expiresAt     DateTime
+  channelId     String
+  channel       Channel  @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  encryptedKeys Json
+  keyVersion    Int
+
+  @@map("channel_keys")
+}
+
+// ---------------------------------------------------------------------------
+// Tip
+// ---------------------------------------------------------------------------
+
+model Tip {
+  id                    String   @id @default(cuid())
+  createdAt             DateTime @default(now())
+  amount                Int
+  senderId              String
+  sender                User     @relation("TipSender", fields: [senderId], references: [id], onDelete: Cascade)
+  recipientId           String
+  recipient             User     @relation("TipRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
+  message               String?  @db.VarChar(140)
+  stripePaymentIntentId String
+
+  @@map("tips")
+}
+
+// ---------------------------------------------------------------------------
+// InviteLink
+// No audit trail — we do not record who created or used a link. See §7.
+// ---------------------------------------------------------------------------
+
+model InviteLink {
+  id            String    @id @default(cuid())
+  createdAt     DateTime  @default(now())
+  token         String    @unique
+  channelId     String?
+  channel       Channel?  @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  boardId       String?
+  board         Board?    @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  expiresAt     DateTime
+  // usesRemaining replaces maxUses+useCount — decremented on each use,
+  // record is hard-deleted when it reaches 0.
+  usesRemaining Int       @default(10)
+  isRevoked     Boolean   @default(false)
+
+  @@map("invite_links")
+}
+
+// ---------------------------------------------------------------------------
+// Board
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// ChannelBan  (prevents rejoining after removal)
+// ---------------------------------------------------------------------------
+
+model ChannelBan {
+  id        String  @id @default(cuid())
+  channelId String
+  channel   Channel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  userId    String
+
+  @@unique([channelId, userId])
+  @@map("channel_bans")
+}
+
+model Board {
+  id             String    @id @default(cuid())
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  name           String    @unique
+  displayName    String
+  vibeStatement  String    @db.VarChar(200)
+  type           BoardType @default(PUBLIC)
+  creatorId      String
+  creator        User      @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+  memberCount    Int       @default(0)
+
+  members        BoardMember[]
+  posts          BoardPost[]
+  inviteLinks    InviteLink[]
+  bans           BoardBan[]
+
+  @@map("boards")
+}
+
+// ---------------------------------------------------------------------------
+// BoardMember
+// ---------------------------------------------------------------------------
+
+model BoardMember {
+  id               String   @id @default(cuid())
+  joinedAt         DateTime @default(now())
+  userId           String
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  boardId          String
+  board            Board    @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  isFoundingMember Boolean  @default(false)
+
+  @@unique([userId, boardId])
+  @@map("board_members")
+}
+
+// ---------------------------------------------------------------------------
+// BoardBan  (prevents rejoining a board after removal)
+// ---------------------------------------------------------------------------
+
+model BoardBan {
+  id      String @id @default(cuid())
+  boardId String
+  board   Board  @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  userId  String
+
+  @@unique([boardId, userId])
+  @@map("board_bans")
+}
+
+// ---------------------------------------------------------------------------
+// BoardPost
+// ---------------------------------------------------------------------------
+
+model BoardPost {
+  id           String     @id @default(cuid())
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  title        String     @db.VarChar(140)
+  body         String?    @db.VarChar(2000)
+  authorId     String
+  author       User       @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  boardId      String
+  board        Board      @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  mediaUrl     String?
+  mediaType    MediaType?
+  tag          String?    @db.VarChar(30)
+  isArchived   Boolean    @default(false)
+  nudgeCount   Int        @default(0)
+  commentCount Int        @default(0)
+
+  // Hybrid post-quantum encryption — INVITE_ONLY and SECRET boards only
+  isEncrypted    Boolean @default(false)
+  encryptedBody  String?
+  encapsulatedKey String?
+  iv             String?
+
+  comments     BoardComment[]
+  nudges       BoardNudge[]
+  savedBy      SavedBoardPost[]
+
+  @@map("board_posts")
+}
+
+// ---------------------------------------------------------------------------
+// BoardComment
+// ---------------------------------------------------------------------------
+
+model BoardComment {
+  id              String   @id @default(cuid())
+  createdAt       DateTime @default(now())
+  body            String   @db.VarChar(512)
+  authorId        String
+  author          User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  boardPostId     String
+  boardPost       BoardPost @relation(fields: [boardPostId], references: [id], onDelete: Cascade)
+  parentCommentId String?
+  parentComment   BoardComment?  @relation("CommentReplies", fields: [parentCommentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  replies         BoardComment[] @relation("CommentReplies")
+
+  nudges          BoardCommentNudge[]
+
+  @@map("board_comments")
+}
+
+// ---------------------------------------------------------------------------
+// BoardNudge  (one per user per board post)
+// ---------------------------------------------------------------------------
+
+model BoardNudge {
+  id          String    @id @default(cuid())
+  createdAt   DateTime  @default(now())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  boardPostId String
+  boardPost   BoardPost @relation(fields: [boardPostId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, boardPostId])
+  @@map("board_nudges")
+}
+
+// ---------------------------------------------------------------------------
+// BoardCommentNudge  (one per user per board comment)
+// ---------------------------------------------------------------------------
+
+model BoardCommentNudge {
+  id             String       @id @default(cuid())
+  createdAt      DateTime     @default(now())
+  userId         String
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  boardCommentId String
+  boardComment   BoardComment @relation(fields: [boardCommentId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, boardCommentId])
+  @@map("board_comment_nudges")
+}
+
+// ---------------------------------------------------------------------------
+// ChannelThread  (threaded replies on channel messages)
+// ---------------------------------------------------------------------------
+
+model ChannelThread {
+  id              String                @id @default(cuid())
+  createdAt       DateTime              @default(now())
+  parentMessageId String
+  parentMessage   ChannelMessage        @relation(fields: [parentMessageId], references: [id], onDelete: Cascade)
+  channelId       String
+  channel         Channel               @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  messageCount    Int                   @default(0)
+
+  messages        ChannelThreadMessage[]
+
+  @@map("channel_threads")
+}
+
+// ---------------------------------------------------------------------------
+// ChannelThreadMessage  (replies within a message thread)
+// ---------------------------------------------------------------------------
+
+model ChannelThreadMessage {
+  id        String        @id @default(cuid())
+  createdAt DateTime      @default(now())
+  content   String        @db.VarChar(512)
+  authorId  String
+  author    User          @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  threadId  String
+  thread    ChannelThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+
+  @@map("channel_thread_messages")
+}
+
+// ---------------------------------------------------------------------------
+// SavedBoardPost  (one per user per board post)
+// ---------------------------------------------------------------------------
+
+model SavedBoardPost {
+  id          String    @id @default(cuid())
+  createdAt   DateTime  @default(now())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  boardPostId String
+  boardPost   BoardPost @relation(fields: [boardPostId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, boardPostId])
+  @@map("saved_board_posts")
+}
+
+// ---------------------------------------------------------------------------
+// Block  (unidirectional — A blocks B; B does not see A anywhere)
+// No timestamps — we do not record when blocks were created.
+// ---------------------------------------------------------------------------
+
+model Block {
+  id        String @id @default(cuid())
+  blockerId String
+  blocker   User   @relation("Blocker", fields: [blockerId], references: [id], onDelete: Cascade)
+  blockedId String
+  blocked   User   @relation("Blocked", fields: [blockedId], references: [id], onDelete: Cascade)
+
+  @@unique([blockerId, blockedId])
+  @@map("blocks")
+}
+
+// ---------------------------------------------------------------------------
+// Mute  (unidirectional — A mutes B; B still sees A, A doesn't see B)
+// No timestamps.
+// ---------------------------------------------------------------------------
+
+model Mute {
+  id      String @id @default(cuid())
+  muterId String
+  muter   User   @relation("Muter", fields: [muterId], references: [id], onDelete: Cascade)
+  mutedId String
+  muted   User   @relation("Muted", fields: [mutedId], references: [id], onDelete: Cascade)
+
+  @@unique([muterId, mutedId])
+  @@map("mutes")
+}
+
+// ---------------------------------------------------------------------------
+// Report
+// CSAM reports trigger an immediate out-of-band email alert (see api/reports).
+// All other reasons go into the staff review queue.
+// ---------------------------------------------------------------------------
+
+model Report {
+  id           String       @id @default(cuid())
+  createdAt    DateTime     @default(now())
+  reporterId   String
+  reporter     User         @relation("Reporter", fields: [reporterId], references: [id], onDelete: Cascade)
+  // Exactly one of the following is set:
+  targetUserId String?
+  targetPostId String?
+  targetMsgId  String?
+  reason       ReportReason
+  detail       String?      @db.VarChar(500)
+  status       ReportStatus @default(PENDING)
+  resolvedAt   DateTime?
+  resolvedBy   String?      // admin userId who acted
+  resolution   String?      // internal note on action taken
+
+  @@map("reports")
+}

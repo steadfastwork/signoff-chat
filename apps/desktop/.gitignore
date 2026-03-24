@@ -1,0 +1,12 @@
+dist/
+release/
+node_modules/
+
+# Google Play service account key — never commit
+google-service-account.json
+
+# macOS notarization credentials — set as CI env vars
+.env.notarize
+
+# electron-builder cache
+.electron-builder-cache/

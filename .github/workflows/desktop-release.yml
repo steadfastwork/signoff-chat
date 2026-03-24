@@ -1,0 +1,205 @@
+name: Desktop Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write   # needed to create GitHub Releases and upload assets
+
+# ---------------------------------------------------------------------------
+# Shared step: checkout + Node setup
+# ---------------------------------------------------------------------------
+env:
+  NODE_VERSION: "20"
+
+jobs:
+  # ── macOS: sign + notarize ────────────────────────────────────────────────
+  build-mac:
+    name: Build macOS
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      # Install all workspace deps (web + desktop)
+      - name: Install dependencies
+        run: npm ci
+
+      # Build Next.js standalone (electron flag so IS_ELECTRON is baked in)
+      - name: Build web app
+        working-directory: apps/web
+        env:
+          NEXT_PUBLIC_IS_ELECTRON: "true"
+        run: npx next build
+
+      # Compile TypeScript for the Electron main process
+      - name: Compile Electron main process
+        working-directory: apps/desktop
+        run: npx tsc
+
+      # Import macOS signing certificate from secret
+      - name: Import signing certificate
+        env:
+          CSC_LINK: ${{ secrets.MAC_CERT_P12_BASE64 }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CERT_PASSWORD }}
+        run: |
+          echo "$CSC_LINK" | base64 --decode > /tmp/cert.p12
+          security create-keychain -p "" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "" build.keychain
+          security import /tmp/cert.p12 -k build.keychain -P "$CSC_KEY_PASSWORD" \
+            -T /usr/bin/codesign -T /usr/bin/security
+          security set-key-partition-list -S apple-tool:,apple: -s -k "" build.keychain
+          rm /tmp/cert.p12
+
+      # Package — electron-builder handles signing + notarizing via config
+      - name: Package (dmg + zip)
+        working-directory: apps/desktop
+        env:
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CERT_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx electron-builder --mac --publish never
+
+      - name: Upload macOS artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: mac-artifacts
+          path: |
+            apps/desktop/release/*.dmg
+            apps/desktop/release/*.zip
+            apps/desktop/release/*.blockmap
+            apps/desktop/release/latest-mac.yml
+
+  # ── Windows: sign ────────────────────────────────────────────────────────
+  build-win:
+    name: Build Windows
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build web app
+        working-directory: apps/web
+        env:
+          NEXT_PUBLIC_IS_ELECTRON: "true"
+        run: npx next build
+
+      - name: Compile Electron main process
+        working-directory: apps/desktop
+        run: npx tsc
+
+      # Decode the Windows code-signing PFX from the base64 secret
+      - name: Import signing certificate
+        if: ${{ secrets.WIN_CERT_P12_BASE64 != '' }}
+        shell: pwsh
+        env:
+          WIN_CSC_LINK: ${{ secrets.WIN_CERT_P12_BASE64 }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CERT_PASSWORD }}
+        run: |
+          $bytes = [Convert]::FromBase64String($env:WIN_CSC_LINK)
+          [IO.File]::WriteAllBytes("$env:TEMP\win-cert.p12", $bytes)
+          echo "WIN_CSC_LINK=$env:TEMP\win-cert.p12" >> $env:GITHUB_ENV
+
+      - name: Package (nsis + portable)
+        working-directory: apps/desktop
+        env:
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CERT_PASSWORD }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx electron-builder --win --publish never
+
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: win-artifacts
+          path: |
+            apps/desktop/release/*.exe
+            apps/desktop/release/*.blockmap
+            apps/desktop/release/latest.yml
+
+  # ── Linux ─────────────────────────────────────────────────────────────────
+  build-linux:
+    name: Build Linux
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libgtk-3-dev libnotify-dev libnss3 libxss1 \
+            libxtst6 xauth xvfb
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build web app
+        working-directory: apps/web
+        env:
+          NEXT_PUBLIC_IS_ELECTRON: "true"
+        run: npx next build
+
+      - name: Compile Electron main process
+        working-directory: apps/desktop
+        run: npx tsc
+
+      - name: Package (AppImage + deb)
+        working-directory: apps/desktop
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx electron-builder --linux --publish never
+
+      - name: Upload Linux artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-artifacts
+          path: |
+            apps/desktop/release/*.AppImage
+            apps/desktop/release/*.deb
+            apps/desktop/release/latest-linux.yml
+
+  # ── Create GitHub Release ─────────────────────────────────────────────────
+  create-release:
+    name: Create Release
+    needs: [build-mac, build-win, build-linux]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-artifacts
+          merge-multiple: true
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "Signoff Chat ${{ github.ref_name }}"
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-beta') || contains(github.ref_name, '-rc') }}
+          generate_release_notes: true
+          files: release-artifacts/**/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
