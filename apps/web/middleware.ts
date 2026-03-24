@@ -126,31 +126,16 @@ export async function middleware(req: NextRequest) {
       return NextResponse.redirect(loginUrl);
     }
 
-    // Suspension check — runs only for authenticated users on page routes.
-    // We query the DB via the internal API rather than importing prisma
-    // (middleware runs on the Edge runtime which cannot use Prisma directly).
-    if (token.id && !pathname.startsWith("/suspended")) {
-      try {
-        const statusRes = await fetch(
-          new URL(`/api/user/suspension-status`, req.url).toString(),
-          { headers: { cookie: req.headers.get("cookie") ?? "" } }
-        );
-        if (statusRes.ok) {
-          const { isSuspended, suspendedUntil } = await statusRes.json() as {
-            isSuspended: boolean;
-            suspendedUntil: string | null;
-          };
-
-          if (isSuspended) {
-            // If suspendedUntil has passed — the API already auto-lifted it
-            const suspendedPage = new URL("/suspended", req.url);
-            if (suspendedUntil) suspendedPage.searchParams.set("until", suspendedUntil);
-            return addSecurityHeaders(NextResponse.redirect(suspendedPage));
-          }
-        }
-      } catch {
-        // If the suspension check fails (e.g. during cold start), let through
+    // Suspension check — reads directly from the JWT token.
+    // isSuspended is stored at login and refreshed every 5 minutes via the
+    // jwt() callback in auth.ts. No API call needed — eliminates per-request
+    // DB round-trip for the vast majority of users who are not suspended.
+    if (token.isSuspended && !pathname.startsWith("/suspended")) {
+      const suspendedPage = new URL("/suspended", req.url);
+      if (token.suspendedUntil) {
+        suspendedPage.searchParams.set("until", token.suspendedUntil);
       }
+      return addSecurityHeaders(NextResponse.redirect(suspendedPage));
     }
   } else if (pathname === "/") {
     // Authenticated users visiting the landing page → send them to the feed

@@ -7,6 +7,8 @@ declare module "next-auth" {
     screenname: string;
     isGoldMember: boolean;
     isAdmin: boolean;
+    isSuspended: boolean;
+    suspendedUntil: string | null;
   }
 
   interface Session {
@@ -27,5 +29,8 @@ declare module "next-auth/jwt" {
     isGoldMember: boolean;
     isAdmin: boolean;
     avatarColor: string;
+    isSuspended: boolean;
+    suspendedUntil: string | null;
+    suspensionCheckedAt: number;
   }
 }

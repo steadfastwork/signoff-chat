@@ -64,6 +64,8 @@ export const authOptions: NextAuthOptions = {
             passwordHash: true,
             isGoldMember: true,
             isAdmin: true,
+            isSuspended: true,
+            suspendedUntil: true,
           },
         });
 
@@ -72,11 +74,25 @@ export const authOptions: NextAuthOptions = {
         const valid = await bcrypt.compare(credentials.password, user.passwordHash);
         if (!valid) throw new Error("invalid credentials. try again.");
 
+        // Auto-lift expired temporary suspensions at login time
+        let isSuspended = user.isSuspended;
+        let suspendedUntil = user.suspendedUntil;
+        if (isSuspended && suspendedUntil && new Date(suspendedUntil) < new Date()) {
+          await prisma.user.update({
+            where: { id: user.id },
+            data: { isSuspended: false, suspendedUntil: null },
+          });
+          isSuspended = false;
+          suspendedUntil = null;
+        }
+
         return {
           id: user.id,
           screenname: user.screenname,
           isGoldMember: user.isGoldMember,
           isAdmin: user.isAdmin,
+          isSuspended,
+          suspendedUntil: suspendedUntil?.toISOString() ?? null,
         };
       },
     }),
@@ -86,14 +102,51 @@ export const authOptions: NextAuthOptions = {
 
   callbacks: {
     async jwt({ token, user }) {
+      // ── Initial sign-in: populate from authorize() return value ───────────
       if (user) {
-        const u = user as { id: string; screenname: string; isGoldMember: boolean; isAdmin: boolean };
-        token.id = u.id;
-        token.screenname = u.screenname;
-        token.isGoldMember = u.isGoldMember;
-        token.isAdmin = u.isAdmin;
-        token.avatarColor = deriveAvatarColor(u.id);
+        const u = user as {
+          id: string; screenname: string; isGoldMember: boolean;
+          isAdmin: boolean; isSuspended: boolean; suspendedUntil: string | null;
+        };
+        token.id             = u.id;
+        token.screenname     = u.screenname;
+        token.isGoldMember   = u.isGoldMember;
+        token.isAdmin        = u.isAdmin;
+        token.avatarColor    = deriveAvatarColor(u.id);
+        token.isSuspended    = u.isSuspended;
+        token.suspendedUntil = u.suspendedUntil;
+        token.suspensionCheckedAt = Date.now();
+        return token;
       }
+
+      // ── Subsequent calls: re-check suspension every 5 minutes ─────────────
+      // This runs when getServerSession() is called from a Server Component or
+      // API route. It refreshes the token so middleware can trust the cached value.
+      const FIVE_MIN = 5 * 60 * 1000;
+      if (Date.now() - (token.suspensionCheckedAt ?? 0) > FIVE_MIN) {
+        try {
+          const user = await prisma.user.findUnique({
+            where: { id: token.id },
+            select: { isSuspended: true, suspendedUntil: true },
+          });
+          if (user) {
+            // Auto-lift expired suspension
+            if (user.isSuspended && user.suspendedUntil && new Date(user.suspendedUntil) < new Date()) {
+              await prisma.user.update({
+                where: { id: token.id },
+                data: { isSuspended: false, suspendedUntil: null },
+              });
+              token.isSuspended    = false;
+              token.suspendedUntil = null;
+            } else {
+              token.isSuspended    = user.isSuspended;
+              token.suspendedUntil = user.suspendedUntil?.toISOString() ?? null;
+            }
+          }
+        } catch { /* DB unavailable — keep cached value */ }
+        token.suspensionCheckedAt = Date.now();
+      }
+
       return token;
     },
     async session({ session, token }) {
