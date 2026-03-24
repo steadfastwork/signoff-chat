@@ -20,28 +20,35 @@ import PusherClient from "pusher-js";
 // Server (API routes only — never import in client components)
 // ---------------------------------------------------------------------------
 
+const soketiPort   = process.env.SOKETI_PORT ?? "443";
+const soketiUseTLS = process.env.SOKETI_USE_TLS !== "false";
+
 export const soketiServer = new Pusher({
-  appId: process.env.SOKETI_APP_ID!,
-  key: process.env.SOKETI_APP_KEY!,
+  appId:  process.env.SOKETI_APP_ID!,
+  key:    process.env.SOKETI_APP_KEY!,
   secret: process.env.SOKETI_APP_SECRET!,
-  host: process.env.SOKETI_HOST!,
-  port: "443",
-  useTLS: true,
+  host:   process.env.SOKETI_HOST!,
+  port:   soketiPort,
+  useTLS: soketiUseTLS,
 });
 
 // ---------------------------------------------------------------------------
 // Client (browser / React Native)
 // ---------------------------------------------------------------------------
 
+const clientPort   = parseInt(process.env.NEXT_PUBLIC_SOKETI_PORT ?? "443", 10);
+const clientUseTLS = process.env.NEXT_PUBLIC_SOKETI_USE_TLS !== "false";
+
 export const soketiClient =
   typeof window !== "undefined"
     ? new PusherClient(process.env.NEXT_PUBLIC_SOKETI_KEY!, {
-        wsHost: process.env.NEXT_PUBLIC_SOKETI_HOST!,
-        wsPort: 443,
-        forceTLS: true,
-        cluster: "",
+        wsHost:            process.env.NEXT_PUBLIC_SOKETI_HOST!,
+        wsPort:            clientPort,
+        wssPort:           clientPort,
+        forceTLS:          clientUseTLS,
+        cluster:           "",
         enabledTransports: ["ws", "wss"],
-        authEndpoint: "/api/pusher/auth",
+        authEndpoint:      "/api/pusher/auth",
       })
     : (null as unknown as PusherClient);
 

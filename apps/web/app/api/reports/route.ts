@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { Resend } from "resend";
+import { fileNCMECReport } from "@/lib/safety/ncmec";
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
@@ -70,34 +71,94 @@ export async function POST(req: NextRequest) {
     },
   });
 
-  // ── CSAM: immediate high-priority email alert ──────────────────────────────
-  // Sent out-of-band from the normal review queue.
-  // Deliberately brief — include only what staff need to act immediately.
+  // ── CSAM: create SafetyIncident + immediate alert ─────────────────────────
+  // Filed as USER_REPORT (human-reported, not scanner-detected).
+  // Staff must review and confirm before NCMEC report is filed.
   if (reason === "CSAM") {
     try {
+      // Resolve uploader identity for the target content
+      let uploaderName = "unknown";
+      let uploaderEmailHash = "";
+      let uploaderId: string | null = null;
+      let contentType = "unknown";
+
+      if (targetType === "post") {
+        const post = await prisma.post.findUnique({
+          where: { id: targetId },
+          select: { authorId: true, author: { select: { screenname: true, emailHash: true } }, mediaType: true },
+        });
+        if (post) {
+          uploaderId       = post.authorId;
+          uploaderName     = post.author.screenname;
+          uploaderEmailHash = post.author.emailHash;
+          contentType      = post.mediaType ? `media/${post.mediaType.toLowerCase()}` : "text/post";
+        }
+      } else if (targetType === "message") {
+        const msg = await prisma.channelMessage.findUnique({
+          where: { id: targetId },
+          select: { authorId: true, author: { select: { screenname: true, emailHash: true } }, mediaType: true },
+        });
+        if (msg) {
+          uploaderId        = msg.authorId;
+          uploaderName      = msg.author.screenname;
+          uploaderEmailHash = msg.author.emailHash;
+          contentType       = msg.mediaType ? `media/${msg.mediaType.toLowerCase()}` : "text/message";
+        }
+      } else if (targetType === "user") {
+        const u = await prisma.user.findUnique({
+          where: { id: targetId },
+          select: { screenname: true, emailHash: true },
+        });
+        if (u) {
+          uploaderId        = targetId;
+          uploaderName      = u.screenname;
+          uploaderEmailHash = u.emailHash;
+          contentType       = "user/profile";
+        }
+      }
+
+      // Create the SafetyIncident — status DETECTED, pending staff review
+      await prisma.safetyIncident.create({
+        data: {
+          incidentType:      "USER_REPORT" as any,
+          status:            "DETECTED" as any,
+          reporterId:        session.user.id,
+          uploaderId,
+          uploaderName,
+          uploaderEmailHash,
+          contentUrl:        `internal://${targetType}/${targetId}`,
+          fileKey:           `${targetType}:${targetId}`,
+          contentType,
+          actionsTaken:      `USER_REPORTED:${report.id}`,
+          internalNotes:     detail ? `Reporter note: ${detail}` : null,
+        },
+      });
+    } catch (err) {
+      console.error("[reports] Failed to create SafetyIncident for CSAM report:", err);
+    }
+
+    // Send immediate email alert to ops
+    try {
       await resend.emails.send({
-        from:    "alerts@signoffchat.com",
-        to:      "abuse@signoffchat.com",
-        subject: `[URGENT] CSAM report — ${report.id}`,
+        from:    "safety@signoff.chat",
+        to:      process.env.SAFETY_ALERT_EMAIL ?? "abuse@signoff.chat",
+        subject: `[URGENT] User-reported CSAM — ${report.id}`,
         text: [
-          "CSAM REPORT — IMMEDIATE ACTION REQUIRED",
+          "USER-REPORTED CSAM — IMMEDIATE REVIEW REQUIRED",
           "",
           `Report ID:   ${report.id}`,
           `Target type: ${targetType}`,
           `Target ID:   ${targetId}`,
-          `Reporter:    ${session.user.id} (@${session.user.screenname})`,
+          `Reporter:    ${session.user.id} (@${(session.user as any).screenname ?? "?"})`,
           "",
           detail ? `Details: ${detail}` : "(no additional detail provided)",
           "",
-          "Log in to the admin panel to review and action this report.",
+          "Review in the admin safety dashboard and confirm or dismiss.",
+          "If confirmed, file NCMEC CyberTipline report within 24 hours.",
         ].join("\n"),
-        headers: {
-          "X-Priority": "1",
-          "Importance": "high",
-        },
+        headers: { "X-Priority": "1", "Importance": "high" },
       });
     } catch (err) {
-      // Log but don't fail the request — report is already in DB
       console.error("[reports] CSAM email alert failed:", err);
     }
   }

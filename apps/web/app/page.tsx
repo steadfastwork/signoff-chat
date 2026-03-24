@@ -1756,7 +1756,7 @@ export default function LandingPage() {
               opacity: 0.6,
             }}
           >
-            © {new Date().getFullYear()} Signoff Chat · no ads · no tracking · no nonsense
+            © 2025 Signoff Chat · no ads · no tracking · no nonsense
           </div>
         </footer>
       </main>

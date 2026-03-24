@@ -98,15 +98,23 @@ export async function middleware(req: NextRequest) {
     const origin = req.headers.get("origin");
     if (origin) {
       try {
-        const expectedRaw = process.env.NEXTAUTH_URL ?? "";
-        const expected = new URL(
-          expectedRaw.startsWith("http") ? expectedRaw : `https://${expectedRaw}`
-        );
         const incoming = new URL(origin);
-        if (incoming.origin !== expected.origin) {
-          return addSecurityHeaders(
-            NextResponse.json({ error: "forbidden" }, { status: 403 })
+
+        // In development, allow any localhost origin regardless of port.
+        // The port can shift (3000→3001) if another process is already bound.
+        const isDev = process.env.NODE_ENV === "development";
+        if (isDev && incoming.hostname === "localhost") {
+          // allowed — fall through
+        } else {
+          const expectedRaw = process.env.NEXTAUTH_URL ?? "";
+          const expected = new URL(
+            expectedRaw.startsWith("http") ? expectedRaw : `https://${expectedRaw}`
           );
+          if (incoming.origin !== expected.origin) {
+            return addSecurityHeaders(
+              NextResponse.json({ error: "forbidden" }, { status: 403 })
+            );
+          }
         }
       } catch {
         // Malformed NEXTAUTH_URL or Origin — reject to be safe

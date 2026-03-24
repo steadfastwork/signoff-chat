@@ -108,8 +108,8 @@ function ReplyComposer({
         placeholder="reply… (↵)"
         className="flex-1 bg-transparent border-b outline-none text-xs py-1"
         style={{
-          borderColor: "#2a2a1a",
-          color: "#9ca3af",
+          borderColor: "var(--border)",
+          color: "var(--text-muted)",
           fontFamily: "var(--font-dm-sans)",
         }}
       />
@@ -117,7 +117,7 @@ function ReplyComposer({
         onClick={submit}
         disabled={!content.trim() || submitting}
         className="text-[11px] font-mono px-2 rounded transition-colors disabled:opacity-30"
-        style={{ color: "#c8860a" }}
+        style={{ color: "var(--amber)" }}
       >
         {submitting ? "…" : "send"}
       </button>
@@ -206,12 +206,12 @@ export function PostCard({
   const displayedReplies =
     showReplies && allReplies !== null
       ? allReplies
-      : post.replies.slice(0, 2);
+      : (post.replies ?? []).slice(0, 2);
 
   return (
     <article
       className="px-4 py-3.5 border-b"
-      style={{ borderColor: "#111109", background: "#0a0a08" }}
+      style={{ borderColor: "var(--border)", background: "var(--bg)" }}
     >
       {/* Header row */}
       <div className="flex gap-2.5">
@@ -230,7 +230,7 @@ export function PostCard({
               </span>
             </div>
             <span className="absolute -bottom-0.5 -right-0.5">
-              <StatusDot status={post.author.status} size="sm" bg="#0a0a08" />
+              <StatusDot status={post.author.status} size="sm" bg="var(--bg)" />
             </span>
           </div>
         </Link>
@@ -242,7 +242,7 @@ export function PostCard({
             <Link
               href={`/profile/${post.author.id}`}
               className="text-sm font-semibold hover:underline"
-              style={{ color: "#e5e7eb", fontFamily: "var(--font-dm-sans)" }}
+              style={{ color: "var(--text)", fontFamily: "var(--font-dm-sans)" }}
             >
               {post.author.screenname}
             </Link>
@@ -279,7 +279,7 @@ export function PostCard({
 
             <span
               className="text-[11px] font-mono ml-auto flex-shrink-0"
-              style={{ color: "#3a3a2a" }}
+              style={{ color: "var(--text-dim)" }}
             >
               {formatTimestamp(post.createdAt)}
             </span>
@@ -289,7 +289,7 @@ export function PostCard({
           <p
             className="mt-1 text-sm leading-relaxed whitespace-pre-wrap break-words"
             style={{
-              color: post.isAwayMessage ? "#d97706" : "#9ca3af",
+              color: post.isAwayMessage ? "var(--away)" : "var(--text-muted)",
               fontFamily: "var(--font-dm-sans)",
             }}
           >
@@ -337,7 +337,7 @@ export function PostCard({
               disabled={nudging}
               className="flex items-center gap-1 text-[11px] font-mono transition-colors disabled:opacity-50"
               style={{
-                color: post.nudgedByMe ? "#c8860a" : "#3a3a2a",
+                color: post.nudgedByMe ? "var(--amber)" : "var(--text-dim)",
               }}
             >
               <span className="text-[13px]">⚡</span>
@@ -348,7 +348,7 @@ export function PostCard({
             <button
               onClick={toggleReplies}
               className="text-[11px] font-mono transition-colors"
-              style={{ color: showReplies ? "#6b7280" : "#3a3a2a" }}
+              style={{ color: showReplies ? "var(--text-muted)" : "var(--text-dim)" }}
             >
               {loadingReplies
                 ? "…"
@@ -360,13 +360,13 @@ export function PostCard({
           {(displayedReplies.length > 0 || showReplies) && (
             <div
               className="mt-2.5 pl-3 border-l space-y-1.5"
-              style={{ borderColor: "#1e1e14" }}
+              style={{ borderColor: "var(--border)" }}
             >
               {displayedReplies.map((r) => (
                 <div key={r.id}>
                   <span
                     className="text-xs font-semibold mr-1.5"
-                    style={{ color: "#6b7280", fontFamily: "var(--font-dm-sans)" }}
+                    style={{ color: "var(--text-muted)", fontFamily: "var(--font-dm-sans)" }}
                   >
                     {r.author.screenname}
                     {r.author.isGoldMember && (
@@ -375,7 +375,7 @@ export function PostCard({
                   </span>
                   <span
                     className="text-xs"
-                    style={{ color: "#6b7280", fontFamily: "var(--font-dm-sans)" }}
+                    style={{ color: "var(--text-muted)", fontFamily: "var(--font-dm-sans)" }}
                   >
                     {r.content}
                   </span>
@@ -386,7 +386,7 @@ export function PostCard({
                 <button
                   onClick={toggleReplies}
                   className="text-[11px] font-mono"
-                  style={{ color: "#3a3a2a" }}
+                  style={{ color: "var(--text-dim)" }}
                 >
                   +{post._count.replies - 2} more
                 </button>

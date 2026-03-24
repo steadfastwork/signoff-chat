@@ -16,9 +16,10 @@ const csp = [
   "font-src 'self' data: https://fonts.gstatic.com",
   // Images from UploadThing CDN + data URIs for avatars
   "img-src 'self' data: blob: https://utfs.io https://uploadthing.com",
-  // Pusher WebSocket, Stripe API, UploadThing upload endpoint
+  // Soketi WebSocket (local: ws://localhost:6001, prod: wss://), Stripe, UploadThing
   [
     "connect-src 'self'",
+    ...(isDev ? ["ws://localhost:6001", "wss://localhost:6001"] : []),
     "wss://*.pusher.com",
     "https://*.pusher.com",
     "https://sockjs-mt1.pusher.com",

@@ -196,6 +196,7 @@ export async function POST(req: NextRequest) {
   const postOut = {
     ...post,
     nudgedByMe: false,
+    replies: [] as [],
     author: {
       ...post.author,
       status: post.author.status === "INVISIBLE" ? "OFFLINE" : post.author.status,

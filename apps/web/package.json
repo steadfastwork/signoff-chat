@@ -17,6 +17,8 @@
   },
   "dependencies": {
     "@auth/prisma-adapter": "^2.11.1",
+    "@aws-sdk/client-rekognition": "^3.1016.0",
+    "@aws-sdk/client-s3": "^3.1016.0",
     "@noble/ciphers": "^2.1.1",
     "@noble/hashes": "^2.0.1",
     "@noble/post-quantum": "^0.5.4",
@@ -41,6 +43,7 @@
     "pusher-js": "^8.4.3",
     "react": "^18",
     "react-dom": "^18",
+    "resend": "^6.9.4",
     "stripe": "^20.4.1",
     "tailwind-merge": "^3.5.0",
     "uploadthing": "^7.7.4",

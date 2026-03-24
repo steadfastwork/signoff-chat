@@ -121,11 +121,12 @@ model User {
   savedBoardPosts          SavedBoardPost[]
 
   // Safety relations
-  blocking   Block[] @relation("Blocker")
-  blockedBy  Block[] @relation("Blocked")
-  muting     Mute[]  @relation("Muter")
-  mutedBy    Mute[]  @relation("Muted")
-  reports    Report[] @relation("Reporter")
+  blocking          Block[]          @relation("Blocker")
+  blockedBy         Block[]          @relation("Blocked")
+  muting            Mute[]           @relation("Muter")
+  mutedBy           Mute[]           @relation("Muted")
+  reports           Report[]         @relation("Reporter")
+  safetyIncidents   SafetyIncident[] @relation("Uploader")
 
   @@map("users")
 }
@@ -594,4 +595,86 @@ model Report {
   resolution   String?      // internal note on action taken
 
   @@map("reports")
+}
+
+// ---------------------------------------------------------------------------
+// SafetyIncident
+//
+// Created by automated scanning (upload pipeline) or by user reports flagging
+// CSAM/illegal content. The original file is deleted from storage immediately;
+// this record and any preserved evidence copy persist for legal compliance.
+//
+// CSAM incidents trigger an NCMEC CyberTipline report within 24 hours
+// (18 U.S.C. § 2258A). This table MUST NOT be deleted or truncated.
+// ---------------------------------------------------------------------------
+
+enum IncidentType {
+  CSAM             // Confirmed/probable CSAM (hash match via PhotoDNA or Thorn)
+  CSAM_SUSPECTED   // Scanner flagged as explicit; cannot confirm CSAM (Rekognition-only)
+  ILLEGAL_CONTENT  // Other illegal content (non-CSAM)
+  THREAT           // Credible threat of violence
+  USER_REPORT      // Filed from a user report (human review required)
+}
+
+enum IncidentStatus {
+  DETECTED          // Initial state — automated detection
+  CONFIRMED         // Staff has reviewed and confirmed
+  REPORTED_TO_NCMEC // NCMEC CyberTipline report successfully submitted
+  CONTENT_REMOVED   // File deleted from storage
+  ACCOUNT_SUSPENDED // Uploader account suspended
+  RESOLVED          // All required actions taken
+  FALSE_POSITIVE    // Staff reviewed and dismissed
+}
+
+model SafetyIncident {
+  id              String         @id @default(cuid())
+  createdAt       DateTime       @default(now())
+
+  // Classification
+  incidentType    IncidentType
+  status          IncidentStatus @default(DETECTED)
+
+  // Who filed it — either automated scanner (reporterId null) or a user report
+  reporterId      String?        // User.id of human reporter (nullable = automated)
+
+  // Uploader identity — retained even if account is later deleted (onDelete: SetNull)
+  uploaderId      String?
+  uploader        User?          @relation("Uploader", fields: [uploaderId], references: [id], onDelete: SetNull)
+  uploaderName    String         // screenname snapshot at time of incident
+  uploaderEmailHash String       // emailHash snapshot (hashed — no plaintext)
+
+  // Content details — URL is the original pre-deletion URL
+  contentUrl      String         // original UploadThing URL (no longer accessible)
+  fileKey         String         // UploadThing key used to delete the file
+  contentType     String         // MIME type (e.g. "image/jpeg")
+  fileSizeBytes   Int?
+  contentHash     String?        // SHA-256 hex of original file bytes
+
+  // Scan results
+  matchProvider   String?        // "PhotoDNA" | "ThornSafer" | "Rekognition" | "multi"
+  matchConfidence Float?         // 0.0–1.0 normalised confidence
+  allProviders    String?        // JSON array of ProviderResult for audit
+  scannedAt       DateTime?
+
+  // Actions taken (comma-separated log, e.g. "FILE_DELETED,ACCOUNT_SUSPENDED")
+  actionsTaken    String?
+
+  // Evidence preservation (S3 Object Lock — 7-year COMPLIANCE mode)
+  preservedPath   String?        // S3 key of encrypted evidence copy
+  preservedAt     DateTime?
+
+  // NCMEC CyberTipline filing
+  ncmecReportId   String?        // CyberTipline report number once filed
+  ncmecReportedAt DateTime?      // When the report was submitted
+
+  // Staff review
+  resolvedAt      DateTime?
+  resolvedBy      String?        // admin userId
+  internalNotes   String?        @db.Text
+
+  @@index([uploaderId])
+  @@index([incidentType])
+  @@index([status])
+  @@index([ncmecReportedAt])
+  @@map("safety_incidents")
 }

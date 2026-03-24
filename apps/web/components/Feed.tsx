@@ -219,7 +219,7 @@ export function Feed() {
         {posts.length === 0 && (
           <p
             className="p-10 text-center text-sm italic"
-            style={{ color: "#2a2a1a", fontFamily: "var(--font-dm-sans)" }}
+            style={{ color: "var(--text-dim)", fontFamily: "var(--font-dm-sans)" }}
           >
             no posts yet — add some buddies to see their updates here.
           </p>
@@ -241,8 +241,8 @@ export function Feed() {
             disabled={loadingMore}
             className="text-xs font-mono px-4 py-2 rounded-lg border transition-colors disabled:opacity-40"
             style={{
-              color: "#3a3a2a",
-              borderColor: "#1e1e14",
+              color: "var(--text-dim)",
+              borderColor: "var(--border)",
             }}
           >
             {loadingMore ? "loading…" : "load more"}

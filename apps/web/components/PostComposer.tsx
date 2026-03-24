@@ -81,7 +81,7 @@ export function PostComposer({ onPost }: PostComposerProps) {
   return (
     <div
       className="border-b"
-      style={{ borderColor: "#1a1a14", background: "#0a0a08" }}
+      style={{ borderColor: "var(--border)", background: "var(--bg)" }}
     >
       <div className="p-3">
         <div className="flex gap-2.5">
@@ -113,9 +113,9 @@ export function PostComposer({ onPost }: PostComposerProps) {
                 : "what's on your mind? (⌘↵ to post)"
             }
             rows={3}
-            className="flex-1 resize-none bg-transparent outline-none text-sm leading-relaxed placeholder-[#2a2a20]"
+            className="flex-1 resize-none bg-transparent outline-none text-sm leading-relaxed"
             style={{
-              color: isAwayMessage ? "#f59e0b" : "#d1d5db",
+              color: isAwayMessage ? "var(--away)" : "var(--text)",
               fontFamily: "var(--font-dm-sans)",
             }}
           />
@@ -124,7 +124,7 @@ export function PostComposer({ onPost }: PostComposerProps) {
         {/* Toolbar */}
         <div
           className="flex items-center justify-between mt-2 pt-2 border-t"
-          style={{ borderColor: "#1a1a14" }}
+          style={{ borderColor: "var(--border)" }}
         >
           {/* Left — char counter */}
           <span
@@ -134,8 +134,8 @@ export function PostComposer({ onPost }: PostComposerProps) {
                 remaining <= 20
                   ? "#ef4444"
                   : remaining <= 60
-                  ? "#f59e0b"
-                  : "#3a3a2a",
+                  ? "var(--away)"
+                  : "var(--text-dim)",
             }}
           >
             {remaining}
@@ -154,7 +154,7 @@ export function PostComposer({ onPost }: PostComposerProps) {
               className="h-[34px] px-2.5 rounded-lg text-xs font-mono transition-colors"
               style={{
                 background: isAwayMessage ? "rgba(245,158,11,0.15)" : "transparent",
-                color: isAwayMessage ? "#f59e0b" : "#3a3a2a",
+                color: isAwayMessage ? "var(--away)" : "var(--text-dim)",
                 border: isAwayMessage ? "1px solid rgba(245,158,11,0.4)" : "1px solid transparent",
               }}
             >
@@ -177,7 +177,7 @@ export function PostComposer({ onPost }: PostComposerProps) {
                     ? "rgba(139,92,246,0.15)"
                     : "transparent",
                 color:
-                  privacy === "BUDDIES_ONLY" ? "#a78bfa" : "#3a3a2a",
+                  privacy === "BUDDIES_ONLY" ? "#a78bfa" : "var(--text-dim)",
                 border:
                   privacy === "BUDDIES_ONLY"
                     ? "1px solid rgba(139,92,246,0.4)"
@@ -194,7 +194,7 @@ export function PostComposer({ onPost }: PostComposerProps) {
               disabled={!content.trim() || submitting}
               className="h-[34px] px-3.5 rounded-lg text-xs font-mono font-bold transition-all disabled:opacity-30"
               style={{
-                background: submitting ? "#92400e" : "#c8860a",
+                background: submitting ? "var(--amber-hover)" : "var(--amber)",
                 color: "#fff8e6",
               }}
             >
@@ -204,7 +204,7 @@ export function PostComposer({ onPost }: PostComposerProps) {
         </div>
 
         {error && (
-          <p className="mt-1.5 text-[11px] font-mono" style={{ color: "#ef4444" }}>
+          <p className="mt-1.5 text-[11px] font-mono" style={{ color: "var(--error, #ef4444)" }}>
             {error}
           </p>
         )}
