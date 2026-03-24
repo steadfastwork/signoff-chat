@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useSession } from "next-auth/react";
 import type { FeedPost } from "./PostCard";
 
@@ -29,6 +29,16 @@ export function PostComposer({ onPost }: PostComposerProps) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Electron Cmd+Shift+N / Cmd+N → focus the composer
+  useEffect(() => {
+    const handler = () => {
+      textareaRef.current?.focus();
+      textareaRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    };
+    window.addEventListener("electron:focus-composer", handler);
+    return () => window.removeEventListener("electron:focus-composer", handler);
+  }, []);
 
   if (!session?.user) return null;
 

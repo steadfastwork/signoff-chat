@@ -6,6 +6,55 @@ import { pusherClient, CHANNELS, EVENTS } from "@/lib/pusher";
 import { PostCard, type FeedPost } from "./PostCard";
 import { PostComposer } from "./PostComposer";
 import { FeedSkeletonCard } from "./SkeletonCard";
+import { incrementElectronUnread } from "@/lib/electronUnread";
+
+// ---------------------------------------------------------------------------
+// Local DB cache helpers (Electron only — no-ops in browser)
+// ---------------------------------------------------------------------------
+
+function toLocalPost(post: FeedPost): ElectronLocalPost {
+  return {
+    id:            post.id,
+    authorId:      post.author?.id ?? null,
+    screenname:    post.author?.screenname ?? null,
+    content:       post.content ?? null,
+    mediaUrl:      (post as { mediaUrl?: string }).mediaUrl ?? null,
+    isAwayMessage: (post as { isAwayMessage?: boolean }).isAwayMessage ?? false,
+    privacy:       (post as { privacy?: string }).privacy ?? null,
+    nudgeCount:    post.nudgeCount ?? 0,
+    createdAt:     post.createdAt ?? null,
+    cachedAt:      new Date().toISOString(),
+  };
+}
+
+async function loadCachedFeed(): Promise<FeedPost[]> {
+  if (typeof window === "undefined" || !("electronAPI" in window)) return [];
+  try {
+    const cached = await window.electronAPI!.db.getFeed(40);
+    // Convert flat cached posts back to the FeedPost shape the component expects
+    return cached.map((p) => ({
+      id:         p.id,
+      content:    p.content ?? "",
+      nudgeCount: p.nudgeCount,
+      createdAt:  p.createdAt ?? new Date().toISOString(),
+      author: {
+        id:          p.authorId ?? "",
+        screenname:  p.screenname ?? "unknown",
+        // cached posts won't have full author data — fill with defaults
+        isGoldMember: false,
+        avatarColor:  "amber",
+        status:       "OFFLINE" as const,
+      },
+    })) as FeedPost[];
+  } catch {
+    return [];
+  }
+}
+
+function cacheFeedPost(post: FeedPost) {
+  if (typeof window === "undefined" || !("electronAPI" in window)) return;
+  window.electronAPI!.db.savePost(toLocalPost(post)).catch(() => {});
+}
 
 // ---------------------------------------------------------------------------
 // Feed
@@ -31,10 +80,21 @@ export function Feed() {
   }, []);
 
   useEffect(() => {
+    // Show cached posts instantly while the real fetch is in flight
+    loadCachedFeed().then((cached) => {
+      if (cached.length > 0) {
+        setPosts(cached);
+        setLoading(false);
+      }
+    });
+
     fetchPage()
       .then((data) => {
-        setPosts(data.posts ?? []);
+        const fresh = data.posts ?? [];
+        setPosts(fresh);
         setNextCursor(data.nextCursor);
+        // Persist to local DB for next launch
+        fresh.forEach(cacheFeedPost);
       })
       .catch(() => {})
       .finally(() => setLoading(false));
@@ -85,6 +145,9 @@ export function Feed() {
         if (prev.some((p) => p.id === post.id)) return prev;
         return [post, ...prev];
       });
+      // Cache and badge
+      cacheFeedPost(post);
+      if (document.hidden) incrementElectronUnread();
     });
 
     return () => {

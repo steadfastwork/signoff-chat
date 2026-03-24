@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { incrementElectronUnread } from "@/lib/electronUnread";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
@@ -417,6 +418,38 @@ export default function ChannelRoomPage() {
   >(null);
   const [threadState, setThreadState] = useState<ThreadState | null>(null);
 
+  // Electron: close thread/members panel on Escape shortcut
+  useEffect(() => {
+    const handler = () => setRightPanel(null);
+    window.addEventListener("electron:close-panel", handler);
+    return () => window.removeEventListener("electron:close-panel", handler);
+  }, []);
+
+  // Electron: cache messages + badge unread count
+  useEffect(() => {
+    if (typeof window === "undefined" || !("electronAPI" in window)) return;
+    if (!channelName || messages.length === 0) return;
+    // Persist the current message list to local DB
+    messages.slice(0, 50).forEach((msg) => {
+      window.electronAPI!.db.saveMessage({
+        id:               msg.id,
+        channelId:        channelName,
+        senderId:         msg.author?.id ?? "",
+        screenname:       msg.author?.screenname ?? "",
+        decryptedContent: msg.content ?? null,
+        encryptedContent: null,
+        iv:               null,
+        createdAt:        msg.createdAt,
+        isThread:         false,
+        parentMessageId:  null,
+        localOnly:        false,
+        cachedAt:         new Date().toISOString(),
+      }).catch(() => {});
+    });
+  // Only run when the message list is first populated (not on every new message)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [channelName, messages.length > 0]);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const atBottomRef = useRef(true);
@@ -467,6 +500,25 @@ export default function ChannelRoomPage() {
         if (prev.some((m) => m.id === msg.id)) return prev;
         return [...prev, msg];
       });
+      // Cache to local DB
+      if (typeof window !== "undefined" && "electronAPI" in window) {
+        window.electronAPI!.db.saveMessage({
+          id:               msg.id,
+          channelId:        channel!.name,
+          senderId:         msg.author?.id ?? "",
+          screenname:       msg.author?.screenname ?? "",
+          decryptedContent: msg.content ?? null,
+          encryptedContent: null,
+          iv:               null,
+          createdAt:        msg.createdAt,
+          isThread:         false,
+          parentMessageId:  null,
+          localOnly:        false,
+          cachedAt:         new Date().toISOString(),
+        }).catch(() => {});
+      }
+      // Increment dock badge if the window is not focused
+      if (document.hidden) incrementElectronUnread();
       // Scroll to bottom if already near bottom
       if (atBottomRef.current) {
         setTimeout(

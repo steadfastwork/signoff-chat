@@ -87,7 +87,13 @@ export function PresenceProvider({ children }: { children: React.ReactNode }) {
   // Public updater — used by StatusSelector and the Navbar sign-off
   const updateStatus = useCallback(async (next: UserStatus) => {
     const ok = await patchStatus(next);
-    if (ok) syncStatus(next);
+    if (ok) {
+      syncStatus(next);
+      // Keep the tray icon and menu in sync
+      if (typeof window !== "undefined" && "electronAPI" in window) {
+        window.electronAPI!.reportStatus(next);
+      }
+    }
   }, []);
 
   // ---- Login → ONLINE ----------------------------------------------------

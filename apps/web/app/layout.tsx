@@ -5,6 +5,7 @@ import { SessionProvider } from "@/components/SessionProvider";
 import { PresenceProvider } from "@/components/PresenceProvider";
 import { ThemeProvider, ThemeScript } from "@/components/ThemeProvider";
 import { Navbar } from "@/components/layout/Navbar";
+import { ElectronBridge } from "@/components/ElectronBridge";
 
 const ibmPlexMono = IBM_Plex_Mono({
   variable: "--font-ibm-plex-mono",
@@ -54,6 +55,8 @@ export default function RootLayout({
         <ThemeProvider>
           <SessionProvider>
             <PresenceProvider>
+              {/* Electron IPC bridge — renders nothing, wires all main↔renderer comms */}
+              <ElectronBridge />
               {/* Fixed top navbar — always visible */}
               <Navbar />
               {children}
