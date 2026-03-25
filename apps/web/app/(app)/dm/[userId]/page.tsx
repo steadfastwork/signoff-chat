@@ -15,7 +15,10 @@ export default async function DMPage({ params }: { params: { userId: string } })
   if (!otherUser) notFound();
 
   return (
-    <div className="max-w-2xl mx-auto border-x border-green-950 h-[calc(100vh-3rem)]">
+    <div
+      className="max-w-2xl mx-auto border-x h-[calc(100vh-52px)]"
+      style={{ borderColor: "var(--border)" }}
+    >
       <DirectMessagePanel otherUser={otherUser} />
     </div>
   );

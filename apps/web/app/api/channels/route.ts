@@ -28,15 +28,23 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "unauthorized" }, { status: 401 });
     }
 
-    const memberships = await prisma.channelMember.findMany({
-      where: { userId: session.user.id },
-      include: {
-        channel: {
-          include: { _count: { select: { members: true } } },
+    const [memberships, favorites] = await Promise.all([
+      prisma.channelMember.findMany({
+        where: { userId: session.user.id, NOT: { channel: { name: { contains: "__dm__" } } } },
+        include: {
+          channel: {
+            include: { _count: { select: { members: true } } },
+          },
         },
-      },
-      orderBy: { joinedAt: "desc" },
-    });
+        orderBy: { joinedAt: "desc" },
+      }),
+      prisma.favoriteChannel.findMany({
+        where: { userId: session.user.id },
+        select: { channelId: true },
+      }),
+    ]);
+
+    const favSet = new Set(favorites.map((f) => f.channelId));
 
     return NextResponse.json(
       memberships.map((m) => ({
@@ -44,23 +52,30 @@ export async function GET(req: NextRequest) {
         name: m.channel.name,
         description: m.channel.description,
         type: m.channel.type,
+        tags: m.channel.tags,
         slowModeMinutes: m.channel.slowModeMinutes,
         memberCap: m.channel.memberCap,
         memberCount: m.channel._count.members,
         joinedAt: m.joinedAt,
+        favoriteByMe: favSet.has(m.channel.id),
       }))
     );
   }
 
   // Public search: PUBLIC and INVITE_ONLY channels only
+  const tag = searchParams.get("tag")?.trim().toLowerCase();
+
   const channels = await prisma.channel.findMany({
     where: {
       type: { in: ["PUBLIC", "INVITE_ONLY"] },
+      isPrivate: false,
+      ...(tag ? { tags: { has: tag } } : {}),
       ...(q.length >= 1
         ? {
             OR: [
               { name: { contains: q, mode: "insensitive" } },
               { description: { contains: q, mode: "insensitive" } },
+              { tags: { has: q.toLowerCase() } },
             ],
           }
         : {}),
@@ -70,15 +85,26 @@ export async function GET(req: NextRequest) {
     take: 30,
   });
 
+  const favSet = new Set<string>();
+  if (session?.user?.id) {
+    const favs = await prisma.favoriteChannel.findMany({
+      where: { userId: session.user.id, channelId: { in: channels.map((c) => c.id) } },
+      select: { channelId: true },
+    });
+    favs.forEach((f) => favSet.add(f.channelId));
+  }
+
   return NextResponse.json(
     channels.map((c) => ({
       id: c.id,
       name: c.name,
       description: c.description,
       type: c.type,
+      tags: c.tags,
       slowModeMinutes: c.slowModeMinutes,
       memberCap: c.memberCap,
       memberCount: c._count.members,
+      favoriteByMe: favSet.has(c.id),
     }))
   );
 }

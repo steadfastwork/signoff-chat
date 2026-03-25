@@ -92,12 +92,24 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     });
   }
 
-  // ---- Decline ----
+  // ---- Decline (recipient rejects incoming request) ----
   if (action === "decline") {
     await prisma.buddyRelation.deleteMany({
       where: {
         requesterId: buddyId,
         addresseeId: session.user.id,
+        status: "PENDING",
+      },
+    });
+    return NextResponse.json({ ok: true });
+  }
+
+  // ---- Withdraw (sender cancels their own outgoing request) ----
+  if (action === "withdraw") {
+    await prisma.buddyRelation.deleteMany({
+      where: {
+        requesterId: session.user.id,
+        addresseeId: buddyId,
         status: "PENDING",
       },
     });

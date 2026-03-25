@@ -10,15 +10,27 @@ const senderSelect = {
   isGoldMember: true,
 } as const;
 
-export async function GET() {
+export async function GET(
+  _req: NextRequest,
+  { params }: { params: { userId: string } }
+) {
   const session = await getServerSession(authOptions);
   if (!session?.user?.id) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
-  // Direct messages live in ChannelMessage via a private DM channel.
-  // Messages are fetched per-room; return empty array here as a stub.
-  return NextResponse.json([]);
+  const dmName = [session.user.id, params.userId].sort().join("__dm__");
+  const dmChannel = await prisma.channel.findUnique({ where: { name: dmName } });
+  if (!dmChannel) return NextResponse.json([]);
+
+  const messages = await prisma.channelMessage.findMany({
+    where: { channelId: dmChannel.id },
+    orderBy: { createdAt: "asc" },
+    take: 100,
+    include: { author: { select: senderSelect } },
+  });
+
+  return NextResponse.json(messages);
 }
 
 export async function POST(
@@ -85,6 +97,14 @@ export async function POST(
 
   const pusherChannel = CHANNELS.dm(session.user.id, params.userId);
   await pusherServer.trigger(pusherChannel, EVENTS.NEW_DM, message);
+
+  // Notify recipient's private channel so they get a sidebar badge even if
+  // the DM panel isn't currently open.
+  await pusherServer.trigger(
+    CHANNELS.privateUser(params.userId),
+    EVENTS.NEW_DM,
+    { senderId: session.user.id, senderScreenname: session.user.screenname }
+  );
 
   return NextResponse.json(message, { status: 201 });
 }

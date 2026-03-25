@@ -23,7 +23,7 @@ export async function GET() {
         select: { id: true, screenname: true, isGoldMember: true },
       },
     },
-    orderBy: { createdAt: "desc" },
+    orderBy: { id: "desc" },
   });
 
   const requests = relations.map((r) => ({

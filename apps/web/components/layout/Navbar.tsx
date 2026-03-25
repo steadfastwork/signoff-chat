@@ -100,6 +100,27 @@ export function Navbar() {
   const pathname = usePathname();
   const { theme, toggle } = useTheme();
   const { updateStatus } = usePresence();
+  const [notifCount, setNotifCount] = useState(0);
+
+  // Load + poll notification count — no Pusher subscription here so we don't
+  // conflict with the Sidebar's private-channel subscription.
+  useEffect(() => {
+    if (status !== "authenticated") return;
+    const load = () => {
+      fetch("/api/buddies/requests")
+        .then((r) => (r.ok ? r.json() : []))
+        .then((data) => setNotifCount(Array.isArray(data) ? data.length : 0))
+        .catch(() => {});
+    };
+    load();
+    const onVisible = () => { if (document.visibilityState === "visible") load(); };
+    document.addEventListener("visibilitychange", onVisible);
+    const interval = setInterval(load, 30_000);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible);
+      clearInterval(interval);
+    };
+  }, [status]);
 
   const handleSignOff = async () => {
     await updateStatus("OFFLINE");
@@ -112,14 +133,15 @@ export function Navbar() {
   const feedActive = pathname.startsWith("/feed");
   const channelsActive = pathname.startsWith("/channels");
   const boardsActive = pathname.startsWith("/boards");
+  const notifsActive = pathname.startsWith("/notifications");
 
   return (
     <>
       {/* Enc pill CSS vars by theme */}
-      <style>{`
+      <style dangerouslySetInnerHTML={{ __html: `
         :root { --enc-bg: #0a1f0a; --enc-border: #14532d; --enc-text: #4ade80; }
         [data-theme="light"] { --enc-bg: #f0fdf4; --enc-border: #bbf7d0; --enc-text: #15803d; }
-      `}</style>
+      ` }} />
 
       <nav
         className="fixed top-0 left-0 right-0 z-50 h-[52px] border-b"
@@ -152,6 +174,37 @@ export function Navbar() {
           <div className="ml-auto flex items-center gap-2">
             <EncryptionBadge />
             <EncryptedPill />
+
+            {/* Notifications bell */}
+            {isAuthenticated && (
+              <Link
+                href="/notifications"
+                onClick={() => setNotifCount(0)}
+                className="relative w-8 h-8 flex items-center justify-center rounded-lg transition-colors"
+                style={{
+                  color: notifsActive ? "var(--amber)" : "var(--text-muted)",
+                  background: notifsActive ? "var(--amber-tint)" : "transparent",
+                }}
+                title="Notifications"
+                onMouseEnter={(e) =>
+                  ((e.currentTarget as HTMLAnchorElement).style.background = "var(--card)")
+                }
+                onMouseLeave={(e) =>
+                  ((e.currentTarget as HTMLAnchorElement).style.background =
+                    notifsActive ? "var(--amber-tint)" : "transparent")
+                }
+              >
+                <span className="text-sm">🔔</span>
+                {notifCount > 0 && (
+                  <span
+                    className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 rounded-full flex items-center justify-center text-[9px] font-mono font-bold px-1"
+                    style={{ background: "#ef4444", color: "#fff" }}
+                  >
+                    {notifCount > 9 ? "9+" : notifCount}
+                  </span>
+                )}
+              </Link>
+            )}
 
             {/* Theme toggle */}
             <button
