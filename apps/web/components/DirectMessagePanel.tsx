@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
+import Link from "next/link";
 import { useSession } from "next-auth/react";
 import { pusherClient, CHANNELS } from "@/lib/pusher";
 import { formatTimestamp } from "@/lib/utils";
@@ -129,6 +130,21 @@ export function DirectMessagePanel({ otherUser }: { otherUser: DMUser }) {
             direct message
           </p>
         </div>
+        <Link
+          href={`/u/${otherUser.screenname}`}
+          className="text-[11px] font-mono px-2 py-1 rounded-lg border transition-all"
+          style={{ color: "var(--text-muted)", borderColor: "var(--border)" }}
+          onMouseEnter={(e) => {
+            (e.currentTarget as HTMLAnchorElement).style.borderColor = "var(--teal)";
+            (e.currentTarget as HTMLAnchorElement).style.color = "var(--teal)";
+          }}
+          onMouseLeave={(e) => {
+            (e.currentTarget as HTMLAnchorElement).style.borderColor = "var(--border)";
+            (e.currentTarget as HTMLAnchorElement).style.color = "var(--text-muted)";
+          }}
+        >
+          view profile
+        </Link>
       </div>
 
       {/* Messages */}
