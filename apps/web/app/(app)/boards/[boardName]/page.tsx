@@ -20,8 +20,10 @@ interface BoardDetail {
   type: "PUBLIC" | "INVITE_ONLY" | "SECRET";
   memberCount: number;
   creatorId: string;
+  canManage: boolean;
   isMember: boolean;
   isFoundingMember: boolean;
+  isModerator: boolean;
 }
 
 type SortOption = "recent" | "nudged" | "saved";
@@ -57,15 +59,15 @@ function PostSkeleton() {
   return (
     <div
       className="rounded-2xl border p-4 animate-pulse"
-      style={{ borderColor: "#1a1a12" }}
+      style={{ borderColor: "var(--border)" }}
     >
       <div className="flex gap-2 mb-3">
-        <div className="w-[26px] h-[26px] rounded-lg" style={{ background: "#1a1a12" }} />
-        <div className="h-3 rounded w-24 mt-1.5" style={{ background: "#1a1a12" }} />
+        <div className="w-[26px] h-[26px] rounded-lg" style={{ background: "var(--border)" }} />
+        <div className="h-3 rounded w-24 mt-1.5" style={{ background: "var(--border)" }} />
       </div>
-      <div className="h-4 rounded w-3/4 mb-2" style={{ background: "#161610" }} />
-      <div className="h-3 rounded w-full mb-1" style={{ background: "#161610" }} />
-      <div className="h-3 rounded w-2/3" style={{ background: "#161610" }} />
+      <div className="h-4 rounded w-3/4 mb-2" style={{ background: "var(--card)" }} />
+      <div className="h-3 rounded w-full mb-1" style={{ background: "var(--card)" }} />
+      <div className="h-3 rounded w-2/3" style={{ background: "var(--card)" }} />
     </div>
   );
 }
@@ -165,17 +167,21 @@ export default function BoardPage() {
     setRightPanel(null);
   };
 
+  const handleDeletePost = (postId: string) => {
+    setPosts((prev) => prev.filter((p) => p.id !== postId));
+  };
+
   // ---- Render states ----
   if (notFound) {
     return (
       <div
         className="flex flex-col items-center justify-center min-h-screen gap-3"
-        style={{ background: "#0d0d0b" }}
+        style={{ background: "var(--bg)" }}
       >
-        <p className="text-sm" style={{ color: "#6b7280", fontFamily: "var(--font-dm-sans)" }}>
+        <p className="text-sm" style={{ color: "var(--text-muted)", fontFamily: "var(--font-dm-sans)" }}>
           board not found.
         </p>
-        <Link href="/boards" className="text-xs font-mono" style={{ color: "#2dd4bf" }}>
+        <Link href="/boards" className="text-xs font-mono" style={{ color: "var(--teal)" }}>
           ← browse boards
         </Link>
       </div>
@@ -189,24 +195,24 @@ export default function BoardPage() {
     return (
       <div
         className="flex flex-col items-center justify-center min-h-screen gap-4"
-        style={{ background: "#0d0d0b" }}
+        style={{ background: "var(--bg)" }}
       >
         <p
           className="text-lg font-semibold"
-          style={{ color: "#e5e7eb", fontFamily: "var(--font-dm-sans)" }}
+          style={{ color: "var(--text)", fontFamily: "var(--font-dm-sans)" }}
         >
           {board.displayName}
         </p>
-        <p className="text-sm italic" style={{ color: "#4b5563" }}>
+        <p className="text-sm italic" style={{ color: "var(--text-muted)" }}>
           {board.vibeStatement}
         </p>
-        <p className="text-xs font-mono" style={{ color: "#3a3a2a" }}>
+        <p className="text-xs font-mono" style={{ color: "var(--text-dim)" }}>
           🔒 invite only · {board.memberCount} members
         </p>
-        <p className="text-sm" style={{ color: "#6b7280" }}>
+        <p className="text-sm" style={{ color: "var(--text-muted)" }}>
           you need an invite link to join this board.
         </p>
-        <Link href="/boards" className="text-xs font-mono" style={{ color: "#2dd4bf" }}>
+        <Link href="/boards" className="text-xs font-mono" style={{ color: "var(--teal)" }}>
           ← browse boards
         </Link>
       </div>
@@ -216,7 +222,7 @@ export default function BoardPage() {
   return (
     <div
       className="min-h-screen"
-      style={{ background: "#0d0d0b", fontFamily: "var(--font-dm-sans)" }}
+      style={{ background: "var(--bg)", fontFamily: "var(--font-dm-sans)" }}
     >
       <div className="max-w-2xl mx-auto px-4 py-6">
         {/* Topbar */}
@@ -226,14 +232,14 @@ export default function BoardPage() {
               <Link
                 href="/boards"
                 className="text-sm font-mono"
-                style={{ color: "#3a3a2a" }}
+                style={{ color: "var(--text-dim)" }}
               >
                 ←
               </Link>
 
               <div
                 className="w-9 h-9 rounded-xl flex items-center justify-center text-sm font-bold flex-shrink-0"
-                style={{ background: "#1a1a12", color: "#3a3a2a" }}
+                style={{ background: "var(--surface)", color: "var(--text-dim)" }}
               >
                 {board?.displayName.charAt(0).toUpperCase() ?? "…"}
               </div>
@@ -242,7 +248,7 @@ export default function BoardPage() {
                 <div className="flex items-center gap-2">
                   <h1
                     className="text-base font-bold"
-                    style={{ color: "#e5e7eb" }}
+                    style={{ color: "var(--text)" }}
                   >
                     {board?.displayName ?? "…"}
                   </h1>
@@ -251,7 +257,7 @@ export default function BoardPage() {
                 {board && (
                   <p
                     className="text-xs italic mt-0.5"
-                    style={{ color: "#4b5563" }}
+                    style={{ color: "var(--text-muted)" }}
                   >
                     {board.vibeStatement}
                   </p>
@@ -268,8 +274,8 @@ export default function BoardPage() {
                   }
                   className="h-8 px-3 rounded-xl text-xs font-mono font-bold transition-all"
                   style={{
-                    background: rightPanel === "compose" ? "#1a1a12" : "#2dd4bf",
-                    color: rightPanel === "compose" ? "#6b7280" : "#0d0d0b",
+                    background: rightPanel === "compose" ? "var(--surface)" : "var(--teal)",
+                    color: rightPanel === "compose" ? "var(--text-muted)" : "var(--bg)",
                   }}
                 >
                   {rightPanel === "compose" ? "cancel" : "new post"}
@@ -283,18 +289,35 @@ export default function BoardPage() {
                   className="h-8 px-3 rounded-xl text-xs font-mono transition-all"
                   style={{
                     background:
-                      rightPanel === "invite" ? "#2dd4bf" : "rgba(45,212,191,0.10)",
-                    color: rightPanel === "invite" ? "#0d0d0b" : "#2dd4bf",
+                      rightPanel === "invite" ? "var(--teal)" : "var(--teal-tint)",
+                    color: rightPanel === "invite" ? "var(--bg)" : "var(--teal)",
                   }}
                 >
                   invite
                 </button>
               )}
+              {board?.canManage && (
+                <Link
+                  href={`/boards/${boardName}/settings`}
+                  className="h-8 px-3 rounded-xl text-xs font-mono flex items-center transition-all border"
+                  style={{ background: "var(--surface)", color: "var(--text-muted)", borderColor: "var(--border)" }}
+                  onMouseEnter={(e) => {
+                    (e.currentTarget as HTMLAnchorElement).style.borderColor = "var(--amber)";
+                    (e.currentTarget as HTMLAnchorElement).style.color = "var(--amber)";
+                  }}
+                  onMouseLeave={(e) => {
+                    (e.currentTarget as HTMLAnchorElement).style.borderColor = "var(--border)";
+                    (e.currentTarget as HTMLAnchorElement).style.color = "var(--text-muted)";
+                  }}
+                >
+                  ⚙ settings
+                </Link>
+              )}
             </div>
           </div>
 
           {board && (
-            <p className="text-[11px] font-mono mt-2" style={{ color: "#2a2a1a" }}>
+            <p className="text-[11px] font-mono mt-2" style={{ color: "var(--text-dim)" }}>
               {board.memberCount.toLocaleString()} member
               {board.memberCount !== 1 ? "s" : ""}
               {board.isFoundingMember && (
@@ -313,7 +336,7 @@ export default function BoardPage() {
         {rightPanel === "compose" && board?.isMember && (
           <div
             className="rounded-2xl border mb-6"
-            style={{ borderColor: "#1e1e14", background: "#111109" }}
+            style={{ borderColor: "var(--border)", background: "var(--surface)" }}
           >
             <CreateBoardPostPanel
               boardName={boardName}
@@ -328,7 +351,7 @@ export default function BoardPage() {
           (board.type === "INVITE_ONLY" || board.type === "SECRET") && (
             <div
               className="rounded-2xl border mb-6"
-              style={{ borderColor: "#1e1e14", background: "#111109" }}
+              style={{ borderColor: "var(--border)", background: "var(--surface)" }}
             >
               <InvitePanel
                 channelName={boardName}
@@ -341,7 +364,7 @@ export default function BoardPage() {
         {/* Sort tabs */}
         <div
           className="flex items-center gap-1 mb-5 border-b pb-3"
-          style={{ borderColor: "#1a1a12" }}
+          style={{ borderColor: "var(--border)" }}
         >
           {(["recent", "nudged", "saved"] as SortOption[]).map((s) => (
             <button
@@ -350,7 +373,7 @@ export default function BoardPage() {
               className="h-7 px-3 rounded-lg text-xs font-mono transition-all"
               style={{
                 background: sort === s ? "rgba(45,212,191,0.10)" : "transparent",
-                color: sort === s ? "#2dd4bf" : "#3a3a2a",
+                color: sort === s ? "var(--teal)" : "var(--text-dim)",
                 border: `1px solid ${sort === s ? "rgba(45,212,191,0.25)" : "transparent"}`,
               }}
             >
@@ -359,7 +382,7 @@ export default function BoardPage() {
           ))}
           <span
             className="ml-auto text-[10px] italic"
-            style={{ color: "#2a2a1a" }}
+            style={{ color: "var(--text-dim)" }}
           >
             no algorithm · chronological only
           </span>
@@ -369,16 +392,16 @@ export default function BoardPage() {
         {board && !board.isMember && board.type === "PUBLIC" && session && (
           <div
             className="rounded-2xl border p-4 mb-5 flex items-center justify-between"
-            style={{ borderColor: "#1a1a12", background: "#0a0a08" }}
+            style={{ borderColor: "var(--border)", background: "var(--bg)" }}
           >
-            <p className="text-sm" style={{ color: "#6b7280" }}>
+            <p className="text-sm" style={{ color: "var(--text-muted)" }}>
               join to post and comment
             </p>
             <button
               onClick={joinBoard}
               disabled={joining}
               className="h-8 px-4 rounded-xl text-xs font-mono font-bold transition-all disabled:opacity-50"
-              style={{ background: "#2dd4bf", color: "#0d0d0b" }}
+              style={{ background: "var(--teal)", color: "var(--bg)" }}
             >
               {joining ? "joining…" : "join board"}
             </button>
@@ -391,7 +414,7 @@ export default function BoardPage() {
             {[...Array(3)].map((_, i) => <PostSkeleton key={i} />)}
           </div>
         ) : posts.length === 0 ? (
-          <p className="text-sm italic py-8 text-center" style={{ color: "#2a2a1a" }}>
+          <p className="text-sm italic py-8 text-center" style={{ color: "var(--text-dim)" }}>
             {sort === "saved"
               ? "you haven't saved any posts yet."
               : "no posts yet — be the first!"}
@@ -399,7 +422,19 @@ export default function BoardPage() {
         ) : (
           <div className="flex flex-col gap-3">
             {posts.map((post) => (
-              <BoardPostCard key={post.id} post={post} boardName={boardName} />
+              <BoardPostCard
+                key={post.id}
+                post={post}
+                boardName={boardName}
+                canDelete={
+                  !!session?.user?.id && (
+                    post.author.id === session.user.id ||
+                    board?.creatorId === session.user.id ||
+                    !!(board?.isModerator)
+                  )
+                }
+                onDelete={handleDeletePost}
+              />
             ))}
           </div>
         )}
@@ -411,7 +446,7 @@ export default function BoardPage() {
               onClick={loadMore}
               disabled={loadingMore}
               className="text-xs font-mono px-4 py-2 rounded-lg border transition-colors disabled:opacity-40"
-              style={{ color: "#3a3a2a", borderColor: "#1e1e14" }}
+              style={{ color: "var(--text-dim)", borderColor: "var(--border)" }}
             >
               {loadingMore ? "loading…" : "load more"}
             </button>

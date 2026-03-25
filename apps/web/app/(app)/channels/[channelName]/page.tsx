@@ -18,6 +18,7 @@ import {
 } from "@/components/ChannelMessage";
 import { InvitePanel } from "@/components/InvitePanel";
 import { StatusDot, type StatusValue } from "@/components/StatusDot";
+import { RichTextEditor } from "@/components/RichTextEditor";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -31,6 +32,7 @@ interface ChannelDetail {
   slowModeMinutes: number;
   memberCap: number | null;
   creatorId: string;
+  canManage: boolean;
   memberCount: number;
   isMember: boolean;
   myMembership: { joinedAt: string; lastMessageAt: string | null } | null;
@@ -180,23 +182,23 @@ function ThreadSidebar({
   return (
     <div
       className="flex flex-col h-full border-l"
-      style={{ borderColor: "#1a1a12", background: "#0a0a08" }}
+      style={{ borderColor: "var(--border)", background: "var(--bg)" }}
     >
       {/* Header */}
       <div
         className="flex items-center justify-between px-4 py-3 border-b flex-shrink-0"
-        style={{ borderColor: "#1a1a12" }}
+        style={{ borderColor: "var(--border)" }}
       >
         <span
           className="text-sm font-semibold"
-          style={{ color: "#e5e7eb", fontFamily: "var(--font-dm-sans)" }}
+          style={{ color: "var(--text)", fontFamily: "var(--font-dm-sans)" }}
         >
           Thread
         </span>
         <button
           onClick={onClose}
           className="text-lg leading-none"
-          style={{ color: "#3a3a2a" }}
+          style={{ color: "var(--text-dim)" }}
         >
           ×
         </button>
@@ -205,17 +207,17 @@ function ThreadSidebar({
       {/* Parent message */}
       <div
         className="px-4 py-3 border-b flex-shrink-0"
-        style={{ borderColor: "#1a1a12", background: "#111109" }}
+        style={{ borderColor: "var(--border)", background: "var(--surface)" }}
       >
         <p
           className="text-[11px] font-mono mb-1"
-          style={{ color: "#3a3a2a" }}
+          style={{ color: "var(--text-dim)" }}
         >
           {ts.parentAuthor}
         </p>
         <p
           className="text-sm leading-snug"
-          style={{ color: "#6b7280", fontFamily: "var(--font-dm-sans)" }}
+          style={{ color: "var(--text-muted)", fontFamily: "var(--font-dm-sans)" }}
         >
           {ts.parentContent}
         </p>
@@ -226,7 +228,7 @@ function ThreadSidebar({
         {ts.loading && (
           <p
             className="text-xs font-mono text-center py-4 animate-pulse"
-            style={{ color: "#2a2a1a" }}
+            style={{ color: "var(--text-dim)" }}
           >
             loading…
           </p>
@@ -236,7 +238,7 @@ function ThreadSidebar({
             <div key={m.id} className="px-4 py-1.5">
               <p
                 className="text-[11px] font-mono font-semibold"
-                style={{ color: "#6b7280" }}
+                style={{ color: "var(--text-muted)" }}
               >
                 {m.author.screenname}
                 {m.author.isGoldMember && (
@@ -251,7 +253,7 @@ function ThreadSidebar({
               <p
                 className="text-[13px] leading-snug mt-0.5 break-words"
                 style={{
-                  color: "#6b7280",
+                  color: "var(--text-muted)",
                   fontFamily: "var(--font-dm-sans)",
                 }}
               >
@@ -262,7 +264,7 @@ function ThreadSidebar({
         {!ts.loading && !ts.thread?.messages?.length && (
           <p
             className="text-xs font-mono text-center py-6"
-            style={{ color: "#2a2a1a" }}
+            style={{ color: "var(--text-dim)" }}
           >
             no replies yet
           </p>
@@ -272,7 +274,7 @@ function ThreadSidebar({
       {/* Reply input */}
       <div
         className="flex-shrink-0 px-3 py-3 border-t"
-        style={{ borderColor: "#1a1a12" }}
+        style={{ borderColor: "var(--border)" }}
       >
         <div className="flex gap-2 items-end">
           <textarea
@@ -288,7 +290,7 @@ function ThreadSidebar({
             rows={2}
             className="flex-1 resize-none bg-transparent outline-none text-xs leading-snug"
             style={{
-              color: "#9ca3af",
+              color: "var(--text-muted)",
               fontFamily: "var(--font-dm-sans)",
             }}
           />
@@ -296,7 +298,7 @@ function ThreadSidebar({
             onClick={send}
             disabled={!reply.trim() || sending}
             className="h-7 px-2.5 rounded-lg text-xs font-mono transition-all disabled:opacity-40"
-            style={{ background: "#c8860a", color: "#fff8e6" }}
+            style={{ background: "var(--amber)", color: "#fff8e6" }}
           >
             {sending ? "…" : "reply"}
           </button>
@@ -320,15 +322,15 @@ function MemberPanel({
   return (
     <div
       className="flex flex-col h-full border-l"
-      style={{ borderColor: "#1a1a12", background: "#0a0a08" }}
+      style={{ borderColor: "var(--border)", background: "var(--bg)" }}
     >
       <div
         className="px-4 py-3 border-b flex-shrink-0"
-        style={{ borderColor: "#1a1a12" }}
+        style={{ borderColor: "var(--border)" }}
       >
         <span
           className="text-sm font-semibold"
-          style={{ color: "#e5e7eb", fontFamily: "var(--font-dm-sans)" }}
+          style={{ color: "var(--text)", fontFamily: "var(--font-dm-sans)" }}
         >
           Members ({members.length})
         </span>
@@ -356,13 +358,13 @@ function MemberPanel({
                   </span>
                 </div>
                 <span className="absolute -bottom-0.5 -right-0.5">
-                  <StatusDot status={m.user.status} size="sm" bg="#0a0a08" />
+                  <StatusDot status={m.user.status} size="sm" bg="var(--bg)" />
                 </span>
               </div>
               <span
                 className="text-xs"
                 style={{
-                  color: isMe ? "#c8860a" : "#6b7280",
+                  color: isMe ? "var(--amber)" : "var(--text-muted)",
                   fontFamily: "var(--font-dm-sans)",
                 }}
               >
@@ -378,7 +380,7 @@ function MemberPanel({
                 {isMe && (
                   <span
                     className="ml-1 text-[10px] font-mono"
-                    style={{ color: "#3a3a2a" }}
+                    style={{ color: "var(--text-dim)" }}
                   >
                     you
                   </span>
@@ -429,9 +431,12 @@ export default function ChannelRoomPage() {
   useEffect(() => {
     if (typeof window === "undefined" || !("electronAPI" in window)) return;
     if (!channelName || messages.length === 0) return;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const eAPI = (window as any).electronAPI;
     // Persist the current message list to local DB
     messages.slice(0, 50).forEach((msg) => {
-      window.electronAPI!.db.saveMessage({
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      eAPI.db.saveMessage({
         id:               msg.id,
         channelId:        channelName,
         senderId:         msg.author?.id ?? "",
@@ -502,7 +507,8 @@ export default function ChannelRoomPage() {
       });
       // Cache to local DB
       if (typeof window !== "undefined" && "electronAPI" in window) {
-        window.electronAPI!.db.saveMessage({
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (window as any).electronAPI.db.saveMessage({
           id:               msg.id,
           channelId:        channel!.name,
           senderId:         msg.author?.id ?? "",
@@ -762,9 +768,9 @@ export default function ChannelRoomPage() {
     return (
       <div
         className="flex items-center justify-center h-screen"
-        style={{ background: "#0d0d0b" }}
+        style={{ background: "var(--bg)" }}
       >
-        <p className="text-xs font-mono animate-pulse" style={{ color: "#2a2a1a" }}>
+        <p className="text-xs font-mono animate-pulse" style={{ color: "var(--text-dim)" }}>
           loading…
         </p>
       </div>
@@ -775,15 +781,15 @@ export default function ChannelRoomPage() {
     return (
       <div
         className="flex flex-col items-center justify-center h-screen gap-3"
-        style={{ background: "#0d0d0b" }}
+        style={{ background: "var(--bg)" }}
       >
-        <p className="text-sm" style={{ color: "#6b7280", fontFamily: "var(--font-dm-sans)" }}>
+        <p className="text-sm" style={{ color: "var(--text-muted)", fontFamily: "var(--font-dm-sans)" }}>
           channel not found.
         </p>
         <Link
           href="/channels"
           className="text-xs font-mono"
-          style={{ color: "#c8860a" }}
+          style={{ color: "var(--amber)" }}
         >
           ← browse channels
         </Link>
@@ -798,31 +804,31 @@ export default function ChannelRoomPage() {
     return (
       <div
         className="flex flex-col items-center justify-center h-screen gap-4"
-        style={{ background: "#0d0d0b" }}
+        style={{ background: "var(--bg)" }}
       >
         <div className="text-center space-y-1">
           <p
             className="text-lg font-semibold"
-            style={{ color: "#e5e7eb", fontFamily: "var(--font-dm-sans)" }}
+            style={{ color: "var(--text)", fontFamily: "var(--font-dm-sans)" }}
           >
             #{channel.name}
           </p>
           {channel.description && (
-            <p className="text-sm" style={{ color: "#6b7280" }}>
+            <p className="text-sm" style={{ color: "var(--text-muted)" }}>
               {channel.description}
             </p>
           )}
-          <p className="text-xs font-mono" style={{ color: "#3a3a2a" }}>
+          <p className="text-xs font-mono" style={{ color: "var(--text-dim)" }}>
             🔒 invite only · {channel.memberCount} members
           </p>
         </div>
-        <p className="text-sm" style={{ color: "#6b7280" }}>
+        <p className="text-sm" style={{ color: "var(--text-muted)" }}>
           you need an invite link to join this channel.
         </p>
         <Link
           href="/channels"
           className="text-xs font-mono"
-          style={{ color: "#c8860a" }}
+          style={{ color: "var(--amber)" }}
         >
           ← browse channels
         </Link>
@@ -836,7 +842,7 @@ export default function ChannelRoomPage() {
   return (
     <div
       className="flex h-screen overflow-hidden"
-      style={{ background: "#0d0d0b", fontFamily: "var(--font-dm-sans)" }}
+      style={{ background: "var(--bg)", fontFamily: "var(--font-dm-sans)" }}
     >
       {/* ---------------------------------------------------------------- */}
       {/* Main panel                                                        */}
@@ -845,19 +851,19 @@ export default function ChannelRoomPage() {
         {/* Topbar */}
         <div
           className="flex items-center gap-2.5 px-4 h-12 border-b flex-shrink-0"
-          style={{ borderColor: "#1a1a12", background: "#0a0a08" }}
+          style={{ borderColor: "var(--border)", background: "var(--bg)" }}
         >
           <Link
             href="/channels"
             className="text-sm font-mono mr-1 flex-shrink-0"
-            style={{ color: "#3a3a2a" }}
+            style={{ color: "var(--text-dim)" }}
           >
             ←
           </Link>
 
           <span
             className="text-sm font-bold truncate"
-            style={{ color: "#e5e7eb" }}
+            style={{ color: "var(--text)" }}
           >
             #{channel.name}
           </span>
@@ -866,7 +872,7 @@ export default function ChannelRoomPage() {
 
           <span
             className="text-[11px] font-mono ml-1"
-            style={{ color: "#3a3a2a" }}
+            style={{ color: "var(--text-dim)" }}
           >
             {channel.memberCount} member
             {channel.memberCount !== 1 ? "s" : ""}
@@ -875,7 +881,7 @@ export default function ChannelRoomPage() {
           {channel.slowModeMinutes > 0 && (
             <span
               className="text-[10px] font-mono hidden sm:inline"
-              style={{ color: "#2a2a1a" }}
+              style={{ color: "var(--text-dim)" }}
             >
               · 🕐 {channel.slowModeMinutes}m slow
             </span>
@@ -891,9 +897,9 @@ export default function ChannelRoomPage() {
             className="h-7 px-2.5 rounded-lg text-[11px] font-mono transition-colors flex-shrink-0"
             style={{
               background:
-                rightPanel === "members" ? "rgba(200,134,10,0.12)" : "transparent",
-              color: rightPanel === "members" ? "#c8860a" : "#3a3a2a",
-              border: `1px solid ${rightPanel === "members" ? "#c8860a33" : "transparent"}`,
+                rightPanel === "members" ? "var(--amber-tint)" : "transparent",
+              color: rightPanel === "members" ? "var(--amber)" : "var(--text-dim)",
+              border: `1px solid ${rightPanel === "members" ? "rgba(200,134,10,0.2)" : "transparent"}`,
             }}
           >
             members
@@ -910,23 +916,36 @@ export default function ChannelRoomPage() {
                 style={{
                   background:
                     rightPanel === "invite"
-                      ? "#c8860a"
-                      : "rgba(200,134,10,0.12)",
-                  color: rightPanel === "invite" ? "#fff8e6" : "#c8860a",
+                      ? "var(--amber)"
+                      : "var(--amber-tint)",
+                  color: rightPanel === "invite" ? "#fff8e6" : "var(--amber)",
                 }}
               >
                 invite
               </button>
             )}
+
+          {/* Settings (creator/admin only) */}
+          {channel.canManage && (
+            <Link
+              href={`/channels/${channel.name}/settings`}
+              className="h-7 px-2.5 rounded-lg text-[11px] font-mono flex items-center gap-1 flex-shrink-0 transition-all"
+              style={{ background: "var(--surface)", color: "var(--text-muted)", border: "1px solid var(--border)" }}
+              onMouseEnter={(e) => ((e.currentTarget as HTMLAnchorElement).style.borderColor = "var(--amber)")}
+              onMouseLeave={(e) => ((e.currentTarget as HTMLAnchorElement).style.borderColor = "var(--border)")}
+            >
+              ⚙ settings
+            </Link>
+          )}
         </div>
 
         {/* Description bar */}
         {channel.description && (
           <div
             className="px-4 py-1.5 border-b flex-shrink-0"
-            style={{ borderColor: "#1a1a12", background: "#0a0a08" }}
+            style={{ borderColor: "var(--border)", background: "var(--bg)" }}
           >
-            <p className="text-xs truncate" style={{ color: "#3a3a2a" }}>
+            <p className="text-xs truncate" style={{ color: "var(--text-dim)" }}>
               {channel.description}
             </p>
           </div>
@@ -940,7 +959,7 @@ export default function ChannelRoomPage() {
         >
           {messages.length === 0 && (
             <div className="flex items-center justify-center h-full">
-              <p className="text-sm italic" style={{ color: "#2a2a1a" }}>
+              <p className="text-sm italic" style={{ color: "var(--text-dim)" }}>
                 no messages yet — say something!
               </p>
             </div>
@@ -959,7 +978,7 @@ export default function ChannelRoomPage() {
         {/* Input bar */}
         <div
           className="flex-shrink-0 border-t"
-          style={{ borderColor: "#1a1a12", background: "#0a0a08" }}
+          style={{ borderColor: "var(--border)", background: "var(--bg)" }}
         >
           {canPost ? (
             <div className="px-3 py-3">
@@ -983,34 +1002,27 @@ export default function ChannelRoomPage() {
                   );
                 })()}
 
-                <textarea
-                  value={content}
-                  onChange={(e) => setContent(e.target.value.slice(0, 512))}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && !e.shiftKey) {
-                      e.preventDefault();
-                      void sendMessage();
+                <div className="flex-1 min-w-0">
+                  <RichTextEditor
+                    value={content}
+                    onChange={setContent}
+                    placeholder={
+                      inCooldown
+                        ? `🕐 you can post again in ${cooldownStr}`
+                        : `message #${channel.name}`
                     }
-                  }}
-                  disabled={inCooldown}
-                  placeholder={
-                    inCooldown
-                      ? `🕐 you can post again in ${cooldownStr}`
-                      : `message #${channel.name}`
-                  }
-                  rows={1}
-                  className="flex-1 resize-none bg-transparent outline-none text-sm leading-snug py-0.5 disabled:opacity-50"
-                  style={{
-                    color: "#d1d5db",
-                    fontFamily: "var(--font-dm-sans)",
-                  }}
-                />
+                    maxChars={512}
+                    variant="inline"
+                    onSubmit={sendMessage}
+                    disabled={inCooldown || sending}
+                  />
+                </div>
 
                 <button
                   onClick={sendMessage}
                   disabled={!content.trim() || sending || inCooldown}
                   className="flex-shrink-0 h-7 px-3 rounded-lg text-xs font-mono font-bold transition-all disabled:opacity-30"
-                  style={{ background: "#c8860a", color: "#fff8e6" }}
+                  style={{ background: "var(--amber)", color: "#fff8e6" }}
                 >
                   {sending ? "…" : "send"}
                 </button>
@@ -1020,7 +1032,7 @@ export default function ChannelRoomPage() {
               {(inCooldown || channel.slowModeMinutes > 0) && (
                 <p
                   className="text-[10px] font-mono mt-1.5 ml-8"
-                  style={{ color: inCooldown ? "#f59e0b" : "#2a2a1a" }}
+                  style={{ color: inCooldown ? "var(--away)" : "var(--text-dim)" }}
                 >
                   {inCooldown
                     ? `🕐 you can post again in ${cooldownStr}`
@@ -1042,7 +1054,7 @@ export default function ChannelRoomPage() {
               <Link
                 href="/login"
                 className="text-sm font-mono"
-                style={{ color: "#c8860a" }}
+                style={{ color: "var(--amber)" }}
               >
                 sign in to join the conversation →
               </Link>
@@ -1053,7 +1065,7 @@ export default function ChannelRoomPage() {
                 onClick={joinChannel}
                 disabled={joining}
                 className="text-sm font-mono px-4 py-1.5 rounded-lg transition-all disabled:opacity-50"
-                style={{ background: "#c8860a", color: "#fff8e6" }}
+                style={{ background: "var(--amber)", color: "#fff8e6" }}
               >
                 {joining ? "joining…" : `join #${channel.name}`}
               </button>
@@ -1068,7 +1080,7 @@ export default function ChannelRoomPage() {
       {rightPanel && (
         <div
           className="w-72 flex-shrink-0 overflow-hidden"
-          style={{ background: "#0a0a08" }}
+          style={{ background: "var(--bg)" }}
         >
           {rightPanel === "members" && (
             <MemberPanel

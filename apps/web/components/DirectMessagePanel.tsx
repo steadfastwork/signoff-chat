@@ -129,14 +129,6 @@ export function DirectMessagePanel({ otherUser }: { otherUser: DMUser }) {
             direct message
           </p>
         </div>
-        <button
-          onClick={() => { unlockSounds().then(() => playSound("message")); }}
-          className="text-[10px] font-mono px-2 py-1 rounded border"
-          style={{ color: "var(--text-dim)", borderColor: "var(--border)" }}
-          title="test sound"
-        >
-          🔊 test
-        </button>
       </div>
 
       {/* Messages */}

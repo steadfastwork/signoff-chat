@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { CreateChannelPanel } from "@/components/CreateChannelPanel";
 
@@ -19,6 +20,7 @@ interface ChannelSummary {
   memberCap: number | null;
   memberCount: number;
   favoriteByMe: boolean;
+  canManage?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -55,6 +57,7 @@ function ChannelCard({
   channel: ChannelSummary;
   onFavoriteToggle?: (id: string, value: boolean) => void;
 }) {
+  const router = useRouter();
   const [toggling, setToggling] = useState(false);
 
   const handleFavorite = async (e: React.MouseEvent) => {
@@ -138,6 +141,26 @@ function ChannelCard({
           )}
         </div>
       </div>
+
+      {/* Settings button (owner only) */}
+      {channel.canManage && (
+        <button
+          onClick={(e) => { e.preventDefault(); router.push(`/channels/${channel.name}/settings`); }}
+          className="flex-shrink-0 text-[11px] font-mono px-2 py-1 rounded-lg border transition-all mt-0.5"
+          style={{ color: "var(--text-muted)", borderColor: "var(--border)" }}
+          title="channel settings"
+          onMouseEnter={(e) => {
+            (e.currentTarget as HTMLButtonElement).style.borderColor = "var(--amber)";
+            (e.currentTarget as HTMLButtonElement).style.color = "var(--amber)";
+          }}
+          onMouseLeave={(e) => {
+            (e.currentTarget as HTMLButtonElement).style.borderColor = "var(--border)";
+            (e.currentTarget as HTMLButtonElement).style.color = "var(--text-muted)";
+          }}
+        >
+          ⚙
+        </button>
+      )}
 
       {/* Favorite star */}
       {onFavoriteToggle && (

@@ -58,6 +58,7 @@ export async function GET(req: NextRequest) {
         memberCount: m.channel._count.members,
         joinedAt: m.joinedAt,
         favoriteByMe: favSet.has(m.channel.id),
+        canManage: m.channel.creatorId === session.user.id,
       }))
     );
   }

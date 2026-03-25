@@ -4,7 +4,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { pusherServer, CHANNELS, EVENTS } from "@/lib/pusher";
 import { rateLimit, limiters } from "@/lib/ratelimit";
-import { stripHtml, sanitizeUrl } from "@/lib/sanitize";
+import { sanitizeRichText, richTextLength, sanitizeUrl } from "@/lib/sanitize";
 import { internalError } from "@/lib/api-error";
 import { getExcludedUserIds } from "@/lib/blocks";
 import { notifyChannelMessage } from "@/lib/expoNotifications";
@@ -127,6 +127,14 @@ export async function POST(req: NextRequest, { params }: Params) {
     );
   }
 
+  // Mute check
+  if (membership.mutedUntil && membership.mutedUntil > new Date()) {
+    return NextResponse.json(
+      { error: "you are muted in this channel.", mutedUntil: membership.mutedUntil.toISOString() },
+      { status: 403 }
+    );
+  }
+
   // Slow mode enforcement
   if (channel.slowModeMinutes > 0 && membership.lastMessageAt) {
     const cooldownMs = channel.slowModeMinutes * 60 * 1000;
@@ -161,16 +169,17 @@ export async function POST(req: NextRequest, { params }: Params) {
     mediaType?: "IMAGE" | "VIDEO" | "GIF";
   };
 
-  const content = stripHtml(body.content ?? "");
+  const content = sanitizeRichText(body.content ?? "");
+  const contentLen = richTextLength(content);
   const mediaUrl = sanitizeUrl(body.mediaUrl);
 
-  if (!content) {
+  if (!contentLen) {
     return NextResponse.json(
       { error: "content is required." },
       { status: 400 }
     );
   }
-  if (content.length > 512) {
+  if (contentLen > 512) {
     return NextResponse.json(
       { error: "message cannot exceed 512 characters." },
       { status: 400 }

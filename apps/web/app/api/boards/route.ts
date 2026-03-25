@@ -41,6 +41,7 @@ export async function GET(req: NextRequest) {
         memberCount: m.board.memberCount,
         isFoundingMember: m.isFoundingMember,
         joinedAt: m.joinedAt,
+        canManage: m.board.creatorId === session.user.id,
       }))
     );
   }

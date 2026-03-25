@@ -38,18 +38,22 @@ async function loadBuffer(name: SoundName): Promise<void> {
  * AudioContext and preload all sound buffers.
  */
 export async function unlockSounds(): Promise<void> {
-  if (typeof window === "undefined" || unlocked) return;
-  unlocked = true;
+  if (typeof window === "undefined") return;
   const context = getContext();
   if (context.state === "suspended") {
     await context.resume().catch(() => {});
   }
-  await Promise.all(SOUND_NAMES.map(loadBuffer));
+  // Load any buffers that haven't been loaded yet (retries on failure)
+  const missing = SOUND_NAMES.filter((n) => !buffers[n]);
+  if (missing.length > 0) {
+    await Promise.all(missing.map(loadBuffer));
+  }
+  unlocked = true;
 }
 
 /**
  * Play a named sound. No-ops if the context hasn't been unlocked yet or the
- * buffer hasn't loaded.
+ * buffer hasn't loaded. Resumes the AudioContext if it was auto-suspended.
  */
 export function playSound(name: SoundName): void {
   if (typeof window === "undefined") return;
@@ -57,15 +61,23 @@ export function playSound(name: SoundName): void {
   const buffer = buffers[name];
   if (!context || !buffer) return;
 
-  try {
-    const source = context.createBufferSource();
-    source.buffer = buffer;
-    const gain = context.createGain();
-    gain.gain.value = 0.5;
-    source.connect(gain);
-    gain.connect(context.destination);
-    source.start(0);
-  } catch {
-    // ignore
+  const doPlay = () => {
+    try {
+      const source = context.createBufferSource();
+      source.buffer = buffer;
+      const gain = context.createGain();
+      gain.gain.value = 0.5;
+      source.connect(gain);
+      gain.connect(context.destination);
+      source.start(0);
+    } catch {
+      // ignore
+    }
+  };
+
+  if (context.state === "suspended") {
+    context.resume().then(doPlay).catch(() => {});
+  } else {
+    doPlay();
   }
 }

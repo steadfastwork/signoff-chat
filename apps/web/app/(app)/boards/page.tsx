@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { CreateBoardPanel } from "@/components/CreateBoardPanel";
 
@@ -13,6 +14,7 @@ interface BoardSummary {
   type: "PUBLIC" | "INVITE_ONLY" | "SECRET";
   memberCount: number;
   isFoundingMember?: boolean;
+  canManage?: boolean;
 }
 
 function TypeBadge({ type }: { type: "PUBLIC" | "INVITE_ONLY" | "SECRET" }) {
@@ -41,28 +43,29 @@ function BoardCard({
   board: BoardSummary;
   showFoundingBadge?: boolean;
 }) {
+  const router = useRouter();
   const initial = board.displayName.charAt(0).toUpperCase();
 
   return (
     <Link
       href={`/boards/${board.name}`}
       className="flex items-start gap-3 px-4 py-3.5 rounded-2xl border transition-all"
-      style={{ borderColor: "#1a1a12", background: "#0a0a08" }}
+      style={{ borderColor: "var(--border)", background: "var(--bg)" }}
       onMouseEnter={(e) => {
         const el = e.currentTarget as HTMLAnchorElement;
-        el.style.borderColor = "#2a2a1a";
-        el.style.background = "#111109";
+        el.style.borderColor = "var(--border-bright)";
+        el.style.background = "var(--surface)";
       }}
       onMouseLeave={(e) => {
         const el = e.currentTarget as HTMLAnchorElement;
-        el.style.borderColor = "#1a1a12";
-        el.style.background = "#0a0a08";
+        el.style.borderColor = "var(--border)";
+        el.style.background = "var(--bg)";
       }}
     >
       {/* Board icon */}
       <div
         className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 text-base font-bold"
-        style={{ background: "#1a1a12", color: "#3a3a2a" }}
+        style={{ background: "var(--surface)", color: "var(--text-dim)" }}
       >
         {initial}
       </div>
@@ -71,7 +74,7 @@ function BoardCard({
         <div className="flex items-center gap-2 flex-wrap">
           <span
             className="text-sm font-semibold"
-            style={{ color: "#e5e7eb", fontFamily: "var(--font-dm-sans)" }}
+            style={{ color: "var(--text)", fontFamily: "var(--font-dm-sans)" }}
           >
             {board.displayName}
           </span>
@@ -81,7 +84,7 @@ function BoardCard({
               className="text-[9px] font-mono px-1 py-0.5 rounded"
               style={{
                 background: "rgba(200,134,10,0.08)",
-                color: "#c8860a",
+                color: "var(--amber)",
                 border: "1px solid rgba(200,134,10,0.2)",
               }}
             >
@@ -92,16 +95,36 @@ function BoardCard({
 
         <p
           className="text-xs mt-0.5 line-clamp-1 italic"
-          style={{ color: "#4b5563", fontFamily: "var(--font-dm-sans)" }}
+          style={{ color: "var(--text-muted)", fontFamily: "var(--font-dm-sans)" }}
         >
           {board.vibeStatement}
         </p>
 
-        <p className="text-[11px] font-mono mt-1" style={{ color: "#2a2a1a" }}>
+        <p className="text-[11px] font-mono mt-1" style={{ color: "var(--text-dim)" }}>
           {board.memberCount.toLocaleString()} member
           {board.memberCount !== 1 ? "s" : ""}
         </p>
       </div>
+
+      {/* Settings button (owner only) */}
+      {board.canManage && (
+        <button
+          onClick={(e) => { e.preventDefault(); router.push(`/boards/${board.name}/settings`); }}
+          className="flex-shrink-0 text-[11px] font-mono px-2 py-1 rounded-lg border transition-all mt-0.5"
+          style={{ color: "var(--text-muted)", borderColor: "var(--border)" }}
+          title="board settings"
+          onMouseEnter={(e) => {
+            (e.currentTarget as HTMLButtonElement).style.borderColor = "var(--amber)";
+            (e.currentTarget as HTMLButtonElement).style.color = "var(--amber)";
+          }}
+          onMouseLeave={(e) => {
+            (e.currentTarget as HTMLButtonElement).style.borderColor = "var(--border)";
+            (e.currentTarget as HTMLButtonElement).style.color = "var(--text-muted)";
+          }}
+        >
+          ⚙
+        </button>
+      )}
     </Link>
   );
 }
@@ -142,16 +165,16 @@ export default function BoardsPage() {
   return (
     <div
       className="min-h-screen"
-      style={{ background: "#0d0d0b", fontFamily: "var(--font-dm-sans)" }}
+      style={{ background: "var(--bg)", fontFamily: "var(--font-dm-sans)" }}
     >
       <div className="max-w-2xl mx-auto px-4 py-8">
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <div>
-            <h1 className="text-xl font-bold" style={{ color: "#e5e7eb" }}>
+            <h1 className="text-xl font-bold" style={{ color: "var(--text)" }}>
               Boards
             </h1>
-            <p className="text-sm mt-0.5" style={{ color: "#6b7280" }}>
+            <p className="text-sm mt-0.5" style={{ color: "var(--text-muted)" }}>
               async topic communities — no algorithms, just vibes
             </p>
           </div>
@@ -160,8 +183,8 @@ export default function BoardsPage() {
               onClick={() => setShowCreate((v) => !v)}
               className="h-9 px-4 rounded-xl text-sm font-mono font-bold transition-all"
               style={{
-                background: showCreate ? "#1a1a12" : "#2dd4bf",
-                color: showCreate ? "#6b7280" : "#0d0d0b",
+                background: showCreate ? "var(--surface)" : "var(--teal)",
+                color: showCreate ? "var(--text-muted)" : "var(--bg)",
               }}
             >
               {showCreate ? "cancel" : "+ create"}
@@ -173,7 +196,7 @@ export default function BoardsPage() {
         {showCreate && (
           <div
             className="rounded-2xl border mb-6"
-            style={{ borderColor: "#1e1e14", background: "#111109" }}
+            style={{ borderColor: "var(--border)", background: "var(--surface)" }}
           >
             <CreateBoardPanel onClose={() => setShowCreate(false)} />
           </div>
@@ -182,18 +205,18 @@ export default function BoardsPage() {
         {/* Search */}
         <div
           className="flex items-center gap-2 rounded-xl border px-3 h-10 mb-6"
-          style={{ borderColor: "#1e1e14", background: "#111109" }}
+          style={{ borderColor: "var(--border)", background: "var(--surface)" }}
         >
-          <span className="text-sm" style={{ color: "#3a3a2a" }}>🔍</span>
+          <span className="text-sm" style={{ color: "var(--text-dim)" }}>🔍</span>
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="search boards…"
             className="flex-1 bg-transparent outline-none text-sm"
-            style={{ color: "#d1d5db" }}
+            style={{ color: "var(--text)" }}
           />
           {loadingSearch && (
-            <span className="text-[10px] font-mono animate-pulse" style={{ color: "#3a3a2a" }}>
+            <span className="text-[10px] font-mono animate-pulse" style={{ color: "var(--text-dim)" }}>
               …
             </span>
           )}
@@ -204,7 +227,7 @@ export default function BoardsPage() {
           <section className="mb-8">
             <h2
               className="text-[11px] font-mono uppercase tracking-widest mb-3"
-              style={{ color: "#3a3a2a" }}
+              style={{ color: "var(--text-dim)" }}
             >
               your boards
             </h2>
@@ -220,13 +243,13 @@ export default function BoardsPage() {
         <section>
           <h2
             className="text-[11px] font-mono uppercase tracking-widest mb-3"
-            style={{ color: "#3a3a2a" }}
+            style={{ color: "var(--text-dim)" }}
           >
             {query.length > 0 ? "results" : "all public boards"}
           </h2>
 
           {results.length === 0 && !loadingSearch ? (
-            <p className="text-sm italic py-4" style={{ color: "#2a2a1a" }}>
+            <p className="text-sm italic py-4" style={{ color: "var(--text-dim)" }}>
               {query.length > 0
                 ? `no boards match "${query}"`
                 : "no boards yet — start one!"}

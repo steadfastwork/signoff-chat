@@ -5,29 +5,18 @@ import { prisma } from "@/lib/prisma";
 
 type Params = { params: { channelName: string; userId: string } };
 
-// ---------------------------------------------------------------------------
-// Channel founder/creator member management.
-// Only the channel creator can remove members or issue bans.
-// Platform staff (isAdmin) can also remove/ban.
-// ---------------------------------------------------------------------------
-
-async function getActorRole(
-  actorId: string,
-  channel: { creatorId: string }
-): Promise<"creator" | "admin" | null> {
-  if (actorId === channel.creatorId) return "creator";
-  const actor = await prisma.user.findUnique({
-    where: { id: actorId },
-    select: { isAdmin: true },
-  });
-  if (actor?.isAdmin) return "admin";
-  return null;
+async function getActorRole(channelId: string, actorId: string) {
+  const [channel, actor] = await Promise.all([
+    prisma.channel.findUnique({ where: { id: channelId }, select: { creatorId: true } }),
+    prisma.user.findUnique({ where: { id: actorId }, select: { isAdmin: true } }),
+  ]);
+  const isCreator = channel?.creatorId === actorId;
+  const isAdmin = actor?.isAdmin ?? false;
+  return { isCreator, isAdmin, allowed: isCreator || isAdmin };
 }
 
 // ---------------------------------------------------------------------------
-// DELETE /api/channels/[channelName]/members/[userId]
-// Remove a member from the channel. Optionally ban (prevent rejoin).
-// Body: { ban?: boolean }
+// DELETE /api/channels/[channelName]/members/[userId] — kick or ban
 // ---------------------------------------------------------------------------
 
 export async function DELETE(req: NextRequest, { params }: Params) {
@@ -36,93 +25,66 @@ export async function DELETE(req: NextRequest, { params }: Params) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
-  const channel = await prisma.channel.findUnique({
-    where: { name: params.channelName },
-    select: { id: true, creatorId: true },
-  });
-  if (!channel) {
-    return NextResponse.json({ error: "channel not found." }, { status: 404 });
-  }
+  const channel = await prisma.channel.findUnique({ where: { name: params.channelName } });
+  if (!channel) return NextResponse.json({ error: "not found." }, { status: 404 });
 
-  const role = await getActorRole(session.user.id, channel);
-  if (!role) {
-    return NextResponse.json({ error: "forbidden — creator or admin only." }, { status: 403 });
-  }
+  const { allowed } = await getActorRole(channel.id, session.user.id);
+  if (!allowed) return NextResponse.json({ error: "forbidden." }, { status: 403 });
 
   if (params.userId === channel.creatorId) {
     return NextResponse.json({ error: "cannot remove the channel creator." }, { status: 400 });
   }
 
-  let ban = false;
-  try {
-    const body = await req.json();
-    ban = body?.ban === true;
-  } catch {}
+  const body = await req.json().catch(() => ({}));
+  const ban = body.ban === true;
 
-  // Remove member
   await prisma.channelMember.deleteMany({
-    where: { channelId: channel.id, userId: params.userId },
+    where: { userId: params.userId, channelId: channel.id },
   });
 
-  // Optionally ban (prevent rejoin via invite)
   if (ban) {
     await prisma.channelBan.upsert({
       where: { channelId_userId: { channelId: channel.id, userId: params.userId } },
-      create: { channelId: channel.id, userId: params.userId },
       update: {},
+      create: { channelId: channel.id, userId: params.userId },
     });
   }
 
-  return NextResponse.json({ removed: true, banned: ban });
+  return NextResponse.json({ ok: true });
 }
 
 // ---------------------------------------------------------------------------
-// POST /api/channels/[channelName]/members/[userId]
-// Ban a user from the channel (without removing if already out).
-// Body: { ban: true } — explicit, prevents accidental bans
+// PATCH /api/channels/[channelName]/members/[userId] — mute or unmute
+// Body: { mutedUntil: ISO string | null }
 // ---------------------------------------------------------------------------
 
-export async function POST(req: NextRequest, { params }: Params) {
+export async function PATCH(req: NextRequest, { params }: Params) {
   const session = await getServerSession(authOptions);
   if (!session?.user?.id) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
-  const channel = await prisma.channel.findUnique({
-    where: { name: params.channelName },
-    select: { id: true, creatorId: true },
-  });
-  if (!channel) {
-    return NextResponse.json({ error: "channel not found." }, { status: 404 });
-  }
+  const channel = await prisma.channel.findUnique({ where: { name: params.channelName } });
+  if (!channel) return NextResponse.json({ error: "not found." }, { status: 404 });
 
-  const role = await getActorRole(session.user.id, channel);
-  if (!role) {
-    return NextResponse.json({ error: "forbidden — creator or admin only." }, { status: 403 });
-  }
-
-  let body: Record<string, unknown> = {};
-  try { body = await req.json(); } catch {}
-
-  if (body.ban !== true) {
-    return NextResponse.json({ error: "set ban: true to confirm." }, { status: 400 });
-  }
+  const { allowed } = await getActorRole(channel.id, session.user.id);
+  if (!allowed) return NextResponse.json({ error: "forbidden." }, { status: 403 });
 
   if (params.userId === channel.creatorId) {
-    return NextResponse.json({ error: "cannot ban the channel creator." }, { status: 400 });
+    return NextResponse.json({ error: "cannot mute the channel creator." }, { status: 400 });
   }
 
-  // Remove from channel + add to ban list
-  await Promise.all([
-    prisma.channelMember.deleteMany({
-      where: { channelId: channel.id, userId: params.userId },
-    }),
-    prisma.channelBan.upsert({
-      where: { channelId_userId: { channelId: channel.id, userId: params.userId } },
-      create: { channelId: channel.id, userId: params.userId },
-      update: {},
-    }),
-  ]);
+  const body = await req.json().catch(() => ({}));
+  const mutedUntil = body.mutedUntil ? new Date(body.mutedUntil) : null;
 
-  return NextResponse.json({ banned: true });
+  const updated = await prisma.channelMember.updateMany({
+    where: { userId: params.userId, channelId: channel.id },
+    data: { mutedUntil },
+  });
+
+  if (updated.count === 0) {
+    return NextResponse.json({ error: "member not found." }, { status: 404 });
+  }
+
+  return NextResponse.json({ ok: true, mutedUntil: mutedUntil?.toISOString() ?? null });
 }
