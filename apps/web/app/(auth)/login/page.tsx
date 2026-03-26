@@ -1,9 +1,10 @@
 "use client";
 
 import { useState, useRef, Suspense } from "react";
-import { signIn } from "next-auth/react";
+import { signIn, getSession } from "next-auth/react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
+import { hasEncryptedKey, loadAndDecryptKey, cacheDecryptedKey } from "@/lib/crypto/localKey";
 
 // ---------------------------------------------------------------------------
 // Sub-components
@@ -69,6 +70,16 @@ function LoginForm() {
     if (result?.error) {
       setError("wrong screenname or password. try again.");
     } else {
+      // Try to unlock stored encryption key for this session
+      try {
+        const session = await getSession();
+        if (session?.user?.id && hasEncryptedKey(session.user.id)) {
+          const sk = await loadAndDecryptKey(session.user.id, password);
+          cacheDecryptedKey(session.user.id, sk);
+        }
+      } catch {
+        // Key unlock failed (wrong password stored, or corrupted) — not fatal
+      }
       router.push("/feed");
       router.refresh();
     }

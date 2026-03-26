@@ -10,7 +10,7 @@ export function Navbar() {
 
   async function handleSignOff() {
     await updateStatus("OFFLINE");
-    signOut({ callbackUrl: "/login" });
+    signOut({ callbackUrl: `${window.location.origin}/login` });
   }
 
   return (

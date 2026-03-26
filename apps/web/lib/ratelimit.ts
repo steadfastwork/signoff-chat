@@ -67,6 +67,9 @@ export const limiters = {
   /** Auth routes: 5 req/min per IP */
   auth: make(5, "1 m"),
 
+  /** Admin routes: 60 req/min per IP */
+  admin: make(60, "1 m"),
+
   /** Post creation: 10 posts/min per user (normal) */
   postCreate: make(10, "1 m"),
 

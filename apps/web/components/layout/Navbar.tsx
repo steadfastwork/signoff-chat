@@ -95,7 +95,7 @@ function NavTab({ href, label, active, accent = "amber" }: NavTabProps) {
 // Navbar
 // ---------------------------------------------------------------------------
 
-export function Navbar() {
+export function Navbar({ boardsEnabled = false }: { boardsEnabled?: boolean }) {
   const { data: session, status } = useSession();
   const pathname = usePathname();
   const { theme, toggle } = useTheme();
@@ -124,7 +124,7 @@ export function Navbar() {
 
   const handleSignOff = async () => {
     await updateStatus("OFFLINE");
-    signOut({ callbackUrl: "/login" });
+    signOut({ callbackUrl: `${window.location.origin}/login` });
   };
 
   const isAuthenticated = status === "authenticated" && !!session;
@@ -166,7 +166,9 @@ export function Navbar() {
             <div className="hidden md:flex items-center h-full gap-1">
               <NavTab href="/feed" label="Feed" active={feedActive} accent="amber" />
               <NavTab href="/channels" label="Channels" active={channelsActive} accent="amber" />
-              <NavTab href="/boards" label="Boards" active={boardsActive} accent="teal" />
+              {boardsEnabled && (
+                <NavTab href="/boards" label="Boards" active={boardsActive} accent="teal" />
+              )}
             </div>
           )}
 

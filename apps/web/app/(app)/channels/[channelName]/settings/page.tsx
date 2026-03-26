@@ -101,7 +101,7 @@ export default function ChannelSettingsPage() {
   useEffect(() => {
     if (!loading && channel && session?.user?.id) {
       const isCreator = channel.creatorId === session.user.id;
-      if (!isCreator && !(session.user as { isAdmin?: boolean }).isAdmin) {
+      if (!isCreator && !(session.user as { adminRole?: string | null }).adminRole) {
         router.replace(`/channels/${channelName}`);
       }
     }

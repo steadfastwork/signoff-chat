@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
-import { Stack, useRouter, useSegments } from "expo-router";
+import { Stack } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider } from "react-native-safe-area-context";
@@ -10,9 +10,10 @@ import { DMSans_400Regular, DMSans_700Bold } from "@expo-google-fonts/dm-sans";
 import { VT323_400Regular } from "@expo-google-fonts/vt323";
 import { ThemeProvider } from "@/lib/theme";
 import { getSession, type Session } from "@/lib/session";
+import { AuthGuard } from "@/components/AuthGuard";
 import { setSoketiAuth } from "@/lib/soketi";
 import { createTables } from "@/lib/db/localMessages";
-import { createPostsTable } from "@/lib/db/localPosts";
+import { createPostsTable } from "@/lib/db/localPosts"; // kept for forward-compat
 import * as Notifications from "expo-notifications";
 import {
   setupNotificationHandlers,
@@ -24,31 +25,6 @@ SplashScreen.preventAutoHideAsync();
 
 // Set up foreground notification display rules immediately at module load.
 setupNotificationHandlers();
-
-// ---------------------------------------------------------------------------
-// Auth guard — runs after every navigation segment change.
-// Redirects unauthenticated users to login; redirects authed users away from
-// the auth screens.
-// ---------------------------------------------------------------------------
-
-function AuthGuard({ session }: { session: Session | null | undefined }) {
-  const segments = useSegments();
-  const router = useRouter();
-
-  useEffect(() => {
-    if (session === undefined) return; // still initializing
-
-    const inAuth = segments[0] === "(auth)";
-
-    if (!session && !inAuth) {
-      router.replace("/(auth)/login");
-    } else if (session && inAuth) {
-      router.replace("/(app)/(tabs)/feed");
-    }
-  }, [session, segments, router]);
-
-  return null;
-}
 
 // ---------------------------------------------------------------------------
 // Root layout — mounts once, wraps the entire app.

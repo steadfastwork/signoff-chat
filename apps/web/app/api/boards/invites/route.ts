@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { randomBytes } from "crypto";
 import { rateLimit, limiters } from "@/lib/ratelimit";
+import { getFeatureFlag, BOARDS_ENABLED } from "@/lib/featureFlags";
 
 // ---------------------------------------------------------------------------
 // POST /api/boards/invites — generate an invite link for a board
@@ -11,6 +12,9 @@ import { rateLimit, limiters } from "@/lib/ratelimit";
 // ---------------------------------------------------------------------------
 
 export async function POST(req: NextRequest) {
+  if (!await getFeatureFlag(BOARDS_ENABLED)) {
+    return NextResponse.json({ error: "not found" }, { status: 404 });
+  }
   const session = await getServerSession(authOptions);
   if (!session?.user?.id) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
@@ -71,6 +75,9 @@ export async function POST(req: NextRequest) {
 // ---------------------------------------------------------------------------
 
 export async function DELETE(req: NextRequest) {
+  if (!await getFeatureFlag(BOARDS_ENABLED)) {
+    return NextResponse.json({ error: "not found" }, { status: 404 });
+  }
   const session = await getServerSession(authOptions);
   if (!session?.user?.id) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });

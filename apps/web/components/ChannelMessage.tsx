@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { StatusDot, type StatusValue } from "@/components/StatusDot";
+import { RichTextContent } from "@/components/RichTextContent";
 import { formatTimestamp } from "@/lib/utils";
 
 // ---------------------------------------------------------------------------
@@ -11,6 +12,10 @@ import { formatTimestamp } from "@/lib/utils";
 export interface ChannelMessageData {
   id: string;
   content: string;
+  isEncrypted?: boolean;
+  encryptedContent?: string | null;
+  iv?: string | null;
+  keyVersion?: number | null;
   mediaUrl: string | null;
   mediaType: "IMAGE" | "VIDEO" | "GIF" | null;
   createdAt: string;
@@ -86,7 +91,7 @@ export function ChannelMessage({
             </span>
           </div>
           <span className="absolute -bottom-0.5 -right-0.5">
-            <StatusDot status={message.author.status} size="sm" bg="#0d0d0b" />
+            <StatusDot status={message.author.status} size="sm" bg="var(--bg)" />
           </span>
         </div>
       </div>
@@ -98,7 +103,7 @@ export function ChannelMessage({
           <span
             className="text-[13px] font-semibold leading-none"
             style={{
-              color: isOwn ? "#c8860a" : "#9ca3af",
+              color: isOwn ? "var(--amber)" : "var(--text-muted)",
               fontFamily: "var(--font-dm-sans)",
             }}
           >
@@ -111,31 +116,64 @@ export function ChannelMessage({
           </span>
           <span
             className="text-[10px] font-mono"
-            style={{ color: "#2a2a1a" }}
+            style={{ color: "var(--text-dim)" }}
           >
             {formatTimestamp(message.createdAt)}
           </span>
         </div>
 
         {/* Message text */}
-        <p
-          className="text-[13px] leading-snug mt-0.5 break-words whitespace-pre-wrap"
-          style={{ color: "#6b7280", fontFamily: "var(--font-dm-sans)" }}
-        >
-          {message.content}
-        </p>
+        {message.content && message.content !== "[encrypted]" && (
+          <div
+            className="text-[13px] leading-snug mt-0.5"
+            style={{ color: "var(--text-muted)", fontFamily: "var(--font-dm-sans)" }}
+          >
+            <RichTextContent html={message.content} />
+          </div>
+        )}
+        {message.content === "[encrypted]" && (
+          <div className="text-[13px] leading-snug mt-0.5" style={{ color: "var(--text-dim)" }}>
+            🔒 encrypted message
+          </div>
+        )}
+
+        {/* Media attachment */}
+        {message.mediaUrl && message.mediaType === "IMAGE" && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={message.mediaUrl}
+            alt="attachment"
+            className="mt-1 rounded-lg max-w-[320px] max-h-[240px] object-cover cursor-pointer"
+            onClick={() => window.open(message.mediaUrl!, "_blank")}
+          />
+        )}
+        {message.mediaUrl && message.mediaType === "VIDEO" && (
+          <video
+            src={message.mediaUrl}
+            controls
+            className="mt-1 rounded-lg max-w-[320px]"
+          />
+        )}
+        {message.mediaUrl && message.mediaType === "GIF" && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={message.mediaUrl}
+            alt="GIF"
+            className="mt-1 rounded-lg max-w-[320px]"
+          />
+        )}
 
         {/* Thread indicator */}
         {message.thread && message.thread.messageCount > 0 && (
           <button
             onClick={() => onThreadOpen?.(message.id)}
             className="mt-1 flex items-center gap-1 text-[11px] font-mono transition-colors"
-            style={{ color: "#3a3a2a" }}
+            style={{ color: "var(--text-dim)" }}
             onMouseEnter={(e) =>
-              (e.currentTarget.style.color = "#c8860a")
+              (e.currentTarget.style.color = "var(--amber)")
             }
             onMouseLeave={(e) =>
-              (e.currentTarget.style.color = "#3a3a2a")
+              (e.currentTarget.style.color = "var(--text-dim)")
             }
           >
             <span>💬</span>
@@ -152,36 +190,37 @@ export function ChannelMessage({
         <div
           className="absolute right-3 top-1 flex items-center gap-0.5 rounded-lg px-1 py-0.5 border"
           style={{
-            background: "#0d0d0b",
-            borderColor: "#1e1e14",
+            background: "var(--bg)",
+            borderColor: "var(--border)",
           }}
         >
           <button
             onClick={() => onThreadOpen?.(message.id)}
             title="Reply in thread"
             className="w-6 h-6 flex items-center justify-center rounded text-[11px] transition-colors"
-            style={{ color: "#3a3a2a" }}
+            style={{ color: "var(--text-dim)" }}
             onMouseEnter={(e) =>
-              (e.currentTarget.style.color = "#c8860a")
+              (e.currentTarget.style.color = "var(--amber)")
             }
             onMouseLeave={(e) =>
-              (e.currentTarget.style.color = "#3a3a2a")
+              (e.currentTarget.style.color = "var(--text-dim)")
             }
           >
             💬
           </button>
           <button
-            onClick={() =>
-              navigator.clipboard.writeText(message.content)
-            }
+            onClick={() => {
+              const text = message.content.replace(/<[^>]+>/g, "").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"');
+              navigator.clipboard.writeText(text);
+            }}
             title="Copy message"
             className="w-6 h-6 flex items-center justify-center rounded text-[11px] transition-colors"
-            style={{ color: "#3a3a2a" }}
+            style={{ color: "var(--text-dim)" }}
             onMouseEnter={(e) =>
-              (e.currentTarget.style.color = "#9ca3af")
+              (e.currentTarget.style.color = "var(--text-muted)")
             }
             onMouseLeave={(e) =>
-              (e.currentTarget.style.color = "#3a3a2a")
+              (e.currentTarget.style.color = "var(--text-dim)")
             }
           >
             ⎘

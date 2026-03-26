@@ -63,7 +63,7 @@ export async function GET(_req: NextRequest, { params }: Params) {
   // Full response for members or PUBLIC channels
   const isCreator = session?.user?.id === channel.creatorId;
   const isAdmin = !isCreator && session?.user?.id
-    ? !!(await prisma.user.findUnique({ where: { id: session.user.id }, select: { isAdmin: true } }))?.isAdmin
+    ? (await prisma.user.findUnique({ where: { id: session.user.id }, select: { adminRole: true } }))?.adminRole != null
     : false;
   const canManage = isCreator || isAdmin;
 
@@ -73,7 +73,7 @@ export async function GET(_req: NextRequest, { params }: Params) {
       })
     : null;
 
-  const [messages, members] = await Promise.all([
+  const [messages, members, channelKeys] = await Promise.all([
     prisma.channelMessage.findMany({
       where: { channelId: channel.id },
       orderBy: { createdAt: "asc" },
@@ -88,7 +88,21 @@ export async function GET(_req: NextRequest, { params }: Params) {
       include: { user: { select: authorSelect } },
       orderBy: { joinedAt: "asc" },
     }),
+    session?.user?.id
+      ? prisma.channelKey.findMany({
+          where: { channelId: channel.id, expiresAt: { gt: new Date() } },
+          orderBy: { keyVersion: "desc" },
+        })
+      : Promise.resolve([]),
   ]);
+
+  // Find the most recent key that has an entry for this user
+  const activeKey = session?.user?.id
+    ? channelKeys.find((k) => {
+        const keys = k.encryptedKeys as Record<string, string>;
+        return !!keys[session.user.id];
+      })
+    : null;
 
   return NextResponse.json({
     id: channel.id,
@@ -109,9 +123,19 @@ export async function GET(_req: NextRequest, { params }: Params) {
           lastMessageAt: membership.lastMessageAt,
         }
       : null,
+    activeKey: activeKey
+      ? {
+          keyVersion: activeKey.keyVersion,
+          myEncryptedKey: (activeKey.encryptedKeys as Record<string, string>)[session!.user.id],
+        }
+      : null,
     messages: messages.map((m) => ({
       id: m.id,
       content: m.content,
+      isEncrypted: m.isEncrypted,
+      encryptedContent: m.encryptedContent ?? null,
+      iv: m.iv ?? null,
+      keyVersion: m.keyVersion ?? null,
       mediaUrl: m.mediaUrl,
       mediaType: m.mediaType,
       createdAt: m.createdAt,
@@ -148,9 +172,9 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   const isCreator = channel.creatorId === session.user.id;
   const actor = isCreator ? null : await prisma.user.findUnique({
     where: { id: session.user.id },
-    select: { isAdmin: true },
+    select: { adminRole: true },
   });
-  if (!isCreator && !actor?.isAdmin) {
+  if (!isCreator && !actor?.adminRole) {
     return NextResponse.json({ error: "forbidden." }, { status: 403 });
   }
 

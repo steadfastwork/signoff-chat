@@ -19,7 +19,10 @@ export async function GET() {
       status: true,
       isGoldMember: true,
       profileTheme: true,
+      avatarUrl: true,
+      soundPack: true,
       createdAt: true,
+      feedVisibility: true,
     },
   });
 
@@ -32,7 +35,7 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
-  const { bio, awayMessage, status, profileTheme } = await req.json();
+  const { bio, awayMessage, status, profileTheme, soundPack, clearAvatar, feedVisibility } = await req.json();
   const data: Record<string, unknown> = {};
 
   if (bio !== undefined) {
@@ -57,8 +60,27 @@ export async function PATCH(req: NextRequest) {
     }
     data.status = status;
   }
-  if (profileTheme !== undefined) {
-    data.profileTheme = profileTheme;
+  // Gold-only fields
+  const currentUser = await prisma.user.findUnique({
+    where: { id: session.user.id },
+    select: { isGoldMember: true },
+  });
+  if (profileTheme !== undefined && currentUser?.isGoldMember) {
+    const VALID_THEMES = ["midnight", "forest", "ocean", "rose", "matrix", "sepia"];
+    data.profileTheme = VALID_THEMES.includes(profileTheme) ? profileTheme : null;
+  }
+  if (soundPack !== undefined && currentUser?.isGoldMember) {
+    const VALID_PACKS = ["classic", "retro", "minimal"];
+    data.soundPack = VALID_PACKS.includes(soundPack) ? soundPack : null;
+  }
+  if (clearAvatar === true && currentUser?.isGoldMember) {
+    data.avatarUrl = null;
+  }
+  if (feedVisibility !== undefined) {
+    const valid = ["PUBLIC", "BUDDIES", "PRIVATE"];
+    if (valid.includes(feedVisibility)) {
+      data.feedVisibility = feedVisibility;
+    }
   }
 
   const user = await prisma.user.update({
@@ -72,6 +94,9 @@ export async function PATCH(req: NextRequest) {
       status: true,
       isGoldMember: true,
       profileTheme: true,
+      avatarUrl: true,
+      soundPack: true,
+      feedVisibility: true,
     },
   });
 

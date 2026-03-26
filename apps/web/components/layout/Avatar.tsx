@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useTheme } from "@/components/ThemeProvider";
 import { StatusDot, type StatusValue } from "@/components/StatusDot";
 
@@ -41,6 +42,16 @@ const PALETTES = [
   },
 ] as const;
 
+// Named theme overrides (Gold members can choose one)
+const THEME_PALETTES: Record<string, { dark: { bg: string; text: string }; light: { bg: string; text: string } }> = {
+  amber:   { dark: { bg: "#2a1800", text: "#c8860a" }, light: { bg: "#fef3c7", text: "#92400e" } },
+  teal:    { dark: { bg: "#042f2e", text: "#2dd4bf" }, light: { bg: "#ccfbf1", text: "#0f766e" } },
+  rose:    { dark: { bg: "#3a1018", text: "#fda4af" }, light: { bg: "#ffe4e6", text: "#be123c" } },
+  violet:  { dark: { bg: "#2d1b5e", text: "#c4b5fd" }, light: { bg: "#ede9fe", text: "#6d28d9" } },
+  emerald: { dark: { bg: "#052e20", text: "#6ee7b7" }, light: { bg: "#d1fae5", text: "#065f46" } },
+  sky:     { dark: { bg: "#0c2340", text: "#7dd3fc" }, light: { bg: "#e0f2fe", text: "#0369a1" } },
+};
+
 function hashIndex(seed: string): number {
   let h = 0;
   for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0;
@@ -56,6 +67,10 @@ interface AvatarProps {
   size?: keyof typeof SIZES;
   isGoldMember?: boolean;
   status?: StatusValue;
+  /** Gold member profile photo URL */
+  avatarUrl?: string | null;
+  /** Gold member chosen color theme */
+  profileTheme?: string | null;
   /** Background color of parent for status dot ring */
   bg?: string;
   className?: string;
@@ -70,12 +85,15 @@ export function Avatar({
   size = "md",
   isGoldMember = false,
   status,
+  avatarUrl,
+  profileTheme,
   bg,
   className,
 }: AvatarProps) {
   const { theme } = useTheme();
   const cfg = SIZES[size];
-  const palette = PALETTES[hashIndex(screenname)][theme];
+  const themePalette = profileTheme ? THEME_PALETTES[profileTheme]?.[theme] : null;
+  const palette = themePalette ?? PALETTES[hashIndex(screenname)][theme];
   const initials = screenname.slice(0, 2).toUpperCase();
 
   return (
@@ -85,20 +103,29 @@ export function Avatar({
     >
       {/* Avatar box */}
       <div
-        className="w-full h-full rounded-xl flex items-center justify-center"
+        className="w-full h-full rounded-xl overflow-hidden flex items-center justify-center"
         style={{
           background: palette.bg,
-          boxShadow: isGoldMember
-            ? `0 0 0 2px #c8860a`
-            : undefined,
+          boxShadow: isGoldMember ? `0 0 0 2px #c8860a` : undefined,
         }}
       >
-        <span
-          className="font-bold font-mono select-none"
-          style={{ color: palette.text, fontSize: cfg.text }}
-        >
-          {initials}
-        </span>
+        {avatarUrl ? (
+          <Image
+            src={avatarUrl}
+            alt={screenname}
+            width={cfg.box}
+            height={cfg.box}
+            className="w-full h-full object-cover"
+            unoptimized
+          />
+        ) : (
+          <span
+            className="font-bold font-mono select-none"
+            style={{ color: palette.text, fontSize: cfg.text }}
+          >
+            {initials}
+          </span>
+        )}
       </div>
 
       {/* Status dot */}

@@ -80,6 +80,10 @@ export async function GET(req: NextRequest, { params }: Params) {
     messages: data.map((m) => ({
       id: m.id,
       content: m.content,
+      isEncrypted: m.isEncrypted,
+      encryptedContent: m.encryptedContent ?? null,
+      iv: m.iv ?? null,
+      keyVersion: m.keyVersion ?? null,
       mediaUrl: m.mediaUrl,
       mediaType: m.mediaType,
       createdAt: m.createdAt,
@@ -164,32 +168,48 @@ export async function POST(req: NextRequest, { params }: Params) {
   if (rl) return rl;
 
   const body = (await req.json()) as {
-    content: string;
+    content?: string;
     mediaUrl?: string;
     mediaType?: "IMAGE" | "VIDEO" | "GIF";
+    isEncrypted?: boolean;
+    encryptedContent?: string;
+    iv?: string;
+    keyVersion?: number;
   };
 
-  const content = sanitizeRichText(body.content ?? "");
-  const contentLen = richTextLength(content);
+  const isEncrypted = body.isEncrypted === true;
   const mediaUrl = sanitizeUrl(body.mediaUrl);
 
-  if (!contentLen) {
-    return NextResponse.json(
-      { error: "content is required." },
-      { status: 400 }
-    );
-  }
-  if (contentLen > 512) {
-    return NextResponse.json(
-      { error: "message cannot exceed 512 characters." },
-      { status: 400 }
-    );
+  let content = "";
+  if (isEncrypted) {
+    if (!body.encryptedContent || !body.iv || typeof body.keyVersion !== "number") {
+      return NextResponse.json(
+        { error: "encryptedContent, iv, and keyVersion are required for encrypted messages." },
+        { status: 400 }
+      );
+    }
+    content = "[encrypted]";
+  } else {
+    content = sanitizeRichText(body.content ?? "");
+    const contentLen = richTextLength(content);
+    const hasMedia = !!mediaUrl;
+    if (!contentLen && !hasMedia) {
+      return NextResponse.json(
+        { error: "content is required." },
+        { status: 400 }
+      );
+    }
+    if (contentLen > 512) {
+      return NextResponse.json(
+        { error: "message cannot exceed 512 characters." },
+        { status: 400 }
+      );
+    }
   }
 
   const now = new Date();
 
-  // Set expiry at send time. DB default covers the 30-day case but we must
-  // explicitly set 90 days for gold members (DB default can't see the author).
+  // Set expiry at send time.
   const expiresAt = new Date(now);
   if (session.user.isGoldMember) {
     expiresAt.setDate(expiresAt.getDate() + 90);
@@ -199,14 +219,27 @@ export async function POST(req: NextRequest, { params }: Params) {
 
   const [message] = await prisma.$transaction([
     prisma.channelMessage.create({
-      data: {
-        content,
-        mediaUrl: mediaUrl ?? null,
-        mediaType: body.mediaType ?? null,
-        authorId: session.user.id,
-        channelId: channel.id,
-        expiresAt,
-      },
+      data: isEncrypted
+        ? {
+            content,
+            isEncrypted: true,
+            encryptedContent: body.encryptedContent!,
+            iv: body.iv!,
+            keyVersion: body.keyVersion!,
+            mediaUrl: mediaUrl ?? null,
+            mediaType: body.mediaType ?? null,
+            authorId: session.user.id,
+            channelId: channel.id,
+            expiresAt,
+          }
+        : {
+            content,
+            mediaUrl: mediaUrl ?? null,
+            mediaType: body.mediaType ?? null,
+            authorId: session.user.id,
+            channelId: channel.id,
+            expiresAt,
+          },
       include: {
         author: { select: authorSelect },
       },
@@ -238,6 +271,10 @@ export async function POST(req: NextRequest, { params }: Params) {
   const out = {
     id: message.id,
     content: message.content,
+    isEncrypted: message.isEncrypted,
+    encryptedContent: message.encryptedContent ?? null,
+    iv: message.iv ?? null,
+    keyVersion: message.keyVersion ?? null,
     mediaUrl: message.mediaUrl,
     mediaType: message.mediaType,
     createdAt: message.createdAt,
@@ -261,12 +298,13 @@ export async function POST(req: NextRequest, { params }: Params) {
     where:  { channelId: channel.id, userId: { not: session.user.id } },
     select: { userId: true },
   }).then((members) => {
+    const notifContent = isEncrypted ? "sent a message" : content;
     for (const m of members) {
       notifyChannelMessage(
         m.userId,
         channel.name,
         session.user.screenname,
-        content
+        notifContent
       ).catch(() => {});
     }
   }).catch(() => {});

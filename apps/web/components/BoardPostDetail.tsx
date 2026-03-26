@@ -4,6 +4,8 @@ import { useState } from "react";
 import Image from "next/image";
 import { formatTimestamp } from "@/lib/utils";
 import type { BoardPostData } from "./BoardPostCard";
+import { RichTextContent } from "@/components/RichTextContent";
+import { RichTextEditor } from "@/components/RichTextEditor";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -157,12 +159,12 @@ function CommentRow({
             createdAt={comment.createdAt}
             isOwn={comment.author.id === currentUserId}
           />
-          <p
-            className="text-sm leading-relaxed mt-0.5 break-words"
-            style={{ color: "#6b7280", fontFamily: "var(--font-dm-sans)" }}
+          <div
+            className="text-sm mt-0.5"
+            style={{ color: "var(--text-muted)", fontFamily: "var(--font-dm-sans)" }}
           >
-            {comment.body}
-          </p>
+            <RichTextContent html={comment.body} />
+          </div>
           <div className="flex items-center gap-3 mt-1.5">
             <button
               onClick={() => onNudge(comment.id)}
@@ -183,33 +185,19 @@ function CommentRow({
           </div>
 
           {replying && (
-            <div className="flex gap-2 mt-2">
-              <input
+            <div
+              className="mt-2 rounded-xl border overflow-hidden"
+              style={{ borderColor: "var(--border)", background: "var(--bg)" }}
+            >
+              <RichTextEditor
                 value={replyText}
-                onChange={(e) => setReplyText(e.target.value.slice(0, 512))}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault();
-                    void submitReply();
-                  }
-                }}
-                placeholder="reply… (↵)"
-                className="flex-1 h-7 rounded-lg border px-2 text-xs outline-none"
-                style={{
-                  background: "#111109",
-                  borderColor: "#1e1e14",
-                  color: "#9ca3af",
-                  fontFamily: "var(--font-dm-sans)",
-                }}
+                onChange={setReplyText}
+                placeholder="reply… (⌘↵ to send)"
+                maxChars={512}
+                variant="compact"
+                onSubmit={submitReply}
+                disabled={sendingReply}
               />
-              <button
-                onClick={submitReply}
-                disabled={!replyText.trim() || sendingReply}
-                className="h-7 px-2.5 rounded-lg text-xs font-mono disabled:opacity-40"
-                style={{ background: "#2dd4bf", color: "#0d0d0b" }}
-              >
-                {sendingReply ? "…" : "send"}
-              </button>
             </div>
           )}
         </div>
@@ -436,12 +424,12 @@ export function BoardPostDetail({
 
       {/* Body */}
       {post.body && (
-        <p
-          className="text-sm leading-relaxed mb-4 whitespace-pre-wrap"
-          style={{ color: "#9ca3af", fontFamily: "var(--font-dm-sans)" }}
+        <div
+          className="text-sm mb-4"
+          style={{ color: "var(--text-muted)", fontFamily: "var(--font-dm-sans)" }}
         >
-          {post.body}
-        </p>
+          <RichTextContent html={post.body} />
+        </div>
       )}
 
       {/* Media */}
@@ -525,34 +513,31 @@ export function BoardPostDetail({
 
         {/* Comment composer */}
         {currentUserId && (
-          <div className="mt-6 flex gap-2 items-start">
-            <textarea
-              value={commentBody}
-              onChange={(e) => setCommentBody(e.target.value.slice(0, 512))}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-                  e.preventDefault();
-                  void submitComment();
-                }
-              }}
-              placeholder="add a comment… (⌘↵)"
-              rows={3}
-              className="flex-1 rounded-xl border px-3 py-2 text-sm resize-none outline-none"
-              style={{
-                background: "#111109",
-                borderColor: "#1e1e14",
-                color: "#d1d5db",
-                fontFamily: "var(--font-dm-sans)",
-              }}
-            />
-            <button
-              onClick={submitComment}
-              disabled={!commentBody.trim() || submitting}
-              className="h-9 px-3.5 rounded-xl text-sm font-mono font-bold mt-0.5 transition-all disabled:opacity-40"
-              style={{ background: "#2dd4bf", color: "#0d0d0b" }}
+          <div className="mt-6">
+            <div
+              className="rounded-xl border overflow-hidden mb-2"
+              style={{ borderColor: "var(--border)", background: "var(--bg)" }}
             >
-              {submitting ? "…" : "comment"}
-            </button>
+              <RichTextEditor
+                value={commentBody}
+                onChange={setCommentBody}
+                placeholder="add a comment… (⌘↵ to post)"
+                maxChars={512}
+                variant="compact"
+                onSubmit={submitComment}
+                disabled={submitting}
+              />
+            </div>
+            <div className="flex justify-end">
+              <button
+                onClick={submitComment}
+                disabled={!commentBody.trim() || submitting}
+                className="h-9 px-3.5 rounded-xl text-sm font-mono font-bold transition-all disabled:opacity-40"
+                style={{ background: "var(--teal)", color: "var(--bg)" }}
+              >
+                {submitting ? "…" : "comment"}
+              </button>
+            </div>
           </div>
         )}
       </section>

@@ -5,7 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { pusherClient, CHANNELS, EVENTS } from "@/lib/pusher";
-import { playSound, unlockSounds } from "@/lib/sounds";
+import { playSound, unlockSounds, getSoundPack, setSoundPack } from "@/lib/sounds";
 import { usePresence } from "@/components/PresenceProvider";
 import { Avatar } from "@/components/layout/Avatar";
 import { StatusDot, type StatusValue } from "@/components/StatusDot";
@@ -132,6 +132,51 @@ function SidebarStatusSelector() {
 }
 
 // ---------------------------------------------------------------------------
+// Sound toggle
+// ---------------------------------------------------------------------------
+
+function SoundToggle() {
+  const [muted, setMuted] = useState(() => {
+    if (typeof localStorage === "undefined") return false;
+    return getSoundPack() === "off";
+  });
+
+  const toggle = () => {
+    if (muted) {
+      // Unmute — restore last pack or default to "classic"
+      const last = (localStorage.getItem("sc-sound-pack-last") ?? "classic") as Parameters<typeof setSoundPack>[0];
+      setSoundPack(last);
+      setMuted(false);
+    } else {
+      // Save current pack before muting
+      const current = getSoundPack();
+      if (current !== "off") localStorage.setItem("sc-sound-pack-last", current);
+      setSoundPack("off");
+      setMuted(true);
+    }
+  };
+
+  return (
+    <button
+      onClick={toggle}
+      className="flex items-center gap-1.5 text-xs font-medium rounded-lg px-2 border transition-all w-full mt-1"
+      style={{
+        height: 28,
+        background: "transparent",
+        borderColor: "var(--border)",
+        color: muted ? "var(--text-dim)" : "var(--text-muted)",
+        fontFamily: "var(--font-dm-sans)",
+        fontSize: 11,
+      }}
+      title={muted ? "unmute sounds" : "mute sounds"}
+    >
+      <span>{muted ? "🔇" : "🔔"}</span>
+      {muted ? "sounds off" : "sounds on"}
+    </button>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Section header
 // ---------------------------------------------------------------------------
 
@@ -182,52 +227,58 @@ function SectionHeader({
 function BuddyRow({ buddy, unreadCount, onClear }: { buddy: Buddy; unreadCount?: number; onClear?: () => void }) {
   const section = buddySection(buddy.status);
   return (
-    <Link
-      href={`/dm/${buddy.id}`}
-      onClick={onClear}
-      className="flex items-center gap-2 px-3 py-1.5 rounded-lg mx-1 group transition-colors"
-      style={{ color: "inherit" }}
+    <div
+      className="flex items-center gap-1 px-2 py-1 rounded-lg mx-1 group transition-colors"
       onMouseEnter={(e) =>
-        ((e.currentTarget as HTMLAnchorElement).style.background = "var(--card)")
+        ((e.currentTarget as HTMLDivElement).style.background = "var(--card)")
       }
       onMouseLeave={(e) =>
-        ((e.currentTarget as HTMLAnchorElement).style.background = "transparent")
+        ((e.currentTarget as HTMLDivElement).style.background = "transparent")
       }
     >
-      <Avatar
-        screenname={buddy.screenname}
-        size="sm"
-        isGoldMember={buddy.isGoldMember}
-        status={buddy.status}
-        bg="var(--surface)"
-      />
-      <div className="flex-1 min-w-0">
-        <p
-          className="truncate text-[13px] font-medium leading-tight"
-          style={{
-            fontFamily: "var(--font-dm-sans)",
-            color:
-              section === "online"
-                ? "var(--text)"
-                : section === "away"
-                ? "var(--text-muted)"
-                : "var(--text-dim)",
-          }}
-        >
-          {buddy.screenname}
-          {buddy.isGoldMember && (
-            <span className="ml-0.5 text-[10px]" style={{ color: "#d4a017" }}>★</span>
-          )}
-        </p>
-        {buddy.awayMessage && section !== "offline" && (
+      {/* Avatar + name → profile */}
+      <Link
+        href={`/u/${buddy.screenname}`}
+        className="flex items-center gap-2 flex-1 min-w-0 py-0.5"
+        style={{ color: "inherit" }}
+      >
+        <Avatar
+          screenname={buddy.screenname}
+          size="sm"
+          isGoldMember={buddy.isGoldMember}
+          status={buddy.status}
+          bg="var(--surface)"
+        />
+        <div className="flex-1 min-w-0">
           <p
-            className="truncate text-[11px] italic leading-tight mt-0.5"
-            style={{ color: "var(--text-dim)", fontFamily: "var(--font-dm-sans)" }}
+            className="truncate text-[13px] font-medium leading-tight"
+            style={{
+              fontFamily: "var(--font-dm-sans)",
+              color:
+                section === "online"
+                  ? "var(--text)"
+                  : section === "away"
+                  ? "var(--text-muted)"
+                  : "var(--text-dim)",
+            }}
           >
-            {buddy.awayMessage}
+            {buddy.screenname}
+            {buddy.isGoldMember && (
+              <span className="ml-0.5 text-[10px]" style={{ color: "#d4a017" }}>★</span>
+            )}
           </p>
-        )}
-      </div>
+          {buddy.awayMessage && section !== "offline" && (
+            <p
+              className="truncate text-[11px] italic leading-tight mt-0.5"
+              style={{ color: "var(--text-dim)", fontFamily: "var(--font-dm-sans)" }}
+            >
+              {buddy.awayMessage}
+            </p>
+          )}
+        </div>
+      </Link>
+
+      {/* Unread badge */}
       {!!unreadCount && (
         <span
           className="flex-shrink-0 min-w-[16px] h-4 rounded-full flex items-center justify-center text-[9px] font-mono font-bold px-1"
@@ -236,7 +287,24 @@ function BuddyRow({ buddy, unreadCount, onClear }: { buddy: Buddy; unreadCount?:
           {unreadCount > 9 ? "9+" : unreadCount}
         </span>
       )}
-    </Link>
+
+      {/* Message button — visible on hover */}
+      <Link
+        href={`/dm/${buddy.id}`}
+        onClick={onClear}
+        title={`message ${buddy.screenname}`}
+        className="flex-shrink-0 w-8 h-8 rounded flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity text-[22px]"
+        style={{ color: "var(--text-muted)" }}
+        onMouseEnter={(e) =>
+          ((e.currentTarget as HTMLAnchorElement).style.color = "var(--amber)")
+        }
+        onMouseLeave={(e) =>
+          ((e.currentTarget as HTMLAnchorElement).style.color = "var(--text-muted)")
+        }
+      >
+        💬
+      </Link>
+    </div>
   );
 }
 
@@ -379,7 +447,7 @@ function BoardRow({ board }: { board: Board }) {
 // Sidebar
 // ---------------------------------------------------------------------------
 
-export function Sidebar() {
+export function Sidebar({ boardsEnabled = false }: { boardsEnabled?: boolean }) {
   const { data: session } = useSession();
   const { status: userStatus } = usePresence();
   const pathname = usePathname();
@@ -414,7 +482,7 @@ export function Sidebar() {
       fetch("/api/buddies").then((r) => r.json()),
       fetch("/api/buddies/requests").then((r) => r.json()),
       fetch("/api/channels?mine=true").then((r) => r.json()),
-      fetch("/api/boards?mine=true").then((r) => r.json()),
+      boardsEnabled ? fetch("/api/boards?mine=true").then((r) => r.json()) : Promise.resolve([]),
       fetch("/api/buddy-lists").then((r) => r.json()),
     ])
       .then(([buddyData, requestData, channelData, boardData, listData]) => {
@@ -483,7 +551,7 @@ export function Sidebar() {
               if (item.unreadCount > prev) hasNewMessages = true;
             }
           }
-          if (hasNewMessages) playSound("message");
+          if (hasNewMessages) playSound("message_received");
           prevUnreadRef.current = newUnread;
           setUnreadDMs(newUnread);
         })
@@ -528,7 +596,7 @@ export function Sidebar() {
         const existing = prev.find((b) => b.id === p.userId);
         // Play sound when a buddy comes online from a non-online state
         if (existing && existing.status !== "ONLINE" && p.status === "ONLINE") {
-          playSound("buddy-online");
+          playSound("buddy_online");
         }
         return prev.map((b) =>
           b.id === p.userId ? { ...b, status: p.status, awayMessage: p.awayMessage } : b
@@ -550,7 +618,7 @@ export function Sidebar() {
     privateCh.bind(EVENTS.NEW_DM, (p: NewDMNotificationPayload) => {
       const currentPath = window.location.pathname;
       if (currentPath !== `/dm/${p.senderId}`) {
-        playSound("message");
+        playSound("message_received");
       }
       // Only increment badge if the DM panel for this sender isn't currently open
       setUnreadDMs((prev) => {
@@ -682,13 +750,15 @@ export function Sidebar() {
         style={{ borderColor: "var(--border)" }}
       >
         <div className="flex items-center gap-2.5 mb-3">
-          <Avatar
-            screenname={session.user.screenname}
-            size="md"
-            isGoldMember={session.user.isGoldMember}
-            status={userStatus}
-            bg="var(--surface)"
-          />
+          <Link href={`/u/${session.user.screenname}`}>
+            <Avatar
+              screenname={session.user.screenname}
+              size="md"
+              isGoldMember={session.user.isGoldMember}
+              status={userStatus}
+              bg="var(--surface)"
+            />
+          </Link>
           <div className="flex-1 min-w-0">
             <Link
               href={`/u/${session.user.screenname}`}
@@ -708,6 +778,7 @@ export function Sidebar() {
 
         {/* Status selector */}
         <SidebarStatusSelector />
+        <SoundToggle />
       </div>
 
       {/* ---- Buddy list ---- */}
@@ -1086,7 +1157,7 @@ export function Sidebar() {
       )}
 
       {/* ---- Boards ---- */}
-      {boards.length > 0 && (
+      {boardsEnabled && boards.length > 0 && (
         <div className="pb-4">
           <SectionHeader
             label="boards"

@@ -13,10 +13,11 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const { screenname, email, password } = body as {
+    const { screenname, email, password, mlkemPublicKey } = body as {
       screenname?: string;
       email?: string;
       password?: string;
+      mlkemPublicKey?: string;
     };
 
     // --- Validate screenname ---
@@ -65,6 +66,7 @@ export async function POST(req: NextRequest) {
         screenname: screenname!,
         emailHash,
         passwordHash,
+        ...(mlkemPublicKey ? { mlkemPublicKey } : {}),
       },
       select: { id: true, screenname: true },
     });

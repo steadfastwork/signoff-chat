@@ -6,6 +6,7 @@ import { PresenceProvider } from "@/components/PresenceProvider";
 import { ThemeProvider, ThemeScript } from "@/components/ThemeProvider";
 import { Navbar } from "@/components/layout/Navbar";
 import { ElectronBridge } from "@/components/ElectronBridge";
+import { getFeatureFlag, BOARDS_ENABLED } from "@/lib/featureFlags";
 
 const ibmPlexMono = IBM_Plex_Mono({
   variable: "--font-ibm-plex-mono",
@@ -36,11 +37,13 @@ export const metadata: Metadata = {
   description: "A retro-styled social chat app",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  const boardsEnabled = await getFeatureFlag(BOARDS_ENABLED);
+
   return (
     <html
       lang="en"
@@ -58,7 +61,7 @@ export default function RootLayout({
               {/* Electron IPC bridge — renders nothing, wires all main↔renderer comms */}
               <ElectronBridge />
               {/* Fixed top navbar — always visible */}
-              <Navbar />
+              <Navbar boardsEnabled={boardsEnabled} />
               {children}
             </PresenceProvider>
           </SessionProvider>

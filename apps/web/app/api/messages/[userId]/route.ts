@@ -10,6 +10,19 @@ const senderSelect = {
   isGoldMember: true,
 } as const;
 
+const messageSelect = {
+  id: true,
+  content: true,
+  mediaUrl: true,
+  mediaType: true,
+  isEncrypted: true,
+  encryptedContent: true,
+  iv: true,
+  keyVersion: true,
+  createdAt: true,
+  author: { select: senderSelect },
+} as const;
+
 export async function GET(
   _req: NextRequest,
   { params }: { params: { userId: string } }
@@ -21,16 +34,17 @@ export async function GET(
 
   const dmName = [session.user.id, params.userId].sort().join("__dm__");
   const dmChannel = await prisma.channel.findUnique({ where: { name: dmName } });
-  if (!dmChannel) return NextResponse.json([]);
 
-  const messages = await prisma.channelMessage.findMany({
-    where: { channelId: dmChannel.id },
-    orderBy: { createdAt: "asc" },
-    take: 100,
-    include: { author: { select: senderSelect } },
-  });
+  const messages = dmChannel
+    ? await prisma.channelMessage.findMany({
+        where: { channelId: dmChannel.id },
+        orderBy: { createdAt: "asc" },
+        take: 100,
+        select: messageSelect,
+      })
+    : [];
 
-  return NextResponse.json(messages);
+  return NextResponse.json({ messages });
 }
 
 export async function POST(
@@ -46,9 +60,30 @@ export async function POST(
     return NextResponse.json({ error: "cannot message yourself." }, { status: 400 });
   }
 
-  const { content } = await req.json();
-  if (!content?.trim()) {
-    return NextResponse.json({ error: "message content is required." }, { status: 400 });
+  const body = (await req.json()) as {
+    content?: string;
+    mediaUrl?: string;
+    mediaType?: "IMAGE" | "VIDEO" | "GIF";
+    isEncrypted?: boolean;
+    encryptedContent?: string;
+    iv?: string;
+    keyVersion?: number;
+  };
+
+  const isEncrypted = body.isEncrypted === true;
+
+  const hasMedia = !!body.mediaUrl;
+  if (isEncrypted) {
+    if (!body.encryptedContent || !body.iv || typeof body.keyVersion !== "number") {
+      return NextResponse.json(
+        { error: "encryptedContent, iv, and keyVersion are required for encrypted messages." },
+        { status: 400 }
+      );
+    }
+  } else {
+    if (!body.content?.trim() && !hasMedia) {
+      return NextResponse.json({ error: "message content is required." }, { status: 400 });
+    }
   }
 
   const receiver = await prisma.user.findUnique({
@@ -79,27 +114,39 @@ export async function POST(
     });
   }
 
-  // DM expiry: gold members get 90 days, others 30 days.
+  // DM expiry: gold members get 90 days, others 30 days
   const dmExpiresAt = new Date();
   dmExpiresAt.setDate(
     dmExpiresAt.getDate() + (session.user.isGoldMember ? 90 : 30)
   );
 
   const message = await prisma.channelMessage.create({
-    data: {
-      content: content.trim(),
-      authorId: session.user.id,
-      channelId: dmChannel.id,
-      expiresAt: dmExpiresAt,
-    },
-    include: { author: { select: senderSelect } },
+    data: isEncrypted
+      ? {
+          content: "[encrypted]",
+          isEncrypted: true,
+          encryptedContent: body.encryptedContent!,
+          iv: body.iv!,
+          keyVersion: body.keyVersion!,
+          authorId: session.user.id,
+          channelId: dmChannel.id,
+          expiresAt: dmExpiresAt,
+        }
+      : {
+          content: body.content?.trim() ?? "",
+          mediaUrl: body.mediaUrl ?? null,
+          mediaType: body.mediaType ?? null,
+          authorId: session.user.id,
+          channelId: dmChannel.id,
+          expiresAt: dmExpiresAt,
+        },
+    select: messageSelect,
   });
 
   const pusherChannel = CHANNELS.dm(session.user.id, params.userId);
   await pusherServer.trigger(pusherChannel, EVENTS.NEW_DM, message);
 
-  // Notify recipient's private channel so they get a sidebar badge even if
-  // the DM panel isn't currently open.
+  // Notify recipient's private channel for sidebar badge
   await pusherServer.trigger(
     CHANNELS.privateUser(params.userId),
     EVENTS.NEW_DM,

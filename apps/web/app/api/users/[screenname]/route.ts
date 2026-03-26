@@ -17,7 +17,10 @@ export async function GET(_req: NextRequest, { params }: Params) {
       awayMessage: true,
       status: true,
       isGoldMember: true,
+      profileTheme: true,
+      avatarUrl: true,
       createdAt: true,
+      feedVisibility: true,
     },
   });
 
@@ -95,29 +98,52 @@ export async function GET(_req: NextRequest, { params }: Params) {
   ]);
 
   // ---------------------------------------------------------------------------
-  // Posts — scoped by relationship
+  // Posts — scoped by relationship AND feedVisibility
   // ---------------------------------------------------------------------------
 
-  const postWhere = isSelf
-    ? { authorId: target.id }
-    : isBuddy
-    ? { authorId: target.id, privacy: { in: ["PUBLIC", "BUDDIES_ONLY"] as Array<"PUBLIC" | "BUDDIES_ONLY"> } }
-    : { authorId: target.id, privacy: "PUBLIC" as const };
+  // Determine if the viewer can see posts at all based on feedVisibility
+  const feedVisibility = target.feedVisibility;
+  const canSeePosts =
+    isSelf ||
+    feedVisibility === "PUBLIC" ||
+    (feedVisibility === "BUDDIES" && isBuddy);
 
-  const posts = await prisma.post.findMany({
-    where: postWhere,
-    orderBy: { createdAt: "desc" },
-    take: 20,
-    select: {
-      id: true,
-      content: true,
-      privacy: true,
-      mediaUrl: true,
-      mediaType: true,
-      createdAt: true,
-      _count: { select: { nudges: true, replies: true } },
-    },
-  });
+  let posts: {
+    id: string;
+    content: string;
+    privacy: "PUBLIC" | "BUDDIES_ONLY";
+    mediaUrl: string | null;
+    mediaType: "IMAGE" | "VIDEO" | "GIF" | null;
+    mediaUrls: string[];
+    gifUrls: string[];
+    createdAt: Date;
+    _count: { nudges: number; replies: number };
+  }[] = [];
+
+  if (canSeePosts) {
+    const postWhere = isSelf
+      ? { authorId: target.id }
+      : isBuddy
+      ? { authorId: target.id, privacy: { in: ["PUBLIC", "BUDDIES_ONLY"] as Array<"PUBLIC" | "BUDDIES_ONLY"> } }
+      : { authorId: target.id, privacy: "PUBLIC" as const };
+
+    posts = await prisma.post.findMany({
+      where: postWhere,
+      orderBy: { createdAt: "desc" },
+      take: 20,
+      select: {
+        id: true,
+        content: true,
+        privacy: true,
+        mediaUrl: true,
+        mediaType: true,
+        mediaUrls: true,
+        gifUrls: true,
+        createdAt: true,
+        _count: { select: { nudges: true, replies: true } },
+      },
+    });
+  }
 
   // ---------------------------------------------------------------------------
   // Mutual channels (self: all non-SECRET; buddy: intersection, non-SECRET)
@@ -184,12 +210,16 @@ export async function GET(_req: NextRequest, { params }: Params) {
     awayMessage: target.awayMessage,
     status: displayStatus,
     isGoldMember: target.isGoldMember,
+    profileTheme: target.profileTheme ?? null,
+    avatarUrl: target.avatarUrl ?? null,
     avatarColor: deriveAvatarColor(target.id),
     postCount,
     buddyCount,
     joinedAt: target.createdAt,
     relationship,
     pendingDirection,
+    feedVisibility,
+    postsLocked: !canSeePosts,
     posts,
     mutualChannels,
     publicBoards,

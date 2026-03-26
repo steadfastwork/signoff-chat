@@ -8,15 +8,15 @@ const resend = new Resend(process.env.RESEND_API_KEY);
 
 // ---------------------------------------------------------------------------
 // Staff-only report management.
-// Checks isAdmin on the User record — not just the session token.
+// Checks adminRole on the User record — not just the session token.
 // ---------------------------------------------------------------------------
 
-async function requireAdmin(userId: string): Promise<boolean> {
+async function checkAdmin(userId: string): Promise<boolean> {
   const user = await prisma.user.findUnique({
     where: { id: userId },
-    select: { isAdmin: true },
+    select: { adminRole: true },
   });
-  return user?.isAdmin === true;
+  return user?.adminRole != null;
 }
 
 // ---------------------------------------------------------------------------
@@ -31,8 +31,8 @@ export async function GET(req: NextRequest) {
   if (!session?.user?.id) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
-  if (!(await requireAdmin(session.user.id))) {
-    return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  if (!(await checkAdmin(session.user.id))) {
+    return NextResponse.json({ error: "not found" }, { status: 404 });
   }
 
   const { searchParams } = new URL(req.url);
@@ -79,8 +79,8 @@ export async function PATCH(req: NextRequest) {
   if (!session?.user?.id) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
-  if (!(await requireAdmin(session.user.id))) {
-    return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  if (!(await checkAdmin(session.user.id))) {
+    return NextResponse.json({ error: "not found" }, { status: 404 });
   }
 
   // Extract reportId from the URL

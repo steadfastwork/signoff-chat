@@ -52,6 +52,104 @@
   --foreground: #1a1714;
 }
 
+/* ── Color scheme overrides (Gold members) ─────────────────────── */
+
+[data-color-scheme="midnight"] {
+  --bg: #07071a;
+  --surface: #0d0d24;
+  --card: #12123a;
+  --border: #28285a;
+  --border-bright: #3a3a80;
+  --text: #e0ddff;
+  --text-muted: #7070b0;
+  --text-dim: #38386a;
+  --amber: #a78bfa;
+  --amber-hover: #8b5cf6;
+  --amber-tint: rgba(167, 139, 250, 0.12);
+  --amber-tint-dark: #0a0820;
+  --teal: #818cf8;
+}
+
+[data-color-scheme="forest"] {
+  --bg: #04100a;
+  --surface: #081a10;
+  --card: #0d2218;
+  --border: #1a4028;
+  --border-bright: #28603a;
+  --text: #ccf0dc;
+  --text-muted: #4a8060;
+  --text-dim: #1e4030;
+  --amber: #4ade80;
+  --amber-hover: #22c55e;
+  --amber-tint: rgba(74, 222, 128, 0.10);
+  --amber-tint-dark: #041008;
+  --teal: #34d399;
+}
+
+[data-color-scheme="ocean"] {
+  --bg: #04091a;
+  --surface: #070f28;
+  --card: #0c1838;
+  --border: #1a2e5a;
+  --border-bright: #28447a;
+  --text: #c8dff8;
+  --text-muted: #4a6a90;
+  --text-dim: #1e3060;
+  --amber: #38bdf8;
+  --amber-hover: #0ea5e9;
+  --amber-tint: rgba(56, 189, 248, 0.10);
+  --amber-tint-dark: #040c20;
+  --teal: #22d3ee;
+}
+
+[data-color-scheme="rose"] {
+  --bg: #140409;
+  --surface: #20080f;
+  --card: #2c0f1a;
+  --border: #4a1a2e;
+  --border-bright: #6a2840;
+  --text: #fcdde8;
+  --text-muted: #905060;
+  --text-dim: #4a1e2e;
+  --amber: #fb7185;
+  --amber-hover: #f43f5e;
+  --amber-tint: rgba(251, 113, 133, 0.10);
+  --amber-tint-dark: #140408;
+  --teal: #f472b6;
+}
+
+[data-color-scheme="matrix"] {
+  --bg: #000000;
+  --surface: #020802;
+  --card: #040f04;
+  --border: #082808;
+  --border-bright: #0f3a0f;
+  --text: #00ff41;
+  --text-muted: #006618;
+  --text-dim: #003008;
+  --amber: #00ff41;
+  --amber-hover: #00cc33;
+  --amber-tint: rgba(0, 255, 65, 0.10);
+  --amber-tint-dark: #000800;
+  --teal: #00e5ff;
+}
+
+[data-color-scheme="sepia"] {
+  --bg: #100c06;
+  --surface: #1a1408;
+  --card: #221c0e;
+  --border: #3c2e18;
+  --border-bright: #564428;
+  --text: #f0e0c0;
+  --text-muted: #907050;
+  --text-dim: #503e28;
+  --amber: #d4a017;
+  --amber-hover: #b88010;
+  --amber-tint: rgba(212, 160, 23, 0.10);
+  --amber-tint-dark: #100c02;
+  --teal: #c084fc;
+}
+
 /* ---------------------------------------------------------------------------
    Base styles
    --------------------------------------------------------------------------- */
@@ -116,3 +214,118 @@ body {
   }
   .scrollbar-none::-webkit-scrollbar { display: none; }
 }
+
+/* ---------------------------------------------------------------------------
+   Rich text editor (Tiptap)
+   --------------------------------------------------------------------------- */
+
+/* Editor focus ring */
+.rich-editor .ProseMirror:focus { outline: none; }
+
+/* Placeholder */
+.rich-editor .ProseMirror p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  color: var(--text-dim);
+  pointer-events: none;
+  float: left;
+  height: 0;
+}
+
+/* Rich content rendering (shared by editor + display) */
+.rich-content,
+.rich-editor .ProseMirror {
+  line-height: 1.6;
+}
+.rich-content p,
+.rich-editor .ProseMirror p { margin: 0 0 0.4em; }
+.rich-content p:last-child,
+.rich-editor .ProseMirror p:last-child { margin-bottom: 0; }
+
+.rich-content strong,
+.rich-editor .ProseMirror strong { font-weight: 700; color: var(--text); }
+
+.rich-content em,
+.rich-editor .ProseMirror em { font-style: italic; }
+
+.rich-content s,
+.rich-editor .ProseMirror s { text-decoration: line-through; opacity: 0.6; }
+
+.rich-content code,
+.rich-editor .ProseMirror code {
+  font-family: ui-monospace, monospace;
+  font-size: 0.85em;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.1em 0.35em;
+  color: var(--teal);
+}
+
+.rich-content pre,
+.rich-editor .ProseMirror pre {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-family: ui-monospace, monospace;
+  font-size: 0.82em;
+  overflow-x: auto;
+  margin: 0.5em 0;
+  color: var(--text-muted);
+}
+.rich-content pre code,
+.rich-editor .ProseMirror pre code {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: inherit;
+  color: inherit;
+}
+
+.rich-content blockquote,
+.rich-editor .ProseMirror blockquote {
+  border-left: 3px solid var(--amber);
+  margin: 0.5em 0;
+  padding-left: 12px;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.rich-content ul,
+.rich-editor .ProseMirror ul {
+  list-style: disc;
+  padding-left: 1.4em;
+  margin: 0.3em 0;
+}
+.rich-content ol,
+.rich-editor .ProseMirror ol {
+  list-style: decimal;
+  padding-left: 1.4em;
+  margin: 0.3em 0;
+}
+.rich-content li,
+.rich-editor .ProseMirror li { margin: 0.1em 0; }
+
+.rich-content h2,
+.rich-editor .ProseMirror h2 {
+  font-size: 1em;
+  font-weight: 700;
+  margin: 0.6em 0 0.2em;
+  color: var(--text);
+}
+.rich-content h3,
+.rich-editor .ProseMirror h3 {
+  font-size: 0.9em;
+  font-weight: 600;
+  margin: 0.5em 0 0.15em;
+  color: var(--text);
+}
+
+.rich-content a.rich-link,
+.rich-editor .ProseMirror a {
+  color: var(--teal);
+  text-decoration: underline;
+  text-decoration-style: dotted;
+}
+.rich-content a.rich-link:hover,
+.rich-editor .ProseMirror a:hover { text-decoration-style: solid; }

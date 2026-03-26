@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { formatTimestamp } from "@/lib/utils";
+import { RichTextContent } from "@/components/RichTextContent";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -27,6 +28,7 @@ export interface BoardPostData {
     screenname: string;
     isGoldMember: boolean;
     isFoundingMember: boolean;
+    isModerator?: boolean;
   };
 }
 
@@ -57,12 +59,15 @@ function hashColor(id: string) {
 interface BoardPostCardProps {
   post: BoardPostData;
   boardName: string;
+  canDelete?: boolean;
+  onDelete?: (postId: string) => void;
 }
 
-export function BoardPostCard({ post: initial, boardName }: BoardPostCardProps) {
+export function BoardPostCard({ post: initial, boardName, canDelete, onDelete }: BoardPostCardProps) {
   const [post, setPost] = useState(initial);
   const [nudging, setNudging] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const colorKey = hashColor(post.author.id);
   const colors = AVATAR_COLORS[colorKey];
@@ -119,10 +124,21 @@ export function BoardPostCard({ post: initial, boardName }: BoardPostCardProps) 
     }
   };
 
+  const handleDelete = async () => {
+    if (deleting || !window.confirm("Remove this post?")) return;
+    setDeleting(true);
+    try {
+      const res = await fetch(`/api/boards/${boardName}/posts/${post.id}`, { method: "DELETE" });
+      if (res.ok) onDelete?.(post.id);
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   return (
     <article
       className="rounded-2xl border p-4"
-      style={{ borderColor: "#1a1a12", background: "#0a0a08" }}
+      style={{ borderColor: "var(--border)", background: "var(--bg)" }}
     >
       {/* Author row */}
       <div className="flex items-center gap-2 mb-3">
@@ -137,7 +153,7 @@ export function BoardPostCard({ post: initial, boardName }: BoardPostCardProps) 
 
         <span
           className="text-xs font-semibold"
-          style={{ color: "#9ca3af", fontFamily: "var(--font-dm-sans)" }}
+          style={{ color: "var(--text-muted)", fontFamily: "var(--font-dm-sans)" }}
         >
           {post.author.screenname}
           {post.author.isGoldMember && (
@@ -150,11 +166,24 @@ export function BoardPostCard({ post: initial, boardName }: BoardPostCardProps) 
             className="text-[10px] font-mono px-1.5 py-0.5 rounded"
             style={{
               background: "rgba(200,134,10,0.08)",
-              color: "#c8860a",
+              color: "var(--amber)",
               border: "1px solid rgba(200,134,10,0.2)",
             }}
           >
             ✦ founding
+          </span>
+        )}
+
+        {post.author.isModerator && (
+          <span
+            className="text-[10px] font-mono px-1.5 py-0.5 rounded"
+            style={{
+              background: "rgba(139,92,246,0.08)",
+              color: "#a78bfa",
+              border: "1px solid rgba(139,92,246,0.2)",
+            }}
+          >
+            mod
           </span>
         )}
 
@@ -163,7 +192,7 @@ export function BoardPostCard({ post: initial, boardName }: BoardPostCardProps) 
             className="text-[10px] font-mono px-1.5 py-0.5 rounded ml-1"
             style={{
               background: "rgba(107,114,128,0.08)",
-              color: "#4b5563",
+              color: "var(--text-muted)",
               border: "1px solid rgba(107,114,128,0.15)",
             }}
           >
@@ -171,7 +200,7 @@ export function BoardPostCard({ post: initial, boardName }: BoardPostCardProps) 
           </span>
         )}
 
-        <span className="ml-auto text-[11px] font-mono" style={{ color: "#2a2a1a" }}>
+        <span className="ml-auto text-[11px] font-mono" style={{ color: "var(--text-dim)" }}>
           {formatTimestamp(post.createdAt)}
         </span>
       </div>
@@ -182,7 +211,7 @@ export function BoardPostCard({ post: initial, boardName }: BoardPostCardProps) 
           className="font-semibold leading-snug mb-1.5 hover:underline decoration-dotted"
           style={{
             fontSize: "14px",
-            color: "#e5e7eb",
+            color: "var(--text)",
             fontFamily: "var(--font-dm-sans)",
           }}
         >
@@ -192,21 +221,12 @@ export function BoardPostCard({ post: initial, boardName }: BoardPostCardProps) 
 
       {/* Body preview */}
       {post.body && (
-        <p
-          className="text-sm leading-relaxed mb-3 line-clamp-2"
-          style={{ color: "#6b7280", fontFamily: "var(--font-dm-sans)" }}
+        <div
+          className="text-sm leading-relaxed mb-3"
+          style={{ color: "var(--text-muted)", fontFamily: "var(--font-dm-sans)" }}
         >
-          {post.body}
-          {post.body.length > 120 && (
-            <Link
-              href={`/boards/${boardName}/posts/${post.id}`}
-              className="ml-1 font-medium hover:underline"
-              style={{ color: "#6b7280" }}
-            >
-              read more
-            </Link>
-          )}
-        </p>
+          <RichTextContent html={post.body} clamp />
+        </div>
       )}
 
       {/* Media */}
@@ -237,7 +257,7 @@ export function BoardPostCard({ post: initial, boardName }: BoardPostCardProps) 
           onClick={toggleNudge}
           disabled={nudging}
           className="text-[11px] font-mono transition-colors disabled:opacity-50"
-          style={{ color: post.nudgedByMe ? "#2dd4bf" : "#3a3a2a" }}
+          style={{ color: post.nudgedByMe ? "var(--teal)" : "var(--text-dim)" }}
         >
           👋 nudge ({post.nudgeCount})
         </button>
@@ -245,7 +265,7 @@ export function BoardPostCard({ post: initial, boardName }: BoardPostCardProps) 
         <Link
           href={`/boards/${boardName}/posts/${post.id}#comments`}
           className="text-[11px] font-mono"
-          style={{ color: "#3a3a2a" }}
+          style={{ color: "var(--text-dim)" }}
         >
           💬 {post.commentCount} comment{post.commentCount !== 1 ? "s" : ""}
         </Link>
@@ -254,17 +274,29 @@ export function BoardPostCard({ post: initial, boardName }: BoardPostCardProps) 
           onClick={toggleSave}
           disabled={saving}
           className="text-[11px] font-mono transition-colors disabled:opacity-50"
-          style={{ color: post.savedByMe ? "#c8860a" : "#3a3a2a" }}
+          style={{ color: post.savedByMe ? "var(--amber)" : "var(--text-dim)" }}
         >
           🔖 {post.savedByMe ? "saved" : "save"}
         </button>
+
+        {canDelete && (
+          <button
+            onClick={handleDelete}
+            disabled={deleting}
+            className="text-[11px] font-mono transition-colors disabled:opacity-50"
+            style={{ color: "var(--text-dim)" }}
+            title="Remove post"
+          >
+            {deleting ? "…" : "🗑 remove"}
+          </button>
+        )}
 
         {/* Tag — pushed to right */}
         {post.tag && (
           <span className="ml-auto">
             <span
               className="text-[10px] font-mono px-2 py-0.5 rounded-full border"
-              style={{ color: "#4b5563", borderColor: "#1e1e14" }}
+              style={{ color: "var(--text-muted)", borderColor: "var(--border)" }}
             >
               {post.tag}
             </span>

@@ -6,7 +6,7 @@ declare module "next-auth" {
     id: string;
     screenname: string;
     isGoldMember: boolean;
-    isAdmin: boolean;
+    adminRole: string | null;
     isSuspended: boolean;
     suspendedUntil: string | null;
   }
@@ -16,7 +16,7 @@ declare module "next-auth" {
       id: string;
       screenname: string;
       isGoldMember: boolean;
-      isAdmin: boolean;
+      adminRole: string | null;
       avatarColor: string;
     };
   }
@@ -27,7 +27,7 @@ declare module "next-auth/jwt" {
     id: string;
     screenname: string;
     isGoldMember: boolean;
-    isAdmin: boolean;
+    adminRole: string | null;
     avatarColor: string;
     isSuspended: boolean;
     suspendedUntil: string | null;

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
+import { RichTextContent } from "@/components/RichTextContent";
 import { StatusDot, type StatusValue } from "@/components/StatusDot";
 import { formatTimestamp } from "@/lib/utils";
 
@@ -31,8 +32,13 @@ export interface FeedPost {
   createdAt: string;
   privacy: "PUBLIC" | "BUDDIES_ONLY";
   isAwayMessage: boolean;
+  // Legacy single-media (kept for old posts)
   mediaUrl: string | null;
   mediaType: "IMAGE" | "VIDEO" | "GIF" | null;
+  // Multi-media arrays (new)
+  mediaUrls?: string[];
+  gifUrls?: string[];
+  gifIds?: string[];
   author: PostAuthor;
   _count: { replies: number; nudges: number };
   nudgedByMe: boolean;
@@ -216,7 +222,7 @@ export function PostCard({
       {/* Header row */}
       <div className="flex gap-2.5">
         {/* Avatar */}
-        <Link href={`/profile/${post.author.id}`} className="flex-shrink-0">
+        <Link href={`/u/${post.author.screenname}`} className="flex-shrink-0">
           <div className="relative">
             <div
               className="w-9 h-9 rounded-xl flex items-center justify-center"
@@ -240,7 +246,7 @@ export function PostCard({
           {/* Name + badges + timestamp */}
           <div className="flex items-center gap-1.5 flex-wrap">
             <Link
-              href={`/profile/${post.author.id}`}
+              href={`/u/${post.author.screenname}`}
               className="text-sm font-semibold hover:underline"
               style={{ color: "var(--text)", fontFamily: "var(--font-dm-sans)" }}
             >
@@ -286,46 +292,50 @@ export function PostCard({
           </div>
 
           {/* Post content */}
-          <p
-            className="mt-1 text-sm leading-relaxed whitespace-pre-wrap break-words"
+          <div
+            className="mt-1 text-sm"
             style={{
               color: post.isAwayMessage ? "var(--away)" : "var(--text-muted)",
               fontFamily: "var(--font-dm-sans)",
             }}
           >
-            {post.content}
-          </p>
+            <RichTextContent html={post.content} />
+          </div>
 
-          {/* Media */}
-          {post.mediaUrl && post.mediaType === "IMAGE" && (
-            <div className="mt-2 rounded-xl overflow-hidden max-w-sm">
-              <Image
-                src={post.mediaUrl}
-                alt="post media"
-                width={400}
-                height={300}
-                className="w-full h-auto object-cover"
-                unoptimized
-              />
+          {/* Media — new array format */}
+          {((post.mediaUrls?.length ?? 0) > 0 || (post.gifUrls?.length ?? 0) > 0) && (
+            <div className="mt-2 flex flex-wrap gap-2">
+              {(post.mediaUrls ?? []).map((url, i) => (
+                <div key={`media-${i}`} className="rounded-xl overflow-hidden max-w-[280px]">
+                  {url.match(/\.(mp4|webm|ogg)(\?|$)/i) ? (
+                    <video src={url} controls className="w-full h-auto rounded-xl" />
+                  ) : (
+                    <Image src={url} alt="attachment" width={280} height={200} className="w-full h-auto object-cover" unoptimized />
+                  )}
+                </div>
+              ))}
+              {(post.gifUrls ?? []).map((url, i) => (
+                <div key={`gif-${i}`} className="rounded-xl overflow-hidden max-w-[280px]">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={url} alt="gif" className="w-full h-auto rounded-xl" loading="lazy" />
+                </div>
+              ))}
             </div>
           )}
-          {post.mediaUrl && post.mediaType === "VIDEO" && (
-            <video
-              src={post.mediaUrl}
-              controls
-              className="mt-2 rounded-xl max-w-sm w-full"
-            />
-          )}
-          {post.mediaUrl && post.mediaType === "GIF" && (
+
+          {/* Media — legacy single-media fallback */}
+          {!(post.mediaUrls?.length) && !(post.gifUrls?.length) && post.mediaUrl && post.mediaType === "IMAGE" && (
             <div className="mt-2 rounded-xl overflow-hidden max-w-sm">
-              <Image
-                src={post.mediaUrl}
-                alt="gif"
-                width={400}
-                height={300}
-                className="w-full h-auto"
-                unoptimized
-              />
+              <Image src={post.mediaUrl} alt="post media" width={400} height={300} className="w-full h-auto object-cover" unoptimized />
+            </div>
+          )}
+          {!(post.mediaUrls?.length) && !(post.gifUrls?.length) && post.mediaUrl && post.mediaType === "VIDEO" && (
+            <video src={post.mediaUrl} controls className="mt-2 rounded-xl max-w-sm w-full" />
+          )}
+          {!(post.mediaUrls?.length) && !(post.gifUrls?.length) && post.mediaUrl && post.mediaType === "GIF" && (
+            <div className="mt-2 rounded-xl overflow-hidden max-w-sm">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={post.mediaUrl} alt="gif" className="w-full h-auto rounded-xl" loading="lazy" />
             </div>
           )}
 
@@ -377,7 +387,7 @@ export function PostCard({
                     className="text-xs"
                     style={{ color: "var(--text-muted)", fontFamily: "var(--font-dm-sans)" }}
                   >
-                    {r.content}
+                    <RichTextContent html={r.content} />
                   </span>
                 </div>
               ))}

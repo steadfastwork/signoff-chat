@@ -31,6 +31,7 @@ function isProtectedPage(pathname: string): boolean {
     pathname.startsWith("/terms") ||
     pathname.startsWith("/moderation-policy") ||
     pathname.startsWith("/suspended") ||
+    pathname.startsWith("/admin") ||
     pathname === "/favicon.ico"
   ) {
     return false;
@@ -85,7 +86,7 @@ function addSecurityHeaders(response: NextResponse): NextResponse {
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
-  // ── 1. IP rate limit on auth routes ──────────────────────────────────────
+  // ── 1. IP rate limit on auth routes (admin routes have their own guard below) ──
   // Raw IP is hashed immediately — never stored, never logged.
   if (req.method === "POST" && isAuthEndpoint(pathname)) {
     const hashedIp = getHashedIp(req.headers);
@@ -125,7 +126,42 @@ export async function middleware(req: NextRequest) {
     }
   }
 
-  // ── 3. Auth guard + suspension check for app pages ───────────────────────
+  // ── 3. Boards feature flag — redirect to /feed when disabled ─────────────
+  if (pathname.startsWith("/boards")) {
+    const flagUrl = new URL("/api/feature-flags/boards", req.url);
+    try {
+      const flagRes = await fetch(flagUrl);
+      const { enabled } = await flagRes.json() as { enabled: boolean };
+      if (!enabled) {
+        return addSecurityHeaders(NextResponse.redirect(new URL("/feed", req.url)));
+      }
+    } catch {
+      // If the check fails, fail safe — keep boards hidden
+      return addSecurityHeaders(NextResponse.redirect(new URL("/feed", req.url)));
+    }
+  }
+
+  // ── 5. Admin route guard — always 404 for non-admins ────────────────────
+  if (pathname.startsWith("/admin")) {
+    const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
+    if (!token?.adminRole) {
+      return addSecurityHeaders(
+        new NextResponse(null, { status: 404 })
+      );
+    }
+    // /admin/admins/* requires SUPER_ADMIN
+    if (pathname.startsWith("/admin/admins") && token.adminRole !== "SUPER_ADMIN") {
+      return addSecurityHeaders(
+        new NextResponse(null, { status: 404 })
+      );
+    }
+    // Rate limit admin routes: 60/min
+    const hashedIp = getHashedIp(req.headers);
+    const rl = await rateLimit(limiters.admin ?? limiters.auth, `admin:${hashedIp}`);
+    if (rl) return addSecurityHeaders(rl);
+  }
+
+  // ── 6. Auth guard + suspension check for app pages ───────────────────────
   if (isProtectedPage(pathname)) {
     const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
     if (!token) {
@@ -153,7 +189,7 @@ export async function middleware(req: NextRequest) {
     }
   }
 
-  // ── 4. Pass through with security headers ────────────────────────────────
+  // ── 7. Pass through with security headers ────────────────────────────────
   return addSecurityHeaders(NextResponse.next());
 }
 

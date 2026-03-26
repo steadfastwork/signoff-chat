@@ -5,6 +5,9 @@ import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { validateScreenname } from "@/lib/auth";
+import { generateBackupMnemonic, mnemonicToKeypair } from "@/lib/crypto/keyBackup";
+import { toBase64 } from "@/lib/crypto/index";
+import { encryptAndStoreKey, cacheDecryptedKey } from "@/lib/crypto/localKey";
 
 // ---------------------------------------------------------------------------
 // Password strength
@@ -151,6 +154,13 @@ export default function RegisterPage() {
     setError(null);
 
     try {
+      // Generate encryption keypair before registering so we can include the
+      // public key in the registration request. The private key never leaves
+      // the client — it is PBKDF2-encrypted and stored in localStorage.
+      const mnemonic = generateBackupMnemonic();
+      const { publicKey, secretKey } = mnemonicToKeypair(mnemonic);
+      const mlkemPublicKey = toBase64(publicKey);
+
       const res = await fetch("/api/auth/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -158,6 +168,7 @@ export default function RegisterPage() {
           screenname: screenname.trim(),
           email: email.trim(),
           password,
+          mlkemPublicKey,
         }),
       });
       const data = await res.json();
@@ -166,6 +177,15 @@ export default function RegisterPage() {
         setError(data.error ?? "something went wrong. try again.");
         return;
       }
+
+      // Encrypt and persist secret key to localStorage keyed by userId
+      await encryptAndStoreKey(data.id, secretKey, password);
+
+      // Cache decrypted key for this session so the app can use it immediately
+      cacheDecryptedKey(data.id, secretKey);
+
+      // Store mnemonic in sessionStorage for the backup confirmation screen
+      sessionStorage.setItem("signoff_pending_mnemonic", mnemonic);
 
       // Auto sign-in after successful registration
       const result = await signIn("credentials", {
@@ -178,7 +198,7 @@ export default function RegisterPage() {
         // Registration succeeded but auto-login failed — send to login
         router.push("/login?registered=1");
       } else {
-        router.push("/feed");
+        router.push("/setup-keys");
         router.refresh();
       }
     } catch {

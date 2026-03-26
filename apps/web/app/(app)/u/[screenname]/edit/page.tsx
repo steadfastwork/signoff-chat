@@ -3,7 +3,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
+import Image from "next/image";
 import Link from "next/link";
+import { useUploadThing } from "@/lib/uploadthing";
+import { useTheme, COLOR_SCHEMES, type ColorScheme } from "@/components/ThemeProvider";
+import { getSoundPack, setSoundPack, previewSound, type SoundPack } from "@/lib/sounds";
 
 // ---------------------------------------------------------------------------
 // Password strength (reused from register pattern in the codebase)
@@ -28,13 +32,22 @@ const STRENGTH_COLOR = ["", "#ef4444", "#f59e0b", "#22c55e"];
 export default function EditProfilePage() {
   const router = useRouter();
   const { data: session, status } = useSession();
+  const { colorScheme, setColorScheme } = useTheme();
 
   const [bio, setBio] = useState("");
   const [awayMessage, setAwayMessage] = useState("");
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [saved, setSaved] = useState(true); // track unsaved changes
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+
+  // Sound pack state
+  const [soundPack, setSoundPackState] = useState<SoundPack>("off");
+
+  // Feed privacy state
+  const [feedVisibility, setFeedVisibilityState] = useState<"PUBLIC" | "BUDDIES" | "PRIVATE">("PUBLIC");
 
   // Password section
   const [pwOpen, setPwOpen] = useState(false);
@@ -57,9 +70,28 @@ export default function EditProfilePage() {
         const a = d.awayMessage ?? "";
         setBio(b);
         setAwayMessage(a);
+        setAvatarUrl(d.avatarUrl ?? null);
         initialRef.current = { bio: b, awayMessage: a };
+
+        // Sync color scheme from DB to localStorage/DOM on load
+        if (d.profileTheme) {
+          setColorScheme(d.profileTheme as ColorScheme);
+        }
+        if (d.soundPack) {
+          setSoundPack(d.soundPack);
+          setSoundPackState(d.soundPack);
+        }
+        if (d.feedVisibility) {
+          setFeedVisibilityState(d.feedVisibility);
+        }
       });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status]);
+
+  // Initialize sound pack from localStorage
+  useEffect(() => {
+    setSoundPackState(getSoundPack());
+  }, []);
 
   // Track unsaved changes
   useEffect(() => {
@@ -89,6 +121,36 @@ export default function EditProfilePage() {
   // Redirect non-owners trying to edit someone else's profile
   // (edit page is only accessible via /u/me/edit or /u/[own-name]/edit)
 
+  const { startUpload, isUploading } = useUploadThing("profileImage", {
+    onClientUploadComplete: (res) => {
+      if (res?.[0]?.serverData?.url) {
+        setAvatarUrl(res[0].serverData.url);
+      }
+      setUploadError(null);
+    },
+    onUploadError: () => {
+      setUploadError("upload failed. please try again.");
+    },
+  });
+
+  const handlePhotoUpload = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (file) startUpload([file]);
+      e.target.value = "";
+    },
+    [startUpload]
+  );
+
+  const handleClearPhoto = useCallback(async () => {
+    await fetch("/api/profile", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ clearAvatar: true }),
+    });
+    setAvatarUrl(null);
+  }, []);
+
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (saving) return;
@@ -100,7 +162,10 @@ export default function EditProfilePage() {
       const res = await fetch("/api/profile", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ bio: bio.trim(), awayMessage: awayMessage.trim() }),
+        body: JSON.stringify({
+          bio: bio.trim(),
+          awayMessage: awayMessage.trim(),
+        }),
       });
 
       if (!res.ok) {
@@ -158,6 +223,25 @@ export default function EditProfilePage() {
     }
   };
 
+  const handleSoundPackSelect = async (pack: SoundPack) => {
+    setSoundPack(pack);
+    setSoundPackState(pack);
+    fetch("/api/profile", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ soundPack: pack === "off" ? null : pack }),
+    }).catch(() => {});
+  };
+
+  const handleFeedVisibilitySelect = async (value: "PUBLIC" | "BUDDIES" | "PRIVATE") => {
+    setFeedVisibilityState(value);
+    fetch("/api/profile", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ feedVisibility: value }),
+    }).catch(() => {});
+  };
+
   const strength = passwordStrength(newPw);
 
   if (status === "loading") {
@@ -213,36 +297,179 @@ export default function EditProfilePage() {
             style={{ borderColor: "#1a1a12", background: "#0a0a08" }}
           >
             <div
-              className="w-14 h-14 rounded-xl flex items-center justify-center flex-shrink-0"
+              className="w-14 h-14 rounded-xl overflow-hidden flex items-center justify-center flex-shrink-0"
               style={{ background: "#1a1a12" }}
             >
-              <span className="text-lg font-bold font-mono" style={{ color: "#3a3a2a" }}>
-                {session?.user?.screenname?.slice(0, 2).toUpperCase() ?? "??"}
-              </span>
+              {avatarUrl ? (
+                <Image src={avatarUrl} alt="profile photo" width={56} height={56} className="w-full h-full object-cover" unoptimized />
+              ) : (
+                <span className="text-lg font-bold font-mono" style={{ color: "#3a3a2a" }}>
+                  {session?.user?.screenname?.slice(0, 2).toUpperCase() ?? "??"}
+                </span>
+              )}
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-sm font-semibold" style={{ color: "#e5e7eb" }}>
                 Profile photo
               </p>
               {session?.user?.isGoldMember ? (
-                <button
-                  type="button"
-                  disabled
-                  className="mt-1.5 text-xs font-mono px-3 py-1.5 rounded-lg border opacity-50 cursor-not-allowed"
-                  style={{ color: "#c8860a", borderColor: "#c8860a33" }}
-                >
-                  upload photo (coming soon)
-                </button>
+                <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                  <label
+                    className="text-xs font-mono px-3 py-1.5 rounded-lg border cursor-pointer transition-opacity hover:opacity-80"
+                    style={{ color: "#c8860a", borderColor: "#c8860a44" }}
+                  >
+                    {isUploading ? "uploading…" : avatarUrl ? "change photo" : "upload photo"}
+                    <input type="file" accept="image/*" className="hidden" onChange={handlePhotoUpload} disabled={isUploading} />
+                  </label>
+                  {avatarUrl && (
+                    <button
+                      type="button"
+                      onClick={handleClearPhoto}
+                      className="text-xs font-mono px-3 py-1.5 rounded-lg border transition-opacity hover:opacity-80"
+                      style={{ color: "#6b7280", borderColor: "#2a2a1a" }}
+                    >
+                      remove
+                    </button>
+                  )}
+                  {uploadError && (
+                    <p className="w-full text-[11px] font-mono" style={{ color: "#ef4444" }}>{uploadError}</p>
+                  )}
+                </div>
               ) : (
                 <div className="flex items-center gap-2 mt-1.5">
-                  <span className="text-xs font-mono" style={{ color: "#3a3a2a" }}>
-                    🔒
-                  </span>
-                  <p className="text-xs font-mono" style={{ color: "#3a3a2a" }}>
-                    Gold members only
-                  </p>
+                  <span className="text-xs font-mono" style={{ color: "#3a3a2a" }}>🔒</span>
+                  <p className="text-xs font-mono" style={{ color: "#3a3a2a" }}>Gold members only</p>
                 </div>
               )}
+            </div>
+          </div>
+
+          {/* App color scheme — Gold only, instant-apply */}
+          {session?.user?.isGoldMember && (
+            <div className="space-y-2">
+              <label className="text-xs font-mono" style={{ color: "#6b7280" }}>
+                app color scheme
+              </label>
+              <div className="flex flex-wrap gap-2">
+                {COLOR_SCHEMES.map((scheme) => {
+                  const active = colorScheme === scheme.id;
+                  return (
+                    <button
+                      key={scheme.id}
+                      type="button"
+                      onClick={() => setColorScheme(scheme.id)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-mono transition-all"
+                      style={{
+                        background: scheme.bg,
+                        borderColor: active ? scheme.accent : "#1e1e14",
+                        color: scheme.accent,
+                        boxShadow: active ? `0 0 0 1px ${scheme.accent}` : undefined,
+                      }}
+                    >
+                      <span
+                        className="w-2.5 h-2.5 rounded-full"
+                        style={{ background: scheme.accent }}
+                      />
+                      {scheme.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Sound pack — Gold only, instant-apply */}
+          {session?.user?.isGoldMember && (
+            <div className="space-y-2">
+              <label className="text-xs font-mono" style={{ color: "#6b7280" }}>
+                sound pack
+              </label>
+              <div className="flex flex-col gap-2">
+                {(["off", "classic", "retro", "minimal"] as SoundPack[]).map((pack) => {
+                  const active = soundPack === pack;
+                  return (
+                    <div key={pack} className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => handleSoundPackSelect(pack)}
+                        className="flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-mono transition-all flex-1 text-left"
+                        style={{
+                          background: active ? "#1a1a12" : "#0a0a08",
+                          borderColor: active ? "#c8860a" : "#1e1e14",
+                          color: active ? "#c8860a" : "#6b7280",
+                          boxShadow: active ? "0 0 0 1px #c8860a44" : undefined,
+                        }}
+                      >
+                        <span
+                          className="w-2 h-2 rounded-full border flex-shrink-0"
+                          style={{
+                            background: active ? "#c8860a" : "transparent",
+                            borderColor: active ? "#c8860a" : "#3a3a2a",
+                          }}
+                        />
+                        {pack}
+                      </button>
+                      {pack !== "off" && (
+                        <button
+                          type="button"
+                          onClick={() => previewSound(pack)}
+                          className="text-[10px] font-mono px-2 py-1.5 rounded-lg border transition-opacity hover:opacity-80"
+                          style={{ color: "#6b7280", borderColor: "#1e1e14", background: "#0a0a08" }}
+                        >
+                          preview
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Feed privacy */}
+          <div className="space-y-2">
+            <label className="text-xs font-mono" style={{ color: "#6b7280" }}>
+              who can see your posts?
+            </label>
+            <div className="flex flex-col gap-2">
+              {(
+                [
+                  { value: "PUBLIC",  label: "everyone",     desc: "your posts are visible to all users" },
+                  { value: "BUDDIES", label: "buddies only",  desc: "only accepted buddies can see your posts" },
+                  { value: "PRIVATE", label: "only me",       desc: "your posts are hidden from everyone else" },
+                ] as const
+              ).map(({ value, label, desc }) => {
+                const active = feedVisibility === value;
+                return (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => handleFeedVisibilitySelect(value)}
+                    className="flex items-start gap-3 px-3 py-2.5 rounded-xl border text-left transition-all"
+                    style={{
+                      background: active ? "#1a1a12" : "#0a0a08",
+                      borderColor: active ? "#c8860a" : "#1e1e14",
+                      boxShadow: active ? "0 0 0 1px #c8860a44" : undefined,
+                    }}
+                  >
+                    <span
+                      className="w-2 h-2 rounded-full border flex-shrink-0 mt-1"
+                      style={{
+                        background: active ? "#c8860a" : "transparent",
+                        borderColor: active ? "#c8860a" : "#3a3a2a",
+                      }}
+                    />
+                    <div>
+                      <p className="text-xs font-mono" style={{ color: active ? "#c8860a" : "#6b7280" }}>
+                        {label}
+                      </p>
+                      <p className="text-[11px] mt-0.5" style={{ color: "#2a2a1a", fontFamily: "var(--font-dm-sans)" }}>
+                        {desc}
+                      </p>
+                    </div>
+                  </button>
+                );
+              })}
             </div>
           </div>
 
@@ -488,6 +715,30 @@ export default function EditProfilePage() {
               </button>
             </form>
           )}
+        </div>
+
+        {/* Encryption recovery */}
+        <div
+          className="rounded-xl border p-4"
+          style={{ borderColor: "var(--border)", background: "var(--surface)" }}
+        >
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-xs font-mono font-semibold" style={{ color: "var(--text-muted)" }}>
+                encryption keys
+              </p>
+              <p className="text-[11px] mt-0.5" style={{ color: "var(--text-dim)" }}>
+                restore keys from your 24-word recovery phrase on a new device.
+              </p>
+            </div>
+            <Link
+              href="/recover-keys"
+              className="flex-shrink-0 text-xs font-mono px-3 py-1.5 rounded-lg border transition-colors hover:opacity-80"
+              style={{ borderColor: "var(--border)", color: "var(--text-muted)", background: "var(--bg)" }}
+            >
+              restore →
+            </Link>
+          </div>
         </div>
 
         {/* View profile link */}

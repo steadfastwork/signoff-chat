@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
+import Image from "next/image";
 import Link from "next/link";
 import { StatusDot } from "@/components/StatusDot";
 import type { StatusValue } from "@/components/StatusDot";
@@ -32,6 +33,8 @@ export interface ProfileData {
   status: string;
   isGoldMember: boolean;
   avatarColor: string;
+  avatarUrl?: string | null;
+  profileTheme?: string | null;
   postCount: number;
   buddyCount: number;
   joinedAt: string;
@@ -173,6 +176,22 @@ export function ProfileCard({ profile, onRelationshipChange }: ProfileCardProps)
     }
   };
 
+  const withdrawRequest = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/buddies/${profile.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "withdraw" }),
+      });
+      if (res.ok) {
+        onRelationshipChange?.("none", null);
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const removeBuddy = async () => {
     setLoading(true);
     try {
@@ -208,7 +227,7 @@ export function ProfileCard({ profile, onRelationshipChange }: ProfileCardProps)
         {/* Avatar — 56px */}
         <div className="relative flex-shrink-0">
           <div
-            className="w-14 h-14 rounded-xl flex items-center justify-center"
+            className="w-14 h-14 rounded-xl overflow-hidden flex items-center justify-center"
             style={{
               background: colors.bg,
               boxShadow: profile.isGoldMember
@@ -216,12 +235,23 @@ export function ProfileCard({ profile, onRelationshipChange }: ProfileCardProps)
                 : undefined,
             }}
           >
-            <span
-              className="text-lg font-bold font-mono"
-              style={{ color: colors.text }}
-            >
-              {profile.screenname.slice(0, 2).toUpperCase()}
-            </span>
+            {profile.avatarUrl ? (
+              <Image
+                src={profile.avatarUrl}
+                alt={profile.screenname}
+                width={56}
+                height={56}
+                className="w-full h-full object-cover"
+                unoptimized
+              />
+            ) : (
+              <span
+                className="text-lg font-bold font-mono"
+                style={{ color: colors.text }}
+              >
+                {profile.screenname.slice(0, 2).toUpperCase()}
+              </span>
+            )}
           </div>
           <StatusDot
             status={profile.status as StatusValue}
@@ -298,7 +328,7 @@ export function ProfileCard({ profile, onRelationshipChange }: ProfileCardProps)
         {profile.relationship === "self" && (
           <Link
             href="/u/me/edit"
-            className="h-8 px-4 rounded-xl text-xs font-mono font-bold transition-all"
+            className="h-8 px-4 rounded-xl text-xs font-mono font-bold transition-all inline-flex items-center"
             style={{ background: "#c8860a22", color: "#c8860a", border: "1px solid #c8860a33" }}
           >
             edit profile
@@ -319,11 +349,23 @@ export function ProfileCard({ profile, onRelationshipChange }: ProfileCardProps)
         {profile.relationship === "pending" &&
           profile.pendingDirection === "sent" && (
             <button
-              disabled
-              className="h-8 px-4 rounded-xl text-xs font-mono border opacity-50"
+              onClick={withdrawRequest}
+              disabled={loading}
+              className="h-8 px-4 rounded-xl text-xs font-mono border transition-colors disabled:opacity-40"
               style={{ color: "#6b7280", borderColor: "#1e1e14" }}
+              title="Cancel buddy request"
+              onMouseEnter={(e) => {
+                (e.currentTarget as HTMLButtonElement).textContent = "cancel request";
+                (e.currentTarget as HTMLButtonElement).style.color = "#ef4444";
+                (e.currentTarget as HTMLButtonElement).style.borderColor = "#ef444433";
+              }}
+              onMouseLeave={(e) => {
+                (e.currentTarget as HTMLButtonElement).textContent = loading ? "…" : "pending…";
+                (e.currentTarget as HTMLButtonElement).style.color = "#6b7280";
+                (e.currentTarget as HTMLButtonElement).style.borderColor = "#1e1e14";
+              }}
             >
-              pending…
+              {loading ? "…" : "pending…"}
             </button>
           )}
 
@@ -340,14 +382,23 @@ export function ProfileCard({ profile, onRelationshipChange }: ProfileCardProps)
           )}
 
         {profile.relationship === "buddy" && (
-          <button
-            onClick={removeBuddy}
-            disabled={loading}
-            className="h-8 px-4 rounded-xl text-xs font-mono border transition-colors disabled:opacity-40"
-            style={{ color: "#22c55e", borderColor: "#22c55e33" }}
-          >
-            {loading ? "…" : "✓ buddies"}
-          </button>
+          <>
+            <button
+              onClick={removeBuddy}
+              disabled={loading}
+              className="h-8 px-4 rounded-xl text-xs font-mono border transition-colors disabled:opacity-40"
+              style={{ color: "#22c55e", borderColor: "#22c55e33" }}
+            >
+              {loading ? "…" : "✓ buddies"}
+            </button>
+            <Link
+              href={`/dm/${profile.id}`}
+              className="h-8 px-4 rounded-xl text-xs font-mono font-bold transition-all inline-flex items-center"
+              style={{ background: "#1a2a2a", color: "#2dd4bf", border: "1px solid #2dd4bf33" }}
+            >
+              message
+            </Link>
+          </>
         )}
 
         {/* Leave a tip */}

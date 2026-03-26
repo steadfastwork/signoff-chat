@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { getFeatureFlag, BOARDS_ENABLED } from "@/lib/featureFlags";
 
 type Params = { params: { boardName: string; postId: string } };
 
@@ -19,6 +20,9 @@ async function getPostAndBoard(boardName: string, postId: string) {
 // ---------------------------------------------------------------------------
 
 export async function GET(_req: NextRequest, { params }: Params) {
+  if (!await getFeatureFlag(BOARDS_ENABLED)) {
+    return NextResponse.json({ error: "not found" }, { status: 404 });
+  }
   const session = await getServerSession(authOptions);
   const ctx = await getPostAndBoard(params.boardName, params.postId);
   if (!ctx) return NextResponse.json({ error: "not found." }, { status: 404 });
@@ -80,6 +84,9 @@ export async function GET(_req: NextRequest, { params }: Params) {
 // ---------------------------------------------------------------------------
 
 export async function PATCH(req: NextRequest, { params }: Params) {
+  if (!await getFeatureFlag(BOARDS_ENABLED)) {
+    return NextResponse.json({ error: "not found" }, { status: 404 });
+  }
   const session = await getServerSession(authOptions);
   if (!session?.user?.id) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
@@ -139,6 +146,9 @@ export async function PATCH(req: NextRequest, { params }: Params) {
 // ---------------------------------------------------------------------------
 
 export async function DELETE(_req: NextRequest, { params }: Params) {
+  if (!await getFeatureFlag(BOARDS_ENABLED)) {
+    return NextResponse.json({ error: "not found" }, { status: 404 });
+  }
   const session = await getServerSession(authOptions);
   if (!session?.user?.id) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
@@ -146,10 +156,25 @@ export async function DELETE(_req: NextRequest, { params }: Params) {
 
   const ctx = await getPostAndBoard(params.boardName, params.postId);
   if (!ctx) return NextResponse.json({ error: "not found." }, { status: 404 });
-  const { post } = ctx;
+  const { board, post } = ctx;
 
-  if (post.authorId !== session.user.id) {
-    return NextResponse.json({ error: "forbidden." }, { status: 403 });
+  const isAuthor = post.authorId === session.user.id;
+  const isCreator = board.creatorId === session.user.id;
+
+  if (!isAuthor && !isCreator) {
+    const [membership, actor] = await Promise.all([
+      prisma.boardMember.findUnique({
+        where: { userId_boardId: { userId: session.user.id, boardId: board.id } },
+        select: { isModerator: true },
+      }),
+      prisma.user.findUnique({
+        where: { id: session.user.id },
+        select: { adminRole: true },
+      }),
+    ]);
+    if (!membership?.isModerator && !actor?.adminRole) {
+      return NextResponse.json({ error: "forbidden." }, { status: 403 });
+    }
   }
 
   await prisma.boardPost.delete({ where: { id: post.id } });

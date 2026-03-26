@@ -189,10 +189,11 @@ export const ourFileRouter = {
       // Load emailHash for the audit record
       const user = await prisma.user.findUnique({
         where:  { id: session.user.id },
-        select: { screenname: true, emailHash: true, isSuspended: true },
+        select: { screenname: true, emailHash: true, isSuspended: true, isGoldMember: true },
       });
       if (!user)              throw new Error("user not found");
       if (user.isSuspended)   throw new Error("account suspended");
+      if (!user.isGoldMember) throw new Error("Gold members only");
 
       return {
         userId:     session.user.id,
@@ -216,6 +217,12 @@ export const ourFileRouter = {
         // Never reveal that a safety scan occurred or that a report was filed.
         throw new Error("upload failed");
       }
+
+      // Persist avatar URL on the user record
+      await prisma.user.update({
+        where: { id: metadata.userId },
+        data:  { avatarUrl: file.url },
+      });
 
       return { userId: metadata.userId, url: file.url };
     }),

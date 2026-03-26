@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { getFeatureFlag, BOARDS_ENABLED } from "@/lib/featureFlags";
 
 type Params = { params: { boardName: string } };
 
@@ -10,6 +11,9 @@ type Params = { params: { boardName: string } };
 // ---------------------------------------------------------------------------
 
 export async function GET(_req: NextRequest, { params }: Params) {
+  if (!await getFeatureFlag(BOARDS_ENABLED)) {
+    return NextResponse.json({ error: "not found" }, { status: 404 });
+  }
   const session = await getServerSession(authOptions);
   if (!session?.user?.id) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
@@ -26,9 +30,9 @@ export async function GET(_req: NextRequest, { params }: Params) {
   if (board.creatorId !== session.user.id) {
     const user = await prisma.user.findUnique({
       where: { id: session.user.id },
-      select: { isAdmin: true },
+      select: { adminRole: true },
     });
-    if (!user?.isAdmin) {
+    if (!user?.adminRole) {
       return NextResponse.json({ error: "forbidden — creator only." }, { status: 403 });
     }
   }

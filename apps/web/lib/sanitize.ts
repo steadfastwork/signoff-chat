@@ -46,6 +46,58 @@ export function stripHtml(input: string): string {
 }
 
 // ---------------------------------------------------------------------------
+// Rich text sanitization
+// ---------------------------------------------------------------------------
+
+/**
+ * Allowed HTML tags and their permitted attributes.
+ * Used to sanitize rich-text HTML from the editor before storage.
+ * Everything else is stripped — no scripts, no event handlers, no style.
+ */
+const RICH_ALLOWED_TAGS = new Set([
+  "p", "br", "strong", "em", "s", "code", "pre",
+  "ul", "ol", "li", "blockquote", "a", "h2", "h3",
+]);
+
+/**
+ * Sanitize editor-produced HTML for storage.
+ * Allows only the safe inline/block tags above; strips all others.
+ * <a> tags: only `href` is preserved, and only for http/https URLs.
+ */
+export function sanitizeRichText(html: string): string {
+  if (!html) return "";
+  return html
+    // Strip all tags, keeping only allowed ones
+    .replace(/<(\/?)([a-z][a-z0-9]*)([^>]*)>/gi, (_match, close, tag, attrs) => {
+      const t = tag.toLowerCase();
+      if (!RICH_ALLOWED_TAGS.has(t)) return "";
+      if (close) return `</${t}>`;
+      if (t === "a") {
+        const hrefMatch = attrs.match(/\shref="([^"]{1,2048})"/i);
+        if (hrefMatch) {
+          try {
+            const url = new URL(hrefMatch[1]);
+            if (url.protocol === "http:" || url.protocol === "https:") {
+              return `<a href="${url.toString()}" target="_blank" rel="noopener noreferrer">`;
+            }
+          } catch { /* ignore bad URLs */ }
+        }
+        return "<a>";
+      }
+      return `<${t}>`;
+    })
+    .trim();
+}
+
+/**
+ * Count visible characters in HTML (tags excluded).
+ * Use for enforcing character limits on rich-text content.
+ */
+export function richTextLength(html: string): number {
+  return html.replace(/<[^>]+>/g, "").replace(/&[a-z]+;/gi, " ").length;
+}
+
+// ---------------------------------------------------------------------------
 // URL sanitization
 // ---------------------------------------------------------------------------
 

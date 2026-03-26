@@ -16,12 +16,30 @@ interface ChannelSummary {
   description: string | null;
   type: "PUBLIC" | "INVITE_ONLY" | "SECRET";
   tags: string[];
+  category: string | null;
   slowModeMinutes: number;
   memberCap: number | null;
   memberCount: number;
+  messageCount?: number;
+  isFeatured?: boolean;
+  isVerified?: boolean;
   favoriteByMe: boolean;
   canManage?: boolean;
 }
+
+const CATEGORY_OPTIONS = [
+  { value: "GAMING",    label: "gaming" },
+  { value: "MUSIC",     label: "music" },
+  { value: "ART",       label: "art" },
+  { value: "TECH",      label: "tech" },
+  { value: "SPORTS",    label: "sports" },
+  { value: "POLITICS",  label: "politics" },
+  { value: "HUMOR",     label: "humor" },
+  { value: "LIFESTYLE", label: "lifestyle" },
+  { value: "STUDY",     label: "study" },
+  { value: "SUPPORT",   label: "support" },
+  { value: "OTHER",     label: "other" },
+];
 
 // ---------------------------------------------------------------------------
 // Type badge
@@ -105,6 +123,17 @@ function ChannelCard({
           >
             #{channel.name}
           </span>
+          {channel.isVerified && (
+            <span className="text-[10px]" title="verified" style={{ color: "#2dd4bf" }}>✓</span>
+          )}
+          {channel.isFeatured && (
+            <span
+              className="text-[10px] font-mono px-1 py-0.5 rounded"
+              style={{ background: "rgba(200,134,10,0.1)", color: "#c8860a", border: "1px solid rgba(200,134,10,0.2)" }}
+            >
+              featured
+            </span>
+          )}
           <TypeBadge type={channel.type} />
         </div>
 
@@ -125,6 +154,15 @@ function ChannelCard({
               <span className="ml-2">· 🕐 {channel.slowModeMinutes}m slow</span>
             )}
           </p>
+
+          {channel.category && (
+            <span
+              className="text-[10px] font-mono px-1.5 py-0.5 rounded-full border"
+              style={{ color: "var(--text-dim)", borderColor: "var(--border)" }}
+            >
+              {channel.category.toLowerCase()}
+            </span>
+          )}
 
           {channel.tags?.length > 0 && (
             <div className="flex items-center gap-1 flex-wrap">
@@ -182,15 +220,27 @@ function ChannelCard({
 // Channel browser page
 // ---------------------------------------------------------------------------
 
+type MainTab = "yours" | "discover";
+type DiscoverTab = "featured" | "new" | "active" | "category";
+
 export default function ChannelsPage() {
   const { data: session } = useSession();
+  const [mainTab, setMainTab] = useState<MainTab>("yours");
+  const [discoverTab, setDiscoverTab] = useState<DiscoverTab>("featured");
+  const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
+
+  // Yours tab
   const [query, setQuery] = useState("");
   const [tagFilter, setTagFilter] = useState<string | null>(null);
-  const [results, setResults] = useState<ChannelSummary[]>([]);
   const [myChannels, setMyChannels] = useState<ChannelSummary[]>([]);
-  const [loadingSearch, setLoadingSearch] = useState(false);
   const [loadingMine, setLoadingMine] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
+
+  // Discover tab
+  const [discoverResults, setDiscoverResults] = useState<ChannelSummary[]>([]);
+  const [discoverQuery, setDiscoverQuery] = useState("");
+  const [loadingDiscover, setLoadingDiscover] = useState(false);
+
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Load user's channels on mount
@@ -203,39 +253,53 @@ export default function ChannelsPage() {
       .finally(() => setLoadingMine(false));
   }, [session?.user?.id]);
 
-  // Debounced search (re-triggers on query or tagFilter change)
+  // Load discover channels when tab / subtab / category changes
   useEffect(() => {
+    if (mainTab !== "discover") return;
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(async () => {
-      setLoadingSearch(true);
+      setLoadingDiscover(true);
       try {
         const params = new URLSearchParams();
-        if (query) params.set("q", query);
-        if (tagFilter) params.set("tag", tagFilter);
+        if (discoverQuery) params.set("q", discoverQuery);
+        if (discoverTab === "category" && categoryFilter) {
+          params.set("category", categoryFilter);
+        } else if (discoverTab === "featured") {
+          params.set("mode", "featured");
+        } else if (discoverTab === "active") {
+          params.set("mode", "active");
+        }
+        // new = default sort (createdAt desc)
         const res = await fetch(`/api/channels?${params.toString()}`);
         const data = await res.json();
-        setResults(Array.isArray(data) ? data : []);
+        setDiscoverResults(Array.isArray(data) ? data : []);
       } finally {
-        setLoadingSearch(false);
+        setLoadingDiscover(false);
       }
-    }, 250);
-  }, [query, tagFilter]);
+    }, discoverQuery ? 250 : 0);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mainTab, discoverTab, categoryFilter, discoverQuery]);
 
-  // Collect all tags from visible results for filter chips
-  const allTags = Array.from(
-    new Set(results.flatMap((c) => c.tags ?? []))
-  ).sort();
+  // Filtered "yours" channels
+  const filteredMine = myChannels.filter((c) => {
+    const q = query.toLowerCase();
+    const matchesQuery = !q || c.name.includes(q) || c.description?.toLowerCase().includes(q);
+    const matchesTag = !tagFilter || c.tags.includes(tagFilter);
+    return matchesQuery && matchesTag;
+  });
+
+  const favorites = filteredMine.filter((c) => c.favoriteByMe);
+  const nonFavorites = filteredMine.filter((c) => !c.favoriteByMe);
+  const allTags = Array.from(new Set(myChannels.flatMap((c) => c.tags ?? []))).sort();
 
   const handleFavoriteToggle = (channelId: string, value: boolean) => {
     setMyChannels((prev) =>
       prev.map((c) => c.id === channelId ? { ...c, favoriteByMe: value } : c)
     );
-    setResults((prev) =>
+    setDiscoverResults((prev) =>
       prev.map((c) => c.id === channelId ? { ...c, favoriteByMe: value } : c)
     );
   };
-
-  const favorites = myChannels.filter((c) => c.favoriteByMe);
 
   return (
     <div
@@ -244,24 +308,18 @@ export default function ChannelsPage() {
     >
       <div className="max-w-2xl mx-auto px-4 py-8">
         {/* Header */}
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center justify-between mb-5">
           <div>
-            <h1
-              className="text-xl font-bold"
-              style={{ color: "var(--text)" }}
-            >
+            <h1 className="text-xl font-bold" style={{ color: "var(--text)" }}>
               Channels
             </h1>
-            <p
-              className="text-sm mt-0.5"
-              style={{ color: "var(--text-muted)" }}
-            >
+            <p className="text-sm mt-0.5" style={{ color: "var(--text-muted)" }}>
               real-time chatrooms for any vibe
             </p>
           </div>
           {session && (
             <button
-              onClick={() => setShowCreate((v) => !v)}
+              onClick={() => { setShowCreate((v) => !v); setMainTab("yours"); }}
               className="h-9 px-4 rounded-xl text-sm font-mono font-bold transition-all"
               style={{
                 background: showCreate ? "var(--surface)" : "var(--amber)",
@@ -283,144 +341,227 @@ export default function ChannelsPage() {
           </div>
         )}
 
-        {/* Search */}
+        {/* Main tabs */}
         <div
-          className="flex items-center gap-2 rounded-xl border px-3 h-10 mb-3"
-          style={{ borderColor: "var(--border)", background: "var(--surface)" }}
+          className="flex gap-1 mb-5 p-1 rounded-xl"
+          style={{ background: "var(--surface)" }}
         >
-          <span className="text-sm" style={{ color: "var(--text-dim)" }}>
-            🔍
-          </span>
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="search channels by name or tag…"
-            className="flex-1 bg-transparent outline-none text-sm"
-            style={{ color: "var(--text)" }}
-          />
-          {loadingSearch && (
-            <span
-              className="text-[10px] font-mono animate-pulse"
-              style={{ color: "var(--text-dim)" }}
+          {(["yours", "discover"] as MainTab[]).map((tab) => (
+            <button
+              key={tab}
+              onClick={() => setMainTab(tab)}
+              className="flex-1 h-8 rounded-lg text-xs font-mono font-bold transition-all"
+              style={{
+                background: mainTab === tab ? "var(--bg)" : "transparent",
+                color: mainTab === tab ? "var(--amber)" : "var(--text-muted)",
+                boxShadow: mainTab === tab ? "0 1px 3px rgba(0,0,0,0.3)" : undefined,
+              }}
             >
-              …
-            </span>
-          )}
+              {tab === "yours" ? "your channels" : "discover"}
+            </button>
+          ))}
         </div>
 
-        {/* Tag filter chips */}
-        {allTags.length > 0 && (
-          <div className="flex items-center gap-1.5 flex-wrap mb-5">
-            {tagFilter && (
-              <button
-                onClick={() => setTagFilter(null)}
-                className="text-[10px] font-mono px-2 py-1 rounded-full border transition-all"
-                style={{ color: "var(--text-dim)", borderColor: "var(--border)" }}
-              >
-                × clear
-              </button>
+        {/* ── YOUR CHANNELS tab ── */}
+        {mainTab === "yours" && (
+          <>
+            {/* Search */}
+            <div
+              className="flex items-center gap-2 rounded-xl border px-3 h-10 mb-3"
+              style={{ borderColor: "var(--border)", background: "var(--surface)" }}
+            >
+              <span className="text-sm" style={{ color: "var(--text-dim)" }}>🔍</span>
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="search your channels…"
+                className="flex-1 bg-transparent outline-none text-sm"
+                style={{ color: "var(--text)", fontFamily: "var(--font-dm-sans)" }}
+              />
+            </div>
+
+            {/* Tag filter chips */}
+            {allTags.length > 0 && (
+              <div className="flex items-center gap-1.5 flex-wrap mb-4">
+                {tagFilter && (
+                  <button
+                    onClick={() => setTagFilter(null)}
+                    className="text-[10px] font-mono px-2 py-1 rounded-full border transition-all"
+                    style={{ color: "var(--text-dim)", borderColor: "var(--border)" }}
+                  >
+                    × clear
+                  </button>
+                )}
+                {allTags.map((tag) => (
+                  <button
+                    key={tag}
+                    onClick={() => setTagFilter(tagFilter === tag ? null : tag)}
+                    className="text-[10px] font-mono px-2 py-1 rounded-full border transition-all"
+                    style={{
+                      background: tagFilter === tag ? "rgba(45,212,191,0.10)" : "transparent",
+                      color: tagFilter === tag ? "var(--teal)" : "var(--text-dim)",
+                      borderColor: tagFilter === tag ? "rgba(45,212,191,0.25)" : "var(--border)",
+                    }}
+                  >
+                    {tag}
+                  </button>
+                ))}
+              </div>
             )}
-            {allTags.map((tag) => (
-              <button
-                key={tag}
-                onClick={() => setTagFilter(tagFilter === tag ? null : tag)}
-                className="text-[10px] font-mono px-2 py-1 rounded-full border transition-all"
-                style={{
-                  background: tagFilter === tag ? "rgba(45,212,191,0.10)" : "transparent",
-                  color: tagFilter === tag ? "var(--teal)" : "var(--text-dim)",
-                  borderColor: tagFilter === tag ? "rgba(45,212,191,0.25)" : "var(--border)",
-                }}
-              >
-                {tag}
-              </button>
-            ))}
-          </div>
+
+            {loadingMine ? (
+              <p className="text-sm py-8 text-center animate-pulse" style={{ color: "var(--text-dim)" }}>
+                loading…
+              </p>
+            ) : myChannels.length === 0 ? (
+              <div className="text-center py-10">
+                <p className="text-sm italic mb-3" style={{ color: "var(--text-dim)" }}>
+                  you haven&apos;t joined any channels yet.
+                </p>
+                <button
+                  onClick={() => setMainTab("discover")}
+                  className="text-xs font-mono"
+                  style={{ color: "var(--amber)" }}
+                >
+                  explore channels →
+                </button>
+              </div>
+            ) : (
+              <>
+                {favorites.length > 0 && (
+                  <section className="mb-6">
+                    <h2
+                      className="text-[11px] font-mono uppercase tracking-widest mb-3"
+                      style={{ color: "var(--text-dim)" }}
+                    >
+                      ★ favorites
+                    </h2>
+                    <div className="flex flex-col gap-2">
+                      {favorites.map((ch) => (
+                        <ChannelCard key={ch.id} channel={ch} onFavoriteToggle={handleFavoriteToggle} />
+                      ))}
+                    </div>
+                  </section>
+                )}
+
+                {nonFavorites.length > 0 && (
+                  <section>
+                    <h2
+                      className="text-[11px] font-mono uppercase tracking-widest mb-3"
+                      style={{ color: "var(--text-dim)" }}
+                    >
+                      joined
+                    </h2>
+                    <div className="flex flex-col gap-2">
+                      {nonFavorites.map((ch) => (
+                        <ChannelCard key={ch.id} channel={ch} onFavoriteToggle={handleFavoriteToggle} />
+                      ))}
+                    </div>
+                  </section>
+                )}
+
+                {filteredMine.length === 0 && (
+                  <p className="text-sm italic py-4 text-center" style={{ color: "var(--text-dim)" }}>
+                    no channels match your search.
+                  </p>
+                )}
+              </>
+            )}
+          </>
         )}
 
-        {/* Favorites section */}
-        {session && favorites.length > 0 && (
-          <section className="mb-6">
-            <h2
-              className="text-[11px] font-mono uppercase tracking-widest mb-3"
-              style={{ color: "var(--text-dim)" }}
-            >
-              ★ favorites
-            </h2>
-            <div className="flex flex-col gap-2">
-              {favorites.map((ch) => (
-                <ChannelCard key={ch.id} channel={ch} onFavoriteToggle={handleFavoriteToggle} />
+        {/* ── DISCOVER tab ── */}
+        {mainTab === "discover" && (
+          <>
+            {/* Discover subtabs */}
+            <div className="flex gap-1 mb-4 overflow-x-auto pb-1">
+              {(
+                [
+                  { id: "featured", label: "featured" },
+                  { id: "new",      label: "newest" },
+                  { id: "active",   label: "most active" },
+                  { id: "category", label: "by category" },
+                ] as { id: DiscoverTab; label: string }[]
+              ).map(({ id, label }) => (
+                <button
+                  key={id}
+                  onClick={() => setDiscoverTab(id)}
+                  className="flex-shrink-0 h-8 px-3 rounded-lg text-xs font-mono font-bold transition-all border"
+                  style={{
+                    background: discoverTab === id ? "var(--amber-tint)" : "transparent",
+                    color: discoverTab === id ? "var(--amber)" : "var(--text-muted)",
+                    borderColor: discoverTab === id ? "var(--amber)" : "var(--border)",
+                  }}
+                >
+                  {label}
+                </button>
               ))}
             </div>
-          </section>
-        )}
 
-        {/* Your channels */}
-        {session && !loadingMine && myChannels.length > 0 && (
-          <section className="mb-8">
-            <h2
-              className="text-[11px] font-mono uppercase tracking-widest mb-3"
-              style={{ color: "var(--text-dim)" }}
+            {/* Category filter (only in category tab) */}
+            {discoverTab === "category" && (
+              <div className="flex flex-wrap gap-1.5 mb-4">
+                {CATEGORY_OPTIONS.map(({ value, label }) => (
+                  <button
+                    key={value}
+                    onClick={() => setCategoryFilter(categoryFilter === value ? null : value)}
+                    className="text-[11px] font-mono px-2.5 py-1 rounded-lg border transition-all"
+                    style={{
+                      background: categoryFilter === value ? "rgba(200,134,10,0.1)" : "transparent",
+                      color: categoryFilter === value ? "var(--amber)" : "var(--text-muted)",
+                      borderColor: categoryFilter === value ? "var(--amber)" : "var(--border)",
+                    }}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* Search within discover */}
+            <div
+              className="flex items-center gap-2 rounded-xl border px-3 h-10 mb-4"
+              style={{ borderColor: "var(--border)", background: "var(--surface)" }}
             >
-              your channels
-            </h2>
-            <div className="flex flex-col gap-2">
-              {myChannels.map((ch) => (
-                <ChannelCard key={ch.id} channel={ch} onFavoriteToggle={handleFavoriteToggle} />
-              ))}
+              <span className="text-sm" style={{ color: "var(--text-dim)" }}>🔍</span>
+              <input
+                value={discoverQuery}
+                onChange={(e) => setDiscoverQuery(e.target.value)}
+                placeholder="search channels…"
+                className="flex-1 bg-transparent outline-none text-sm"
+                style={{ color: "var(--text)", fontFamily: "var(--font-dm-sans)" }}
+              />
+              {loadingDiscover && (
+                <span
+                  className="text-[10px] font-mono animate-pulse"
+                  style={{ color: "var(--text-dim)" }}
+                >
+                  …
+                </span>
+              )}
             </div>
-          </section>
-        )}
 
-        {/* Search results */}
-        <section>
-          {query.length > 0 || tagFilter ? (
-            <>
-              <h2
-                className="text-[11px] font-mono uppercase tracking-widest mb-3"
-                style={{ color: "var(--text-dim)" }}
-              >
-                results
-              </h2>
-              {results.length === 0 && !loadingSearch ? (
-                <p
-                  className="text-sm italic py-4"
-                  style={{ color: "var(--text-dim)" }}
-                >
-                  no channels match your search.
-                </p>
-              ) : (
-                <div className="flex flex-col gap-2">
-                  {results.map((ch) => (
-                    <ChannelCard key={ch.id} channel={ch} onFavoriteToggle={session ? handleFavoriteToggle : undefined} />
-                  ))}
-                </div>
-              )}
-            </>
-          ) : (
-            <>
-              <h2
-                className="text-[11px] font-mono uppercase tracking-widest mb-3"
-                style={{ color: "var(--text-dim)" }}
-              >
-                all public channels
-              </h2>
-              {results.length === 0 && !loadingSearch ? (
-                <p
-                  className="text-sm italic py-4"
-                  style={{ color: "var(--text-dim)" }}
-                >
-                  no channels yet — be the first!
-                </p>
-              ) : (
-                <div className="flex flex-col gap-2">
-                  {results.map((ch) => (
-                    <ChannelCard key={ch.id} channel={ch} onFavoriteToggle={session ? handleFavoriteToggle : undefined} />
-                  ))}
-                </div>
-              )}
-            </>
-          )}
-        </section>
+            {discoverResults.length === 0 && !loadingDiscover ? (
+              <p className="text-sm italic py-6 text-center" style={{ color: "var(--text-dim)" }}>
+                {discoverTab === "featured"
+                  ? "no featured channels yet."
+                  : discoverTab === "category" && !categoryFilter
+                  ? "pick a category above."
+                  : "no channels found."}
+              </p>
+            ) : (
+              <div className="flex flex-col gap-2">
+                {discoverResults.map((ch) => (
+                  <ChannelCard
+                    key={ch.id}
+                    channel={ch}
+                    onFavoriteToggle={session ? handleFavoriteToggle : undefined}
+                  />
+                ))}
+              </div>
+            )}
+          </>
+        )}
       </div>
     </div>
   );

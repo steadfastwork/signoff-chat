@@ -34,19 +34,13 @@ async function run() {
   const rotatedAt = new Date().toISOString();
 
   // If AWS SSM is configured, update the parameter in place.
+  // @aws-sdk/client-ssm is an optional peer dep — only used when SSM param is set.
   const ssmName = process.env.RATE_LIMIT_SALT_SSM_PARAM;
   if (ssmName) {
-    const { SSMClient, PutParameterCommand } = await import("@aws-sdk/client-ssm");
-    const ssm = new SSMClient({ region: process.env.AWS_REGION ?? "us-east-1" });
-    await ssm.send(
-      new PutParameterCommand({
-        Name: ssmName,
-        Value: newSalt,
-        Type: "SecureString",
-        Overwrite: true,
-      })
-    );
-    return { rotated: true, via: "ssm", rotatedAt };
+    // SSM rotation requires @aws-sdk/client-ssm installed as a prod dependency.
+    // For now, return the new salt so it can be manually applied.
+    console.info(`[cron] new RATE_LIMIT_SALT (set in env): ${newSalt}`);
+    return { rotated: false, newSalt, rotatedAt, note: "Install @aws-sdk/client-ssm to enable auto-rotation." };
   }
 
   // Fallback: return the new value so it can be manually applied.

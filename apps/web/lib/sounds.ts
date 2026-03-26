@@ -1,83 +1,214 @@
 /**
- * Sound system using Web Audio API.
+ * Retro sound pack system using Web Audio API synthesis.
+ * No audio files needed — all sounds are generated programmatically.
  *
- * HTMLAudioElement.play() called from setInterval/setTimeout can be blocked
- * by the browser's autoplay policy even after a user gesture. Web Audio API
- * with a persistent AudioContext stays unlocked once resumed via a user gesture.
+ * Packs: "classic" (AIM-style), "retro" (8-bit), "minimal" (subtle), "off"
+ * Events: message_received, message_sent, buddy_online, buddy_offline, notification, nudge
  */
 
-type SoundName = "message" | "buddy-online";
+export type SoundPack = "classic" | "retro" | "minimal" | "off";
+export type SoundEvent =
+  | "message_received"
+  | "message_sent"
+  | "buddy_online"
+  | "buddy_offline"
+  | "notification"
+  | "nudge";
 
-const SOUND_NAMES: SoundName[] = ["message", "buddy-online"];
+// ---------------------------------------------------------------------------
+// AudioContext singleton
+// ---------------------------------------------------------------------------
 
 let ctx: AudioContext | null = null;
-const buffers: Partial<Record<SoundName, AudioBuffer>> = {};
-let unlocked = false;
 
-function getContext(): AudioContext {
-  if (!ctx) {
-    ctx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
-  }
-  return ctx;
-}
-
-async function loadBuffer(name: SoundName): Promise<void> {
+function getCtx(): AudioContext | null {
+  if (typeof window === "undefined") return null;
   try {
-    const context = getContext();
-    const res = await fetch(`/sounds/${name}.wav`);
-    if (!res.ok) return;
-    const arrayBuffer = await res.arrayBuffer();
-    buffers[name] = await context.decodeAudioData(arrayBuffer);
+    if (!ctx) ctx = new AudioContext();
+    if (ctx.state === "suspended") ctx.resume().catch(() => {});
+    return ctx;
   } catch {
-    // ignore
+    return null;
   }
 }
 
-/**
- * Call this once on any user gesture (click, keydown, etc.) to unlock the
- * AudioContext and preload all sound buffers.
- */
-export async function unlockSounds(): Promise<void> {
-  if (typeof window === "undefined") return;
-  const context = getContext();
-  if (context.state === "suspended") {
-    await context.resume().catch(() => {});
+// ---------------------------------------------------------------------------
+// Primitive builders
+// ---------------------------------------------------------------------------
+
+function tone(
+  ac: AudioContext,
+  freq: number,
+  startTime: number,
+  duration: number,
+  volume: number,
+  type: OscillatorType = "sine",
+  freqEnd?: number
+) {
+  const osc = ac.createOscillator();
+  const gain = ac.createGain();
+  osc.connect(gain);
+  gain.connect(ac.destination);
+
+  osc.type = type;
+  osc.frequency.setValueAtTime(freq, startTime);
+  if (freqEnd !== undefined) {
+    osc.frequency.linearRampToValueAtTime(freqEnd, startTime + duration);
   }
-  // Load any buffers that haven't been loaded yet (retries on failure)
-  const missing = SOUND_NAMES.filter((n) => !buffers[n]);
-  if (missing.length > 0) {
-    await Promise.all(missing.map(loadBuffer));
-  }
-  unlocked = true;
+
+  gain.gain.setValueAtTime(0.001, startTime);
+  gain.gain.linearRampToValueAtTime(volume, startTime + 0.01);
+  gain.gain.exponentialRampToValueAtTime(0.001, startTime + duration);
+
+  osc.start(startTime);
+  osc.stop(startTime + duration + 0.01);
 }
 
-/**
- * Play a named sound. No-ops if the context hasn't been unlocked yet or the
- * buffer hasn't loaded. Resumes the AudioContext if it was auto-suspended.
- */
-export function playSound(name: SoundName): void {
-  if (typeof window === "undefined") return;
-  const context = ctx;
-  const buffer = buffers[name];
-  if (!context || !buffer) return;
+// ---------------------------------------------------------------------------
+// Classic pack — AIM-inspired sine wave tones
+// ---------------------------------------------------------------------------
 
-  const doPlay = () => {
-    try {
-      const source = context.createBufferSource();
-      source.buffer = buffer;
-      const gain = context.createGain();
-      gain.gain.value = 0.5;
-      source.connect(gain);
-      gain.connect(context.destination);
-      source.start(0);
-    } catch {
-      // ignore
+const classic: Record<SoundEvent, (ac: AudioContext) => void> = {
+  message_received(ac) {
+    const t = ac.currentTime;
+    tone(ac, 440, t,       0.12, 0.15);
+    tone(ac, 660, t + 0.1, 0.18, 0.20);
+  },
+  message_sent(ac) {
+    tone(ac, 880, ac.currentTime, 0.06, 0.06);
+  },
+  buddy_online(ac) {
+    const t = ac.currentTime;
+    const notes = [330, 415, 523, 659];
+    notes.forEach((f, i) => tone(ac, f, t + i * 0.09, 0.12, 0.14));
+  },
+  buddy_offline(ac) {
+    const t = ac.currentTime;
+    const notes = [659, 523, 415, 330];
+    notes.forEach((f, i) => tone(ac, f, t + i * 0.09, 0.12, 0.10));
+  },
+  notification(ac) {
+    tone(ac, 880, ac.currentTime, 0.35, 0.18);
+  },
+  nudge(ac) {
+    const t = ac.currentTime;
+    for (let i = 0; i < 5; i++) {
+      tone(ac, 440, t + i * 0.07, 0.05, 0.15);
     }
-  };
+  },
+};
 
-  if (context.state === "suspended") {
-    context.resume().then(doPlay).catch(() => {});
-  } else {
-    doPlay();
+// ---------------------------------------------------------------------------
+// Retro pack — 8-bit square wave chiptune
+// ---------------------------------------------------------------------------
+
+const retro: Record<SoundEvent, (ac: AudioContext) => void> = {
+  message_received(ac) {
+    const t = ac.currentTime;
+    tone(ac, 220, t,       0.08, 0.18, "square");
+    tone(ac, 440, t + 0.09, 0.12, 0.18, "square");
+  },
+  message_sent(ac) {
+    tone(ac, 880, ac.currentTime, 0.04, 0.10, "square");
+  },
+  buddy_online(ac) {
+    const t = ac.currentTime;
+    const notes = [262, 330, 392, 523];
+    notes.forEach((f, i) => tone(ac, f, t + i * 0.07, 0.08, 0.15, "square"));
+  },
+  buddy_offline(ac) {
+    const t = ac.currentTime;
+    const notes = [523, 392, 330, 262];
+    notes.forEach((f, i) => tone(ac, f, t + i * 0.07, 0.08, 0.10, "square"));
+  },
+  notification(ac) {
+    // Coin sound — glide up
+    tone(ac, 660, ac.currentTime, 0.08, 0.18, "square", 1320);
+  },
+  nudge(ac) {
+    const t = ac.currentTime;
+    for (let i = 0; i < 6; i++) {
+      tone(ac, 160, t + i * 0.05, 0.04, 0.20, "square");
+    }
+  },
+};
+
+// ---------------------------------------------------------------------------
+// Minimal pack — quiet triangle waves
+// ---------------------------------------------------------------------------
+
+const minimal: Record<SoundEvent, (ac: AudioContext) => void> = {
+  message_received(ac) {
+    tone(ac, 528, ac.currentTime, 0.15, 0.06, "triangle");
+  },
+  message_sent(ac) {
+    tone(ac, 660, ac.currentTime, 0.05, 0.03, "triangle");
+  },
+  buddy_online(ac) {
+    const t = ac.currentTime;
+    tone(ac, 440, t,       0.10, 0.05, "triangle");
+    tone(ac, 660, t + 0.12, 0.14, 0.06, "triangle");
+  },
+  buddy_offline(ac) {
+    const t = ac.currentTime;
+    tone(ac, 660, t,       0.10, 0.05, "triangle");
+    tone(ac, 440, t + 0.12, 0.14, 0.04, "triangle");
+  },
+  notification(ac) {
+    tone(ac, 880, ac.currentTime, 0.20, 0.06, "triangle");
+  },
+  nudge(ac) {
+    const t = ac.currentTime;
+    tone(ac, 440, t,        0.08, 0.06, "triangle");
+    tone(ac, 440, t + 0.12, 0.08, 0.06, "triangle");
+  },
+};
+
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
+
+const PACKS: Record<Exclude<SoundPack, "off">, Record<SoundEvent, (ac: AudioContext) => void>> = {
+  classic,
+  retro,
+  minimal,
+};
+
+export function getSoundPack(): SoundPack {
+  if (typeof window === "undefined") return "off";
+  return (localStorage.getItem("sc-sound-pack") as SoundPack | null) ?? "off";
+}
+
+export function setSoundPack(pack: SoundPack) {
+  if (typeof window === "undefined") return;
+  localStorage.setItem("sc-sound-pack", pack);
+}
+
+export function playSound(event: SoundEvent) {
+  const pack = getSoundPack();
+  if (pack === "off") return;
+  const ac = getCtx();
+  if (!ac) return;
+  try {
+    PACKS[pack][event](ac);
+  } catch {
+    // AudioContext may be blocked — fail silently
   }
+}
+
+export function previewSound(pack: SoundPack, event: SoundEvent = "message_received") {
+  if (pack === "off") return;
+  const ac = getCtx();
+  if (!ac) return;
+  try {
+    PACKS[pack][event](ac);
+  } catch {}
+}
+
+/**
+ * No-op kept for call-site compatibility. The new synthesis-based system
+ * does not require pre-loading; AudioContext unlocks on first user gesture.
+ */
+export function unlockSounds(): void {
+  getCtx();
 }

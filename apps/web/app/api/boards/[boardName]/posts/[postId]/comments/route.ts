@@ -4,7 +4,8 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { rateLimit, limiters } from "@/lib/ratelimit";
 import { notifyBoardComment } from "@/lib/expoNotifications";
-import { stripHtml } from "@/lib/sanitize";
+import { sanitizeRichText, richTextLength } from "@/lib/sanitize";
+import { getFeatureFlag, BOARDS_ENABLED } from "@/lib/featureFlags";
 
 type Params = { params: { boardName: string; postId: string } };
 
@@ -20,6 +21,9 @@ const authorSelect = {
 // ---------------------------------------------------------------------------
 
 export async function GET(_req: NextRequest, { params }: Params) {
+  if (!await getFeatureFlag(BOARDS_ENABLED)) {
+    return NextResponse.json({ error: "not found" }, { status: 404 });
+  }
   const session = await getServerSession(authOptions);
 
   const post = await prisma.boardPost.findUnique({
@@ -88,6 +92,9 @@ export async function GET(_req: NextRequest, { params }: Params) {
 // ---------------------------------------------------------------------------
 
 export async function POST(req: NextRequest, { params }: Params) {
+  if (!await getFeatureFlag(BOARDS_ENABLED)) {
+    return NextResponse.json({ error: "not found" }, { status: 404 });
+  }
   const session = await getServerSession(authOptions);
   if (!session?.user?.id) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
@@ -122,12 +129,13 @@ export async function POST(req: NextRequest, { params }: Params) {
     parentCommentId?: string;
   };
 
-  const body = stripHtml(rawBody ?? "");
+  const body = sanitizeRichText(rawBody ?? "");
+  const bodyLen = richTextLength(body);
 
-  if (!body) {
+  if (!bodyLen) {
     return NextResponse.json({ error: "body is required." }, { status: 400 });
   }
-  if (body.length > 512) {
+  if (bodyLen > 512) {
     return NextResponse.json(
       { error: "comment cannot exceed 512 characters." },
       { status: 400 }

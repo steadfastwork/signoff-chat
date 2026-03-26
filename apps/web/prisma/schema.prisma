@@ -64,6 +64,32 @@ enum ReportStatus {
   DISMISSED
 }
 
+enum AdminRole {
+  ADMIN
+  SUPER_ADMIN
+}
+
+enum FeedVisibility {
+  PUBLIC    // anyone can see posts
+  BUDDIES   // only accepted buddies can see posts
+  PRIVATE   // only the user themselves can see posts
+}
+
+enum ChannelCategory {
+  GAMING
+  MUSIC
+  ART
+  TECH
+  SPORTS
+  POLITICS
+  HUMOR
+  LIFESTYLE
+  STUDY
+  SUPPORT
+  NSFW
+  OTHER
+}
+
 // ---------------------------------------------------------------------------
 // User
 // ---------------------------------------------------------------------------
@@ -83,8 +109,11 @@ model User {
   // lastSeen intentionally omitted — we do not record activity timestamps.
   // See PRIVACY-ARCHITECTURE.md §4.
   isGoldMember      Boolean    @default(false)
-  isAdmin           Boolean    @default(false)
+  adminRole         AdminRole?
+  adminNotes        String?    // internal only, never shown to user
   profileTheme      String?
+  avatarUrl         String?    // Gold only — UploadThing CDN URL
+  soundPack         String?    // Gold only: "classic" | "retro" | "minimal" | null (= off)
   stripeCustomerId  String?    @unique
 
   // Push notifications — cleared on logout and account deletion
@@ -100,6 +129,9 @@ model User {
   // Post-quantum encryption
   mlkemPublicKey     String?   // base64 ML-KEM-1024 public key (1568 bytes); secret key lives client-side only
   hasConfirmedBackup Boolean   @default(false)  // user has saved their 24-word recovery phrase
+
+  // Feed privacy
+  feedVisibility     FeedVisibility @default(PUBLIC)
 
   posts               Post[]           @relation("AuthoredPosts")
   replies             Reply[]
@@ -119,6 +151,8 @@ model User {
   boardCommentNudges  BoardCommentNudge[]
   channelThreadMessages    ChannelThreadMessage[]
   savedBoardPosts          SavedBoardPost[]
+  favoriteChannels         FavoriteChannel[]
+  buddyGroupLists          BuddyGroupList[]
 
   // Safety relations
   blocking          Block[]          @relation("Blocker")
@@ -139,13 +173,18 @@ model Post {
   id            String      @id @default(cuid())
   createdAt     DateTime    @default(now())
   updatedAt     DateTime    @updatedAt
-  content       String      @db.VarChar(512)
+  content       String
   authorId      String
   author        User        @relation("AuthoredPosts", fields: [authorId], references: [id], onDelete: Cascade)
   privacy       PostPrivacy @default(PUBLIC)
   isAwayMessage Boolean     @default(false)
+  // Legacy single-media fields (kept for migration safety — use arrays below)
   mediaUrl      String?
   mediaType     MediaType?
+  // Multi-media arrays
+  mediaUrls     String[]    // UploadThing CDN image/video URLs
+  gifUrls       String[]    // Giphy CDN URLs
+  gifIds        String[]    // Giphy IDs for attribution
 
   replies       Reply[]
   nudges        Nudge[]
@@ -219,14 +258,67 @@ model Channel {
   slowModeMinutes Int         @default(10)
   memberCap       Int?
 
+  tags            String[]
+  // Discovery fields
+  category        ChannelCategory?
+  memberCount     Int             @default(0)
+  messageCount    Int             @default(0)
+  lastActiveAt    DateTime?
+  isFeatured      Boolean         @default(false)
+  isVerified      Boolean         @default(false)
+  // DM channels (one-on-one direct messages)
+  isDM            Boolean         @default(false)
+
   members         ChannelMember[]
   messages        ChannelMessage[]
   threads         ChannelThread[]
   inviteLinks     InviteLink[]
   channelKeys     ChannelKey[]
   bans            ChannelBan[]
+  favorites       FavoriteChannel[]
 
   @@map("rooms")
+}
+
+// ---------------------------------------------------------------------------
+// BuddyGroupList
+// ---------------------------------------------------------------------------
+
+model BuddyGroupList {
+  id        String             @id @default(cuid())
+  createdAt DateTime           @default(now())
+  name      String
+  ownerId   String
+  owner     User               @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  position  Int                @default(0)
+  members   BuddyGroupMember[]
+
+  @@map("buddy_group_lists")
+}
+
+model BuddyGroupMember {
+  listId  String
+  list    BuddyGroupList @relation(fields: [listId], references: [id], onDelete: Cascade)
+  buddyId String
+
+  @@id([listId, buddyId])
+  @@map("buddy_group_members")
+}
+
+// ---------------------------------------------------------------------------
+// FavoriteChannel
+// ---------------------------------------------------------------------------
+
+model FavoriteChannel {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  channelId String
+  channel   Channel  @relation(fields: [channelId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, channelId])
+  @@map("favorite_channels")
 }
 
 // ---------------------------------------------------------------------------
@@ -237,6 +329,7 @@ model ChannelMember {
   id            String    @id @default(cuid())
   joinedAt      DateTime  @default(now())
   lastMessageAt DateTime?
+  mutedUntil    DateTime?
   userId        String
   user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   channelId     String
@@ -253,7 +346,7 @@ model ChannelMember {
 model ChannelMessage {
   id        String     @id @default(cuid())
   createdAt DateTime   @default(now())
-  content   String     @db.VarChar(512)
+  content   String
   mediaUrl  String?
   mediaType MediaType?
   authorId  String
@@ -384,6 +477,7 @@ model BoardMember {
   boardId          String
   board            Board    @relation(fields: [boardId], references: [id], onDelete: Cascade)
   isFoundingMember Boolean  @default(false)
+  isModerator      Boolean  @default(false)
 
   @@unique([userId, boardId])
   @@map("board_members")
@@ -444,7 +538,7 @@ model BoardPost {
 model BoardComment {
   id              String   @id @default(cuid())
   createdAt       DateTime @default(now())
-  body            String   @db.VarChar(512)
+  body            String
   authorId        String
   author          User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
   boardPostId     String
@@ -677,4 +771,71 @@ model SafetyIncident {
   @@index([status])
   @@index([ncmecReportedAt])
   @@map("safety_incidents")
+}
+
+// ---------------------------------------------------------------------------
+// Admin Portal
+// ---------------------------------------------------------------------------
+
+model AdminAuditLog {
+  id         String    @id @default(cuid())
+  createdAt  DateTime  @default(now())
+  adminId    String
+  adminRole  AdminRole
+  action     String
+  targetId   String?
+  targetType String?
+  note       String?
+  metadata   Json?
+
+  @@map("admin_audit_logs")
+}
+
+model AdminGrant {
+  id          String    @id @default(cuid())
+  createdAt   DateTime  @default(now())
+  grantedById String
+  grantedToId String
+  role        AdminRole
+  reason      String
+  revokedAt   DateTime?
+  revokedById String?
+
+  @@map("admin_grants")
+}
+
+model AdminSession {
+  id         String   @id @default(cuid())
+  adminId    String   @unique
+  accessedAt DateTime @updatedAt
+
+  @@map("admin_sessions")
+}
+
+model CronLog {
+  id          String   @id @default(cuid())
+  jobName     String
+  ranAt       DateTime @default(now())
+  success     Boolean
+  message     String?
+  durationMs  Int?
+  triggeredBy String?
+
+  @@map("cron_logs")
+}
+
+// ---------------------------------------------------------------------------
+// Feature Flags
+// ---------------------------------------------------------------------------
+
+model FeatureFlag {
+  id          String    @id @default(cuid())
+  key         String    @unique
+  enabled     Boolean   @default(false)
+  description String?
+  enabledAt   DateTime?
+  enabledBy   String?   // admin screenname
+  updatedAt   DateTime  @updatedAt
+
+  @@map("feature_flags")
 }

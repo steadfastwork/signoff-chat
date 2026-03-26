@@ -21,9 +21,9 @@ export async function GET(_req: NextRequest, { params }: Params) {
   const isCreator = channel.creatorId === session.user.id;
   const actor = isCreator ? null : await prisma.user.findUnique({
     where: { id: session.user.id },
-    select: { isAdmin: true },
+    select: { adminRole: true },
   });
-  if (!isCreator && !actor?.isAdmin) {
+  if (!isCreator && !actor?.adminRole) {
     return NextResponse.json({ error: "forbidden." }, { status: 403 });
   }
 

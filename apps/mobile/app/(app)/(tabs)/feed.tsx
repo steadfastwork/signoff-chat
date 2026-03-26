@@ -290,7 +290,7 @@ export default function FeedScreen() {
           {"  ·  "}
           <Text style={styles.onlineFeature}>no algorithm</Text>
           {"  ·  "}
-          <Text style={styles.onlineFeature}>no last seen</Text>
+          <Text style={styles.onlineFeature}>no timestamps</Text>
         </Text>
       </View>
 

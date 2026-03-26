@@ -63,13 +63,33 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  // Public search: PUBLIC and INVITE_ONLY channels only
+  // Public search / discovery
   const tag = searchParams.get("tag")?.trim().toLowerCase();
+  const category = searchParams.get("category")?.trim().toUpperCase();
+  const mode = searchParams.get("mode") ?? "search"; // search | featured | new | active
+
+  type DiscoveryOrderBy =
+    | { messageCount: "desc" }
+    | { lastActiveAt: "desc" }
+    | { memberCount: "desc" }
+    | { createdAt: "desc" };
+
+  let orderBy: DiscoveryOrderBy[] = [{ createdAt: "desc" }];
+  if (mode === "featured") orderBy = [{ memberCount: "desc" }];
+  else if (mode === "active") orderBy = [{ lastActiveAt: "desc" }, { messageCount: "desc" }];
+
+  const VALID_CATEGORIES = [
+    "GAMING","MUSIC","ART","TECH","SPORTS","POLITICS",
+    "HUMOR","LIFESTYLE","STUDY","SUPPORT","OTHER",
+  ];
 
   const channels = await prisma.channel.findMany({
     where: {
       type: { in: ["PUBLIC", "INVITE_ONLY"] },
       isPrivate: false,
+      isDM: false,
+      ...(mode === "featured" ? { isFeatured: true } : {}),
+      ...(category && VALID_CATEGORIES.includes(category) ? { category: category as never } : {}),
       ...(tag ? { tags: { has: tag } } : {}),
       ...(q.length >= 1
         ? {
@@ -82,7 +102,7 @@ export async function GET(req: NextRequest) {
         : {}),
     },
     include: { _count: { select: { members: true } } },
-    orderBy: [{ createdAt: "desc" }],
+    orderBy,
     take: 30,
   });
 
@@ -102,9 +122,14 @@ export async function GET(req: NextRequest) {
       description: c.description,
       type: c.type,
       tags: c.tags,
+      category: c.category ?? null,
       slowModeMinutes: c.slowModeMinutes,
       memberCap: c.memberCap,
       memberCount: c._count.members,
+      messageCount: c.messageCount,
+      lastActiveAt: c.lastActiveAt,
+      isFeatured: c.isFeatured,
+      isVerified: c.isVerified,
       favoriteByMe: favSet.has(c.id),
     }))
   );
@@ -126,6 +151,8 @@ export async function POST(req: NextRequest) {
     slowModeMinutes?: number;
     memberCap?: number;
     description?: string;
+    category?: string;
+    tags?: string[];
   };
 
   const {
@@ -134,6 +161,8 @@ export async function POST(req: NextRequest) {
     slowModeMinutes = 10,
     memberCap,
     description,
+    category,
+    tags,
   } = body;
 
   const slug = name?.trim().toLowerCase() ?? "";
@@ -164,6 +193,17 @@ export async function POST(req: NextRequest) {
   }
 
   const channel = await prisma.$transaction(async (tx) => {
+    const VALID_CATEGORIES = [
+      "GAMING","MUSIC","ART","TECH","SPORTS","POLITICS",
+      "HUMOR","LIFESTYLE","STUDY","SUPPORT","NSFW","OTHER",
+    ];
+    const validCategory = category && VALID_CATEGORIES.includes(category.toUpperCase())
+      ? category.toUpperCase()
+      : undefined;
+    const validTags = Array.isArray(tags)
+      ? tags.slice(0, 5).map((t) => t.toLowerCase().trim()).filter(Boolean)
+      : [];
+
     const ch = await tx.channel.create({
       data: {
         name: slug,
@@ -172,6 +212,8 @@ export async function POST(req: NextRequest) {
         slowModeMinutes: slowMode,
         memberCap: cap,
         creatorId: session.user.id,
+        ...(validCategory ? { category: validCategory as never } : {}),
+        ...(validTags.length ? { tags: validTags } : {}),
       },
     });
     await tx.channelMember.create({

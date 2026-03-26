@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { getFeatureFlag, BOARDS_ENABLED } from "@/lib/featureFlags";
 
 function validateBoardName(name: string): string | null {
   if (!name) return "name is required.";
@@ -17,6 +18,9 @@ function validateBoardName(name: string): string | null {
 // ---------------------------------------------------------------------------
 
 export async function GET(req: NextRequest) {
+  if (!await getFeatureFlag(BOARDS_ENABLED)) {
+    return NextResponse.json({ error: "not found" }, { status: 404 });
+  }
   const session = await getServerSession(authOptions);
   const { searchParams } = new URL(req.url);
   const q = searchParams.get("q")?.trim() ?? "";
@@ -71,6 +75,9 @@ export async function GET(req: NextRequest) {
 // ---------------------------------------------------------------------------
 
 export async function POST(req: NextRequest) {
+  if (!await getFeatureFlag(BOARDS_ENABLED)) {
+    return NextResponse.json({ error: "not found" }, { status: 404 });
+  }
   const session = await getServerSession(authOptions);
   if (!session?.user?.id) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });

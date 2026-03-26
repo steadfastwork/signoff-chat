@@ -12,7 +12,7 @@ interface Tab {
   accent?: "amber" | "teal";
 }
 
-const TABS: Tab[] = [
+const ALL_TABS: Tab[] = [
   {
     href: "/feed",
     label: "Feed",
@@ -43,11 +43,13 @@ const TABS: Tab[] = [
   },
 ];
 
-export function MobileNav() {
+export function MobileNav({ boardsEnabled = false }: { boardsEnabled?: boolean }) {
   const { data: session } = useSession();
   const pathname = usePathname();
 
   if (!session?.user?.id) return null;
+
+  const tabs = boardsEnabled ? ALL_TABS : ALL_TABS.filter((t) => t.href !== "/boards");
 
   return (
     <nav
@@ -59,7 +61,7 @@ export function MobileNav() {
       }}
     >
       <div className="flex items-stretch h-14">
-        {TABS.map((tab) => {
+        {tabs.map((tab) => {
           const active = tab.match(pathname);
           const color =
             tab.accent === "teal" ? "var(--teal)" : "var(--amber)";

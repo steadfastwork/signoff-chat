@@ -10,7 +10,8 @@
     "build:android": "eas build --platform android",
     "build:ios": "eas build --platform ios",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "test": "jest"
   },
   "dependencies": {
     "@expo-google-fonts/dm-sans": "^0.2.3",
@@ -49,7 +50,11 @@
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",
+    "@testing-library/react-native": "^13.3.3",
     "@types/react": "~18.3.12",
+    "jest": "^30.3.0",
+    "jest-expo": "^55.0.11",
+    "react-test-renderer": "^18.3.1",
     "typescript": "^5"
   }
 }

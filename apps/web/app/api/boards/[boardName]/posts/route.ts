@@ -3,7 +3,8 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { rateLimit, limiters } from "@/lib/ratelimit";
-import { stripHtml, sanitizeUrl } from "@/lib/sanitize";
+import { sanitizeRichText, richTextLength, sanitizeUrl } from "@/lib/sanitize";
+import { getFeatureFlag, BOARDS_ENABLED } from "@/lib/featureFlags";
 
 type Params = { params: { boardName: string } };
 
@@ -16,7 +17,7 @@ function authorWithMembership(boardId: string) {
       status: true,
       boardMemberships: {
         where: { boardId },
-        select: { isFoundingMember: true },
+        select: { isFoundingMember: true, isModerator: true },
       },
     },
   } as const;
@@ -46,6 +47,7 @@ function flattenPost(
       isGoldMember: p.author.isGoldMember,
       status: p.author.status === "INVISIBLE" ? "OFFLINE" : p.author.status,
       isFoundingMember: p.author.boardMemberships[0]?.isFoundingMember ?? false,
+      isModerator: p.author.boardMemberships[0]?.isModerator ?? false,
     },
   };
 }
@@ -82,6 +84,9 @@ async function fetchPosts(
 // ---------------------------------------------------------------------------
 
 export async function GET(req: NextRequest, { params }: Params) {
+  if (!await getFeatureFlag(BOARDS_ENABLED)) {
+    return NextResponse.json({ error: "not found" }, { status: 404 });
+  }
   const session = await getServerSession(authOptions);
 
   const board = await prisma.board.findUnique({
@@ -144,6 +149,9 @@ export async function GET(req: NextRequest, { params }: Params) {
 // ---------------------------------------------------------------------------
 
 export async function POST(req: NextRequest, { params }: Params) {
+  if (!await getFeatureFlag(BOARDS_ENABLED)) {
+    return NextResponse.json({ error: "not found" }, { status: 404 });
+  }
   const session = await getServerSession(authOptions);
   if (!session?.user?.id) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
@@ -176,21 +184,15 @@ export async function POST(req: NextRequest, { params }: Params) {
     tag?: string;
   };
 
-  const title = stripHtml(raw.title ?? "");
-  const postBody = raw.body ? stripHtml(raw.body) : undefined;
+  const title = (raw.title ?? "").trim().slice(0, 140);
+  const postBody = raw.body ? sanitizeRichText(raw.body) : undefined;
   const mediaUrl = sanitizeUrl(raw.mediaUrl);
-  const tag = raw.tag ? stripHtml(raw.tag) : undefined;
+  const tag = raw.tag ? (raw.tag as string).trim().toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 30) : undefined;
 
   if (!title) {
     return NextResponse.json({ error: "title is required." }, { status: 400 });
   }
-  if (title.length > 140) {
-    return NextResponse.json(
-      { error: "title cannot exceed 140 characters." },
-      { status: 400 }
-    );
-  }
-  if (postBody && postBody.length > 2000) {
+  if (postBody && richTextLength(postBody) > 2000) {
     return NextResponse.json(
       { error: "body cannot exceed 2000 characters." },
       { status: 400 }

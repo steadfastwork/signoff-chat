@@ -63,7 +63,7 @@ export const authOptions: NextAuthOptions = {
             screenname: true,
             passwordHash: true,
             isGoldMember: true,
-            isAdmin: true,
+            adminRole: true,
             isSuspended: true,
             suspendedUntil: true,
           },
@@ -90,7 +90,7 @@ export const authOptions: NextAuthOptions = {
           id: user.id,
           screenname: user.screenname,
           isGoldMember: user.isGoldMember,
-          isAdmin: user.isAdmin,
+          adminRole: user.adminRole ?? null,
           isSuspended,
           suspendedUntil: suspendedUntil?.toISOString() ?? null,
         };
@@ -106,12 +106,12 @@ export const authOptions: NextAuthOptions = {
       if (user) {
         const u = user as {
           id: string; screenname: string; isGoldMember: boolean;
-          isAdmin: boolean; isSuspended: boolean; suspendedUntil: string | null;
+          adminRole: string | null; isSuspended: boolean; suspendedUntil: string | null;
         };
         token.id             = u.id;
         token.screenname     = u.screenname;
         token.isGoldMember   = u.isGoldMember;
-        token.isAdmin        = u.isAdmin;
+        token.adminRole      = u.adminRole ?? null;
         token.avatarColor    = deriveAvatarColor(u.id);
         token.isSuspended    = u.isSuspended;
         token.suspendedUntil = u.suspendedUntil;
@@ -127,7 +127,7 @@ export const authOptions: NextAuthOptions = {
         try {
           const user = await prisma.user.findUnique({
             where: { id: token.id },
-            select: { isSuspended: true, suspendedUntil: true },
+            select: { isSuspended: true, suspendedUntil: true, adminRole: true, isGoldMember: true },
           });
           if (user) {
             // Auto-lift expired suspension
@@ -142,6 +142,8 @@ export const authOptions: NextAuthOptions = {
               token.isSuspended    = user.isSuspended;
               token.suspendedUntil = user.suspendedUntil?.toISOString() ?? null;
             }
+            token.adminRole    = user.adminRole ?? null;
+            token.isGoldMember = user.isGoldMember;
           }
         } catch { /* DB unavailable — keep cached value */ }
         token.suspensionCheckedAt = Date.now();
@@ -153,7 +155,7 @@ export const authOptions: NextAuthOptions = {
       session.user.id = token.id;
       session.user.screenname = token.screenname;
       session.user.isGoldMember = token.isGoldMember;
-      session.user.isAdmin = token.isAdmin;
+      session.user.adminRole = token.adminRole;
       session.user.avatarColor = token.avatarColor;
       return session;
     },

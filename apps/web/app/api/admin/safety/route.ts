@@ -18,14 +18,14 @@ import { internalError } from "@/lib/api-error";
 // Auth guard
 // ---------------------------------------------------------------------------
 
-async function requireAdmin() {
+async function checkAdmin() {
   const session = await getServerSession(authOptions);
   if (!session?.user?.id) return null;
   const user = await prisma.user.findUnique({
     where:  { id: session.user.id },
-    select: { isAdmin: true },
+    select: { adminRole: true },
   });
-  if (!user?.isAdmin) return null;
+  if (!user?.adminRole) return null;
   return session.user.id;
 }
 
@@ -35,8 +35,8 @@ async function requireAdmin() {
 // ---------------------------------------------------------------------------
 
 export async function GET(req: NextRequest) {
-  const adminId = await requireAdmin();
-  if (!adminId) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  const adminId = await checkAdmin();
+  if (!adminId) return NextResponse.json({ error: "not found" }, { status: 404 });
 
   try {
     const { searchParams } = new URL(req.url);
@@ -99,8 +99,8 @@ const VALID_ACTIONS = ["confirm", "dismiss", "resolve", "file_ncmec"] as const;
 type AdminAction = typeof VALID_ACTIONS[number];
 
 export async function PATCH(req: NextRequest) {
-  const adminId = await requireAdmin();
-  if (!adminId) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  const adminId = await checkAdmin();
+  if (!adminId) return NextResponse.json({ error: "not found" }, { status: 404 });
 
   let body: unknown;
   try { body = await req.json(); } catch {

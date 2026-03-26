@@ -4,6 +4,24 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 
 type ChannelType = "PUBLIC" | "INVITE_ONLY" | "SECRET";
+type ChannelCategory =
+  | "GAMING" | "MUSIC" | "ART" | "TECH" | "SPORTS"
+  | "POLITICS" | "HUMOR" | "LIFESTYLE" | "STUDY"
+  | "SUPPORT" | "NSFW" | "OTHER";
+
+const CATEGORY_OPTIONS: { value: ChannelCategory; label: string }[] = [
+  { value: "GAMING",    label: "gaming" },
+  { value: "MUSIC",     label: "music" },
+  { value: "ART",       label: "art" },
+  { value: "TECH",      label: "tech" },
+  { value: "SPORTS",    label: "sports" },
+  { value: "POLITICS",  label: "politics" },
+  { value: "HUMOR",     label: "humor" },
+  { value: "LIFESTYLE", label: "lifestyle" },
+  { value: "STUDY",     label: "study" },
+  { value: "SUPPORT",   label: "support" },
+  { value: "OTHER",     label: "other" },
+];
 
 const TYPE_OPTIONS: {
   type: ChannelType;
@@ -41,12 +59,23 @@ export function CreateChannelPanel({ onClose }: CreateChannelPanelProps) {
   const [slowMode, setSlowMode] = useState(10);
   const [memberCap, setMemberCap] = useState<number | "">("");
   const [description, setDescription] = useState("");
+  const [category, setCategory] = useState<ChannelCategory | "">("");
+  const [tagInput, setTagInput] = useState("");
+  const [tags, setTags] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const handleNameChange = (v: string) => {
     // Auto-lowercase, allow only a-z 0-9 and hyphens
     setName(v.toLowerCase().replace(/[^a-z0-9-]/g, ""));
+  };
+
+  const addTag = (raw: string) => {
+    const t = raw.toLowerCase().trim().replace(/[^a-z0-9-]/g, "");
+    if (t && !tags.includes(t) && tags.length < 5) {
+      setTags([...tags, t]);
+    }
+    setTagInput("");
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -65,6 +94,8 @@ export function CreateChannelPanel({ onClose }: CreateChannelPanelProps) {
           slowModeMinutes: slowMode,
           memberCap: type === "PUBLIC" && memberCap !== "" ? Number(memberCap) : undefined,
           description: description.trim() || undefined,
+          category: category || undefined,
+          tags: tags.length ? tags : undefined,
         }),
       });
 
@@ -255,6 +286,79 @@ export function CreateChannelPanel({ onClose }: CreateChannelPanelProps) {
             fontFamily: "var(--font-dm-sans)",
           }}
         />
+      </div>
+
+      {/* Category */}
+      <div className="space-y-1.5">
+        <label className="text-xs font-mono" style={{ color: "#6b7280" }}>
+          category{" "}
+          <span style={{ color: "#2a2a1a" }}>(optional)</span>
+        </label>
+        <div className="flex flex-wrap gap-1.5">
+          {CATEGORY_OPTIONS.map((opt) => {
+            const active = category === opt.value;
+            return (
+              <button
+                key={opt.value}
+                type="button"
+                onClick={() => setCategory(active ? "" : opt.value)}
+                className="text-[11px] font-mono px-2 py-1 rounded-lg border transition-all"
+                style={{
+                  borderColor: active ? "#c8860a" : "#1e1e14",
+                  background: active ? "rgba(200,134,10,0.1)" : "#111109",
+                  color: active ? "#c8860a" : "#4b5563",
+                }}
+              >
+                {opt.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Tags */}
+      <div className="space-y-1.5">
+        <label className="text-xs font-mono" style={{ color: "#6b7280" }}>
+          tags{" "}
+          <span style={{ color: "#2a2a1a" }}>(optional · up to 5)</span>
+        </label>
+        <div
+          className="flex items-center flex-wrap gap-1.5 rounded-xl border px-3 py-2 min-h-[40px]"
+          style={{ borderColor: "#1e1e14", background: "#111109" }}
+        >
+          {tags.map((t) => (
+            <span
+              key={t}
+              className="inline-flex items-center gap-1 text-[11px] font-mono px-2 py-0.5 rounded-full border"
+              style={{ borderColor: "#2a2a1a", color: "#9ca3af" }}
+            >
+              {t}
+              <button
+                type="button"
+                onClick={() => setTags(tags.filter((x) => x !== t))}
+                className="opacity-50 hover:opacity-100 transition-opacity leading-none"
+              >
+                ×
+              </button>
+            </span>
+          ))}
+          {tags.length < 5 && (
+            <input
+              value={tagInput}
+              onChange={(e) => setTagInput(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""))}
+              onKeyDown={(e) => {
+                if ((e.key === "Enter" || e.key === " " || e.key === ",") && tagInput) {
+                  e.preventDefault();
+                  addTag(tagInput);
+                }
+              }}
+              onBlur={() => tagInput && addTag(tagInput)}
+              placeholder={tags.length === 0 ? "add tags… (enter to add)" : ""}
+              className="flex-1 bg-transparent outline-none text-[11px] font-mono min-w-[80px]"
+              style={{ color: "#9ca3af" }}
+            />
+          )}
+        </div>
       </div>
 
       {error && (

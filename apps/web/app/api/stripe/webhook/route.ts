@@ -5,7 +5,6 @@ import type Stripe from "stripe";
 import { notifyTipReceived } from "@/lib/expoNotifications";
 
 // Next.js App Router: disable body parsing so we get the raw buffer
-export const config = { api: { bodyParser: false } };
 
 export async function POST(req: NextRequest) {
   const sig = req.headers.get("stripe-signature");

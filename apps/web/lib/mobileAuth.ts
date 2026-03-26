@@ -13,7 +13,7 @@ export interface MobileSession {
   id: string;
   screenname: string;
   isGoldMember: boolean;
-  isAdmin: boolean;
+  adminRole: string | null;
   avatarColor: string;
 }
 
@@ -37,7 +37,7 @@ export async function getMobileSession(
       id:            decoded.id            as string,
       screenname:    decoded.screenname    as string,
       isGoldMember:  decoded.isGoldMember  as boolean,
-      isAdmin:       decoded.isAdmin       as boolean,
+      adminRole:     (decoded.adminRole     as string | null) ?? null,
       avatarColor:   decoded.avatarColor   as string,
     };
   } catch {

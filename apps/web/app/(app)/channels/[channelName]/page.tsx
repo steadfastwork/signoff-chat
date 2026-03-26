@@ -12,6 +12,7 @@ import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
 import { pusherClient, CHANNELS, EVENTS } from "@/lib/pusher";
+import { playSound } from "@/lib/sounds";
 import {
   ChannelMessage,
   type ChannelMessageData,
@@ -19,6 +20,21 @@ import {
 import { InvitePanel } from "@/components/InvitePanel";
 import { StatusDot, type StatusValue } from "@/components/StatusDot";
 import { RichTextEditor } from "@/components/RichTextEditor";
+import { RichTextContent } from "@/components/RichTextContent";
+import { useUploadThing } from "@/lib/uploadthing";
+import { GiphyPicker, type GifResult } from "@/components/composer/GiphyPicker";
+import { MediaAttachments, type PendingMedia } from "@/components/composer/MediaAttachments";
+import {
+  generateSessionKey,
+  encryptSessionKeyForMember,
+  decryptSessionKey,
+  encryptWithSessionKey,
+  decryptWithSessionKey,
+  fromBase64,
+  toBase64,
+} from "@/lib/crypto/index";
+import { getCachedSecretKey } from "@/lib/crypto/localKey";
+import { cacheSessionKey, getCachedSessionKey } from "@/lib/crypto/channelKeyCache";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -158,7 +174,7 @@ function ThreadSidebar({
   const [sending, setSending] = useState(false);
 
   const send = async () => {
-    if (!reply.trim() || sending) return;
+    if (!reply || sending) return;
     setSending(true);
     try {
       const res = await fetch(
@@ -215,12 +231,12 @@ function ThreadSidebar({
         >
           {ts.parentAuthor}
         </p>
-        <p
+        <div
           className="text-sm leading-snug"
           style={{ color: "var(--text-muted)", fontFamily: "var(--font-dm-sans)" }}
         >
-          {ts.parentContent}
-        </p>
+          <RichTextContent html={ts.parentContent} />
+        </div>
       </div>
 
       {/* Replies */}
@@ -250,15 +266,15 @@ function ThreadSidebar({
                   </span>
                 )}
               </p>
-              <p
+              <div
                 className="text-[13px] leading-snug mt-0.5 break-words"
                 style={{
                   color: "var(--text-muted)",
                   fontFamily: "var(--font-dm-sans)",
                 }}
               >
-                {m.content}
-              </p>
+                <RichTextContent html={m.content} />
+              </div>
             </div>
           ))}
         {!ts.loading && !ts.thread?.messages?.length && (
@@ -277,26 +293,20 @@ function ThreadSidebar({
         style={{ borderColor: "var(--border)" }}
       >
         <div className="flex gap-2 items-end">
-          <textarea
-            value={reply}
-            onChange={(e) => setReply(e.target.value.slice(0, 512))}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                void send();
-              }
-            }}
-            placeholder="reply in thread… (↵)"
-            rows={2}
-            className="flex-1 resize-none bg-transparent outline-none text-xs leading-snug"
-            style={{
-              color: "var(--text-muted)",
-              fontFamily: "var(--font-dm-sans)",
-            }}
-          />
+          <div className="flex-1 rounded-xl border overflow-hidden" style={{ borderColor: "var(--border)" }}>
+            <RichTextEditor
+              value={reply}
+              onChange={setReply}
+              placeholder="reply in thread… (↵)"
+              maxChars={512}
+              variant="compact"
+              onSubmit={send}
+              disabled={sending}
+            />
+          </div>
           <button
             onClick={send}
-            disabled={!reply.trim() || sending}
+            disabled={!reply || sending}
             className="h-7 px-2.5 rounded-lg text-xs font-mono transition-all disabled:opacity-40"
             style={{ background: "var(--amber)", color: "#fff8e6" }}
           >
@@ -415,6 +425,27 @@ export default function ChannelRoomPage() {
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
 
+  // Media upload
+  const [pendingMedia, setPendingMedia] = useState<PendingMedia[]>([]);
+  const [pendingGifs, setPendingGifs]   = useState<GifResult[]>([]);
+  const [showGiphy, setShowGiphy]       = useState(false);
+  const channelFileInputRef = useRef<HTMLInputElement>(null);
+  const { startUpload: startChannelUpload, isUploading: isChannelUploading } = useUploadThing("channelMedia", {
+    onClientUploadComplete: (res) => {
+      const newMedia: PendingMedia[] = res.map((f) => ({
+        url: f.url,
+        type: f.type?.startsWith("video/") ? "VIDEO" : "IMAGE",
+      }));
+      setPendingMedia((prev) => [...prev, ...newMedia]);
+    },
+    onUploadError: (err) => setSendError(err.message),
+  });
+
+  // Encryption
+  const channelIdRef = useRef<string | null>(null);
+  const activeKeyVersionRef = useRef<number | null>(null);
+  const encryptionReadyRef = useRef(false);
+
   const [rightPanel, setRightPanel] = useState<
     "invite" | "members" | "thread" | null
   >(null);
@@ -471,17 +502,74 @@ export default function ChannelRoomPage() {
   // Fetch channel data
   // ---------------------------------------------------------------------------
 
+  // ---------------------------------------------------------------------------
+  // Decrypt helper — synchronous, uses in-memory session key cache
+  // ---------------------------------------------------------------------------
+
+  const decryptMsg = useCallback(
+    (msg: ChannelMessageData, chanId: string): ChannelMessageData => {
+      if (
+        !msg.isEncrypted ||
+        !msg.encryptedContent ||
+        !msg.iv ||
+        msg.keyVersion == null
+      ) {
+        return msg;
+      }
+      const sk = session?.user?.id ? getCachedSecretKey(session.user.id) : null;
+      if (!sk) return { ...msg, content: "🔒 [unlock encryption to read]" };
+      const sessionKey = getCachedSessionKey(chanId, msg.keyVersion);
+      if (!sessionKey) return { ...msg, content: "🔒 [key not available]" };
+      try {
+        const plain = decryptWithSessionKey(
+          fromBase64(msg.encryptedContent),
+          fromBase64(msg.iv),
+          sessionKey
+        );
+        return { ...msg, content: plain };
+      } catch {
+        return { ...msg, content: "🔒 [decryption failed]" };
+      }
+    },
+    [session?.user?.id]
+  );
+
+  // ---------------------------------------------------------------------------
+  // Fetch channel data
+  // ---------------------------------------------------------------------------
+
   useEffect(() => {
     fetch(`/api/channels/${channelName}`)
       .then(async (res) => {
         if (res.status === 404) { setNotFound(true); return; }
-        const data: ChannelDetail = await res.json();
+        const data: ChannelDetail & {
+          activeKey?: { keyVersion: number; myEncryptedKey: string } | null;
+        } = await res.json();
+
+        // Wire up encryption if we have a key and the user's secret key is cached
+        channelIdRef.current = data.id;
+        if (data.activeKey && session?.user?.id) {
+          const sk = getCachedSecretKey(session.user.id);
+          if (sk) {
+            try {
+              const sessionKey = decryptSessionKey(data.activeKey.myEncryptedKey, sk);
+              cacheSessionKey(data.id, data.activeKey.keyVersion, sessionKey);
+              activeKeyVersionRef.current = data.activeKey.keyVersion;
+              encryptionReadyRef.current = true;
+            } catch {
+              // Decryption failed — carry on without encryption
+            }
+          }
+        }
+
         setChannel(data);
-        setMessages(data.messages ?? []);
+        // Decrypt messages immediately using cached session key
+        setMessages((data.messages ?? []).map((m) => decryptMsg(m, data.id)));
         setMembers(data.members ?? []);
       })
       .catch(() => setNotFound(true))
       .finally(() => setLoading(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [channelName]);
 
   // Scroll to bottom on initial load
@@ -501,9 +589,12 @@ export default function ChannelRoomPage() {
     const ch = pusherClient.subscribe(CHANNELS.channelRoom(channel.name));
 
     ch.bind(EVENTS.CHANNEL_MESSAGE, (msg: ChannelMessageData) => {
+      const chanId = channelIdRef.current ?? channel.id;
+      const decrypted = decryptMsg(msg, chanId);
+      if (msg.author?.id !== session?.user?.id) playSound("message_received");
       setMessages((prev) => {
-        if (prev.some((m) => m.id === msg.id)) return prev;
-        return [...prev, msg];
+        if (prev.some((m) => m.id === decrypted.id)) return prev;
+        return [...prev, decrypted];
       });
       // Cache to local DB
       if (typeof window !== "undefined" && "electronAPI" in window) {
@@ -626,15 +717,84 @@ export default function ChannelRoomPage() {
   // ---------------------------------------------------------------------------
 
   const sendMessage = async () => {
-    if (!content.trim() || sending || inCooldown) return;
+    const hasMedia = pendingMedia.length > 0 || pendingGifs.length > 0;
+    if ((!content && !hasMedia) || sending || inCooldown) return;
     setSending(true);
     setSendError(null);
+
+    const plaintext = content;
+    let body: Record<string, unknown> = { content: plaintext };
+
+    // Encrypt if we have an active session key
+    if (
+      encryptionReadyRef.current &&
+      channelIdRef.current &&
+      activeKeyVersionRef.current != null &&
+      session?.user?.id
+    ) {
+      const sk = getCachedSecretKey(session.user.id);
+      const sessionKey = sk
+        ? getCachedSessionKey(channelIdRef.current, activeKeyVersionRef.current)
+        : null;
+
+      if (sessionKey) {
+        const { ciphertext, iv } = encryptWithSessionKey(plaintext, sessionKey);
+        body = {
+          isEncrypted: true,
+          encryptedContent: toBase64(ciphertext),
+          iv: toBase64(iv),
+          keyVersion: activeKeyVersionRef.current,
+        };
+      } else if (sk) {
+        // No key yet — create one for this channel
+        try {
+          const membersRes = await fetch(
+            `/api/channels/${channelName}/key?members=1`
+          );
+          if (membersRes.ok) {
+            const { members: keyMembers } = await membersRes.json() as {
+              members: Array<{ userId: string; mlkemPublicKey: string }>;
+            };
+            if (keyMembers.length > 0) {
+              const sessionKey = generateSessionKey();
+              const encryptedKeys: Record<string, string> = {};
+              for (const m of keyMembers) {
+                encryptedKeys[m.userId] = encryptSessionKeyForMember(
+                  sessionKey,
+                  fromBase64(m.mlkemPublicKey)
+                );
+              }
+              const keyRes = await fetch(`/api/channels/${channelName}/key`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ encryptedKeys }),
+              });
+              if (keyRes.ok) {
+                const { keyVersion } = await keyRes.json() as { keyVersion: number };
+                cacheSessionKey(channelIdRef.current!, keyVersion, sessionKey);
+                activeKeyVersionRef.current = keyVersion;
+                const { ciphertext, iv } = encryptWithSessionKey(plaintext, sessionKey);
+                body = {
+                  isEncrypted: true,
+                  encryptedContent: toBase64(ciphertext),
+                  iv: toBase64(iv),
+                  keyVersion,
+                };
+              }
+            }
+          }
+        } catch {
+          // Fall back to plaintext if key creation fails
+          body = { content: plaintext };
+        }
+      }
+    }
 
     try {
       const res = await fetch(`/api/channels/${channelName}/messages`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content: content.trim() }),
+        body: JSON.stringify(body),
       });
 
       if (res.status === 429) {
@@ -648,6 +808,26 @@ export default function ChannelRoomPage() {
       }
 
       setContent("");
+
+      // Attach first media item (channel API supports single mediaUrl)
+      if (pendingMedia.length > 0) {
+        const media = pendingMedia[0];
+        await fetch(`/api/channels/${channelName}/messages`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ content: "", mediaUrl: media.url, mediaType: media.type }),
+        });
+      }
+      for (const gif of pendingGifs) {
+        await fetch(`/api/channels/${channelName}/messages`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ content: gif.title || "GIF", mediaUrl: gif.url, mediaType: "GIF" }),
+        });
+      }
+      setPendingMedia([]);
+      setPendingGifs([]);
+
       startCooldown();
       setTimeout(
         () => messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }),
@@ -675,7 +855,7 @@ export default function ChannelRoomPage() {
           r.json()
         );
         setChannel(data);
-        setMessages(data.messages ?? []);
+        setMessages((data.messages ?? []).map((m: ChannelMessageData) => decryptMsg(m, data.id)));
         setMembers(data.members ?? []);
       }
     } finally {
@@ -1003,28 +1183,63 @@ export default function ChannelRoomPage() {
                 })()}
 
                 <div className="flex-1 min-w-0">
-                  <RichTextEditor
-                    value={content}
-                    onChange={setContent}
-                    placeholder={
-                      inCooldown
-                        ? `🕐 you can post again in ${cooldownStr}`
-                        : `message #${channel.name}`
-                    }
-                    maxChars={512}
-                    variant="inline"
-                    onSubmit={sendMessage}
-                    disabled={inCooldown || sending}
-                  />
+                  <div className="rounded-xl border overflow-hidden" style={{ borderColor: "var(--border)" }}>
+                    <RichTextEditor
+                      value={content}
+                      onChange={setContent}
+                      placeholder={
+                        inCooldown
+                          ? `🕐 you can post again in ${cooldownStr}`
+                          : `message #${channel.name}`
+                      }
+                      maxChars={512}
+                      variant="compact"
+                      onSubmit={sendMessage}
+                      disabled={inCooldown || sending || isChannelUploading}
+                      onPhotoClick={() => channelFileInputRef.current?.click()}
+                      onGifClick={() => setShowGiphy((v) => !v)}
+                    />
+                    <input
+                      ref={channelFileInputRef}
+                      type="file"
+                      accept="image/*,video/*"
+                      className="sr-only"
+                      onChange={async (e) => {
+                        const files = e.target.files;
+                        if (!files?.length) return;
+                        await startChannelUpload(Array.from(files));
+                        e.target.value = "";
+                      }}
+                    />
+                  </div>
+                  {/* Media preview */}
+                  {(pendingMedia.length > 0 || pendingGifs.length > 0) && (
+                    <div className="mt-1">
+                      <MediaAttachments
+                        media={pendingMedia}
+                        gifs={pendingGifs}
+                        onRemoveMedia={(i) => setPendingMedia((prev) => prev.filter((_, idx) => idx !== i))}
+                        onRemoveGif={(i) => setPendingGifs((prev) => prev.filter((_, idx) => idx !== i))}
+                      />
+                    </div>
+                  )}
+                  {showGiphy && (
+                    <div className="mt-1 max-w-xs">
+                      <GiphyPicker
+                        onSelect={(gif) => { setPendingGifs((prev) => [...prev, gif]); setShowGiphy(false); }}
+                        onClose={() => setShowGiphy(false)}
+                      />
+                    </div>
+                  )}
                 </div>
 
                 <button
                   onClick={sendMessage}
-                  disabled={!content.trim() || sending || inCooldown}
+                  disabled={(!content && pendingMedia.length === 0 && pendingGifs.length === 0) || sending || inCooldown || isChannelUploading}
                   className="flex-shrink-0 h-7 px-3 rounded-lg text-xs font-mono font-bold transition-all disabled:opacity-30"
                   style={{ background: "var(--amber)", color: "#fff8e6" }}
                 >
-                  {sending ? "…" : "send"}
+                  {isChannelUploading ? "uploading…" : sending ? "…" : "send"}
                 </button>
               </div>
 

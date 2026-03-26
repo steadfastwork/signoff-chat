@@ -174,7 +174,7 @@ export default function RegisterScreen() {
           <Text style={styles.headline}>Pick your screenname.</Text>
 
           {/* ── Screenname warning card ── */}
-          <View style={styles.warningCard}>
+          <View testID="warning-card" style={styles.warningCard}>
             <Text style={styles.warningIcon}>✏️</Text>
             <View style={styles.warningBody}>
               <Text style={styles.warningTitle}>Write this down somewhere safe.</Text>
@@ -199,6 +199,7 @@ export default function RegisterScreen() {
               ]}>
                 <Text style={styles.inputPrefix}>@</Text>
                 <TextInput
+                  testID="screenname-input"
                   style={[styles.input, { flex: 1 }]}
                   placeholder="coolperson99"
                   placeholderTextColor={C.placeholder}

@@ -8,10 +8,10 @@ type Params = { params: { channelName: string; userId: string } };
 async function getActorRole(channelId: string, actorId: string) {
   const [channel, actor] = await Promise.all([
     prisma.channel.findUnique({ where: { id: channelId }, select: { creatorId: true } }),
-    prisma.user.findUnique({ where: { id: actorId }, select: { isAdmin: true } }),
+    prisma.user.findUnique({ where: { id: actorId }, select: { adminRole: true } }),
   ]);
   const isCreator = channel?.creatorId === actorId;
-  const isAdmin = actor?.isAdmin ?? false;
+  const isAdmin = actor?.adminRole != null;
   return { isCreator, isAdmin, allowed: isCreator || isAdmin };
 }
 

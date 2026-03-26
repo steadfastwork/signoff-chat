@@ -19,10 +19,12 @@ function isAuthorized(req: NextRequest): boolean {
 async function run() {
   const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
 
+  // Gold members get unlimited board post history — only archive non-Gold posts
   const result = await prisma.boardPost.updateMany({
     where: {
       isArchived: false,
       createdAt: { lt: cutoff },
+      author: { isGoldMember: false },
     },
     data: { isArchived: true },
   });

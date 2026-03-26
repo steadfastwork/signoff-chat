@@ -6,11 +6,23 @@ import * as SQLite from "expo-sqlite";
 // Expired messages are purged on startup (matching server-side TTL logic).
 // ---------------------------------------------------------------------------
 
-const db = SQLite.openDatabaseSync("signoff_messages.db");
+// Module-level singleton — used by all functions that don't receive a db param.
+const _db = SQLite.openDatabaseSync("signoff_messages.db");
 
-export async function createTables(): Promise<void> {
+/** Returns the module-level SQLite database instance. */
+export function openDatabase(): ReturnType<typeof SQLite.openDatabaseSync> {
+  return _db;
+}
+
+/**
+ * Create all local tables. Accepts an optional db param so tests can pass a
+ * mock db; defaults to the module-level singleton.
+ */
+export async function createTables(
+  db: ReturnType<typeof SQLite.openDatabaseSync> = _db
+): Promise<void> {
   await db.execAsync(`
-    CREATE TABLE IF NOT EXISTS cached_messages (
+    CREATE TABLE IF NOT EXISTS channel_messages (
       id             TEXT PRIMARY KEY,
       channel_id     TEXT NOT NULL,
       author_id      TEXT NOT NULL,
@@ -24,28 +36,53 @@ export async function createTables(): Promise<void> {
     );
 
     CREATE INDEX IF NOT EXISTS idx_msgs_channel
-      ON cached_messages (channel_id, created_at DESC);
+      ON channel_messages (channel_id, created_at DESC);
+
+    CREATE TABLE IF NOT EXISTS feed_posts (
+      id               TEXT PRIMARY KEY,
+      author_id        TEXT NOT NULL,
+      author_name      TEXT NOT NULL,
+      author_is_gold   INTEGER NOT NULL DEFAULT 0,
+      author_color     TEXT NOT NULL DEFAULT '#f5c842',
+      content          TEXT NOT NULL,
+      privacy          TEXT NOT NULL DEFAULT 'PUBLIC',
+      media_url        TEXT,
+      media_type       TEXT,
+      nudge_count      INTEGER NOT NULL DEFAULT 0,
+      reply_count      INTEGER NOT NULL DEFAULT 0,
+      created_at       TEXT NOT NULL,
+      cached_at        TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_feed_posts_created
+      ON feed_posts (created_at DESC);
   `);
 
   // Purge expired messages on every startup
   await db.runAsync(
-    `DELETE FROM cached_messages WHERE expires_at < datetime('now')`
+    `DELETE FROM channel_messages WHERE expires_at < datetime('now')`
   );
 }
 
-export async function insertMessage(msg: {
-  id: string;
-  channelId: string;
-  authorId: string;
-  authorName: string;
-  content: string;
-  mediaUrl?: string | null;
-  mediaType?: string | null;
-  createdAt: string;
-  expiresAt: string;
-}): Promise<void> {
+/**
+ * Insert or replace a message. Accepts an explicit db for testability.
+ */
+export async function saveMessage(
+  db: ReturnType<typeof SQLite.openDatabaseSync>,
+  msg: {
+    id: string;
+    channelId: string;
+    authorId: string;
+    authorName: string;
+    content: string;
+    mediaUrl?: string | null;
+    mediaType?: string | null;
+    createdAt: string;
+    expiresAt: string;
+  }
+): Promise<void> {
   await db.runAsync(
-    `INSERT OR REPLACE INTO cached_messages
+    `INSERT OR REPLACE INTO channel_messages
        (id, channel_id, author_id, author_name, content,
         media_url, media_type, created_at, expires_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -63,12 +100,47 @@ export async function insertMessage(msg: {
   );
 }
 
+/** Convenience wrapper using the module-level db. */
+export async function insertMessage(msg: {
+  id: string;
+  channelId: string;
+  authorId: string;
+  authorName: string;
+  content: string;
+  mediaUrl?: string | null;
+  mediaType?: string | null;
+  createdAt: string;
+  expiresAt: string;
+}): Promise<void> {
+  return saveMessage(_db, msg);
+}
+
+/**
+ * Retrieve messages for a channel, most recent first.
+ */
 export async function getMessages(
   channelId: string,
   limit = 50
 ): Promise<CachedMessage[]> {
+  return _db.getAllAsync<CachedMessage>(
+    `SELECT * FROM channel_messages
+     WHERE channel_id = ?
+     ORDER BY created_at DESC
+     LIMIT ?`,
+    [channelId, limit]
+  );
+}
+
+/**
+ * Retrieve messages using an explicit db (for testing).
+ */
+export async function getChannelMessages(
+  db: ReturnType<typeof SQLite.openDatabaseSync>,
+  channelId: string,
+  limit = 50
+): Promise<CachedMessage[]> {
   return db.getAllAsync<CachedMessage>(
-    `SELECT * FROM cached_messages
+    `SELECT * FROM channel_messages
      WHERE channel_id = ?
      ORDER BY created_at DESC
      LIMIT ?`,
@@ -77,12 +149,12 @@ export async function getMessages(
 }
 
 export async function deleteMessage(id: string): Promise<void> {
-  await db.runAsync(`DELETE FROM cached_messages WHERE id = ?`, [id]);
+  await _db.runAsync(`DELETE FROM channel_messages WHERE id = ?`, [id]);
 }
 
 export async function purgeChannelMessages(channelId: string): Promise<void> {
-  await db.runAsync(
-    `DELETE FROM cached_messages WHERE channel_id = ?`,
+  await _db.runAsync(
+    `DELETE FROM channel_messages WHERE channel_id = ?`,
     [channelId]
   );
 }

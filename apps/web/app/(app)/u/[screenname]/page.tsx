@@ -9,6 +9,7 @@ import { ProfileCard, type ProfileData } from "@/components/ProfileCard";
 import { MutualChannels } from "@/components/MutualChannels";
 import { ProfileBoards } from "@/components/ProfileBoards";
 import { StatusDot } from "@/components/StatusDot";
+import { RichTextContent } from "@/components/RichTextContent";
 import { formatTimestamp } from "@/lib/utils";
 
 // ---------------------------------------------------------------------------
@@ -21,6 +22,8 @@ interface PostItem {
   privacy: "PUBLIC" | "BUDDIES_ONLY";
   mediaUrl: string | null;
   mediaType: "IMAGE" | "VIDEO" | "GIF" | null;
+  mediaUrls?: string[];
+  gifUrls?: string[];
   createdAt: string;
   _count: { nudges: number; replies: number };
 }
@@ -29,6 +32,8 @@ interface ProfileResponse extends ProfileData {
   posts: PostItem[];
   mutualChannels: { name: string; type: string }[];
   publicBoards: { name: string; displayName: string }[];
+  feedVisibility: "PUBLIC" | "BUDDIES" | "PRIVATE";
+  postsLocked: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -82,12 +87,9 @@ function PostRow({
       style={{ borderColor: "#1a1a12", background: "#0a0a08" }}
     >
       <div className="flex items-start justify-between gap-2 mb-2">
-        <p
-          className="text-sm leading-relaxed break-words flex-1"
-          style={{ color: "#d1d5db", fontFamily: "var(--font-dm-sans)" }}
-        >
-          {post.content}
-        </p>
+        <div className="text-sm leading-relaxed break-words flex-1" style={{ fontFamily: "var(--font-dm-sans)", color: "var(--text-muted)" }}>
+          <RichTextContent html={post.content} />
+        </div>
         {isSelf && post.privacy === "BUDDIES_ONLY" && (
           <span
             className="text-[9px] font-mono px-1.5 py-0.5 rounded flex-shrink-0"
@@ -102,19 +104,34 @@ function PostRow({
         )}
       </div>
 
-      {post.mediaUrl && post.mediaType === "IMAGE" && (
-        <div className="rounded-[10px] overflow-hidden mb-3">
-          <Image
-            src={post.mediaUrl}
-            alt=""
-            width={600}
-            height={400}
-            className="w-full h-auto"
-            unoptimized
-          />
+      {/* New array media */}
+      {((post.mediaUrls?.length ?? 0) > 0 || (post.gifUrls?.length ?? 0) > 0) && (
+        <div className="flex flex-wrap gap-2 mb-3">
+          {(post.mediaUrls ?? []).map((url, i) => (
+            <div key={`m-${i}`} className="rounded-[10px] overflow-hidden max-w-xs">
+              {url.match(/\.(mp4|webm|ogg)(\?|$)/i) ? (
+                <video src={url} controls className="w-full h-auto rounded-[10px]" />
+              ) : (
+                <Image src={url} alt="" width={400} height={300} className="w-full h-auto" unoptimized />
+              )}
+            </div>
+          ))}
+          {(post.gifUrls ?? []).map((url, i) => (
+            <div key={`g-${i}`} className="rounded-[10px] overflow-hidden max-w-xs">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={url} alt="gif" className="w-full h-auto rounded-[10px]" loading="lazy" />
+            </div>
+          ))}
         </div>
       )}
-      {post.mediaUrl && post.mediaType === "VIDEO" && (
+
+      {/* Legacy single-media fallback */}
+      {!(post.mediaUrls?.length) && !(post.gifUrls?.length) && post.mediaUrl && post.mediaType === "IMAGE" && (
+        <div className="rounded-[10px] overflow-hidden mb-3">
+          <Image src={post.mediaUrl} alt="" width={600} height={400} className="w-full h-auto" unoptimized />
+        </div>
+      )}
+      {!(post.mediaUrls?.length) && !(post.gifUrls?.length) && post.mediaUrl && post.mediaType === "VIDEO" && (
         <video src={post.mediaUrl} controls className="rounded-[10px] w-full mb-3" />
       )}
 
@@ -240,33 +257,53 @@ export default function ProfilePage() {
             )}
 
             {/* Posts */}
-            {profile.posts.length > 0 && (
-              <section>
-                <h2
-                  className="text-[10px] font-mono uppercase tracking-widest mb-3"
-                  style={{ color: "#3a3a2a" }}
-                >
-                  posts
-                </h2>
-                <div className="flex flex-col gap-3">
-                  {profile.posts.map((post) => (
-                    <PostRow
-                      key={post.id}
-                      post={post}
-                      isSelf={profile.relationship === "self"}
-                    />
-                  ))}
-                </div>
-              </section>
-            )}
-
-            {profile.posts.length === 0 && (
-              <p
-                className="text-sm italic py-4 text-center"
-                style={{ color: "#2a2a1a" }}
+            {profile.postsLocked ? (
+              <div
+                className="rounded-2xl border p-6 text-center"
+                style={{ borderColor: "#1a1a12", background: "#0a0a08" }}
               >
-                no posts yet.
-              </p>
+                <span className="text-2xl mb-2 block">🔒</span>
+                <p className="text-sm font-semibold mb-1" style={{ color: "#e5e7eb", fontFamily: "var(--font-dm-sans)" }}>
+                  {profile.feedVisibility === "PRIVATE"
+                    ? "posts are private"
+                    : "buddies only"}
+                </p>
+                <p className="text-xs" style={{ color: "#3a3a2a", fontFamily: "var(--font-dm-sans)" }}>
+                  {profile.feedVisibility === "PRIVATE"
+                    ? `${profile.screenname} has set their posts to private.`
+                    : `add ${profile.screenname} as a buddy to see their posts.`}
+                </p>
+              </div>
+            ) : (
+              <>
+                {profile.posts.length > 0 && (
+                  <section>
+                    <h2
+                      className="text-[10px] font-mono uppercase tracking-widest mb-3"
+                      style={{ color: "#3a3a2a" }}
+                    >
+                      posts
+                    </h2>
+                    <div className="flex flex-col gap-3">
+                      {profile.posts.map((post) => (
+                        <PostRow
+                          key={post.id}
+                          post={post}
+                          isSelf={profile.relationship === "self"}
+                        />
+                      ))}
+                    </div>
+                  </section>
+                )}
+                {profile.posts.length === 0 && (
+                  <p
+                    className="text-sm italic py-4 text-center"
+                    style={{ color: "#2a2a1a" }}
+                  >
+                    no posts yet.
+                  </p>
+                )}
+              </>
             )}
           </div>
         ) : null}

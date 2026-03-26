@@ -20,6 +20,16 @@ export default function BoardsScreen() {
   const [boards, setBoards] = useState<Board[]>([]);
   const [refreshing, setRefreshing] = useState(false);
 
+  // Redirect to feed if boards are disabled
+  useEffect(() => {
+    fetch(`${API}/api/feature-flags/boards`)
+      .then((r) => (r.ok ? r.json() : { enabled: false }))
+      .then((data: { enabled: boolean }) => {
+        if (!data.enabled) router.replace("/(app)/(tabs)/feed");
+      })
+      .catch(() => router.replace("/(app)/(tabs)/feed"));
+  }, [router]);
+
   const fetchBoards = useCallback(async () => {
     try {
       const res = await fetch(`${API}/api/boards`);

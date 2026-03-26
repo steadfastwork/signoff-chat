@@ -14,9 +14,9 @@ const csp = [
   // Tailwind and Next.js inject inline styles; Google Fonts stylesheet
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "font-src 'self' data: https://fonts.gstatic.com",
-  // Images from UploadThing CDN + data URIs for avatars
-  "img-src 'self' data: blob: https://utfs.io https://uploadthing.com",
-  // Soketi WebSocket (local: ws://localhost:6001, prod: wss://), Stripe, UploadThing
+  // Images from UploadThing CDN + Giphy CDN + data URIs for avatars
+  "img-src 'self' data: blob: https://utfs.io https://uploadthing.com https://*.giphy.com",
+  // Soketi WebSocket (local: ws://localhost:6001, prod: wss://), Stripe, UploadThing, Giphy
   [
     "connect-src 'self'",
     ...(isDev ? ["ws://localhost:6001", "wss://localhost:6001"] : []),
@@ -27,6 +27,7 @@ const csp = [
     "https://q.stripe.com",
     "https://uploadthing.com",
     "https://utfs.io",
+    "https://api.giphy.com",
   ].join(" "),
   // Audio files served from public/sounds/
   "media-src 'self'",

@@ -4,7 +4,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { pusherServer, CHANNELS, EVENTS } from "@/lib/pusher";
 import { rateLimit, limiters } from "@/lib/ratelimit";
-import { stripHtml, sanitizeUrl } from "@/lib/sanitize";
+import { sanitizeRichText, richTextLength, sanitizeUrl } from "@/lib/sanitize";
 import { internalError } from "@/lib/api-error";
 import { getExcludedUserIds } from "@/lib/blocks";
 import { isRestrictedUser, contentHash } from "@/lib/ratelimit";
@@ -121,8 +121,13 @@ export async function POST(req: NextRequest) {
     content: string;
     privacy?: "PUBLIC" | "BUDDIES_ONLY";
     isAwayMessage?: boolean;
+    // Legacy single-media (kept for backwards compat)
     mediaUrl?: string;
     mediaType?: "IMAGE" | "VIDEO" | "GIF";
+    // New multi-media arrays
+    mediaUrls?: string[];
+    gifUrls?: string[];
+    gifIds?: string[];
   };
 
   // Fetch user for restriction check (new account / warned)
@@ -138,10 +143,17 @@ export async function POST(req: NextRequest) {
   if (rl) return rl;
 
   const { content: rawContent, privacy = "PUBLIC", isAwayMessage = false, mediaUrl: rawMediaUrl, mediaType } = body;
-  const content = stripHtml(rawContent ?? "");
+  const content = sanitizeRichText(rawContent ?? "");
+  const textLen = richTextLength(content);
   const mediaUrl = sanitizeUrl(rawMediaUrl);
 
-  if (!content) {
+  // Sanitize new array fields
+  const mediaUrls = (body.mediaUrls ?? []).map((u) => sanitizeUrl(u)).filter((u): u is string => !!u);
+  const gifUrls   = (body.gifUrls ?? []).map((u) => sanitizeUrl(u)).filter((u): u is string => !!u);
+  const gifIds    = (body.gifIds ?? []).map((s) => s.trim()).filter(Boolean);
+
+  const hasMedia = mediaUrls.length > 0 || gifUrls.length > 0 || !!mediaUrl;
+  if (!textLen && !hasMedia) {
     return NextResponse.json({ error: "content is required." }, { status: 400 });
   }
 
@@ -164,7 +176,7 @@ export async function POST(req: NextRequest) {
   }
 
   const maxLen = isAwayMessage ? 140 : 512;
-  if (content.length > maxLen) {
+  if (textLen > maxLen) {
     return NextResponse.json(
       { error: `post cannot exceed ${maxLen} characters.` },
       { status: 400 }
@@ -179,6 +191,9 @@ export async function POST(req: NextRequest) {
       isAwayMessage,
       mediaUrl: mediaUrl ?? null,
       mediaType: mediaType ?? null,
+      mediaUrls,
+      gifUrls,
+      gifIds,
     },
     include: {
       author: { select: authorSelect },
