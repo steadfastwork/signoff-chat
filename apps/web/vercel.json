@@ -8,6 +8,7 @@
     { "path": "/api/cron/cleanup-channel-messages", "schedule": "0 3 * * *" },
     { "path": "/api/cron/archive-board-posts",      "schedule": "0 4 * * *" },
     { "path": "/api/cron/cleanup-invite-links",     "schedule": "0 5 * * *" },
-    { "path": "/api/cron/rotate-channel-keys",      "schedule": "0 */6 * * *" }
+    { "path": "/api/cron/rotate-channel-keys",      "schedule": "0 */6 * * *" },
+    { "path": "/api/cron/send-digest",             "schedule": "*/30 * * * *" }
   ]
 }
