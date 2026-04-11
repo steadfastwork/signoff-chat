@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { validateScreenname, validatePassword, hashPassword } from "@/lib/auth";
 import { hashEmail } from "@/lib/crypto/email";
+import { encryptEmail } from "@/lib/emailEncryption";
 import { getHashedIp } from "@/lib/crypto/ip";
 import { rateLimit, limiters } from "@/lib/ratelimit";
 
@@ -40,6 +41,9 @@ export async function POST(req: NextRequest) {
     // Hash email immediately — plaintext never written to DB
     const emailHash = hashEmail(email);
 
+    // Encrypt email for digest delivery — stored separately from the one-way hash
+    const encryptedEmail = encryptEmail(email.trim().toLowerCase());
+
     // --- Check uniqueness (case-insensitive screenname, hashed email) ---
     const existing = await prisma.user.findFirst({
       where: {
@@ -66,6 +70,8 @@ export async function POST(req: NextRequest) {
         screenname: screenname!,
         emailHash,
         passwordHash,
+        emailEncrypted: encryptedEmail.encrypted,
+        emailNonce: encryptedEmail.nonce,
         ...(mlkemPublicKey ? { mlkemPublicKey } : {}),
       },
       select: { id: true, screenname: true },

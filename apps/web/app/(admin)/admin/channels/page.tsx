@@ -20,6 +20,8 @@ export default function AdminChannelsPage() {
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [patching, setPatching] = useState<string | null>(null);
+  const [seeding, setSeeding] = useState(false);
+  const [seedResult, setSeedResult] = useState<{ created: number; skipped: number } | null>(null);
 
   const fetchChannels = async (cursor?: string) => {
     setLoading(true);
@@ -66,6 +68,22 @@ export default function AdminChannelsPage() {
     }
   };
 
+  const seedChannels = async () => {
+    if (seeding) return;
+    setSeeding(true);
+    setSeedResult(null);
+    try {
+      const res = await fetch("/api/admin/seed-channels", { method: "POST" });
+      const data = await res.json();
+      if (res.ok) {
+        setSeedResult({ created: data.created, skipped: data.skipped });
+        if (data.created > 0) fetchChannels();
+      }
+    } finally {
+      setSeeding(false);
+    }
+  };
+
   const btnBase: React.CSSProperties = {
     padding: "3px 8px",
     borderRadius: 4,
@@ -76,6 +94,37 @@ export default function AdminChannelsPage() {
 
   return (
     <div style={{ padding: 32 }}>
+      {/* Seed default channels */}
+      <div style={{ marginBottom: 16, display: "flex", alignItems: "center", gap: 12 }}>
+        <button
+          type="button"
+          onClick={seedChannels}
+          disabled={seeding}
+          style={{
+            padding: "6px 14px",
+            borderRadius: 6,
+            fontSize: 12,
+            fontFamily: "IBM Plex Mono, monospace",
+            background: seeding ? "#2a2620" : "#c8860a",
+            color: seeding ? "#6b6456" : "#fff",
+            border: "none",
+            cursor: seeding ? "not-allowed" : "pointer",
+          }}
+        >
+          {seeding ? "Seeding…" : "Seed default channels"}
+        </button>
+        {seedResult && (
+          <span style={{ fontSize: 12, fontFamily: "IBM Plex Mono, monospace", color: "#6b6456" }}>
+            {seedResult.created > 0
+              ? `✓ Created ${seedResult.created} channel${seedResult.created !== 1 ? "s" : ""}`
+              : ""}
+            {seedResult.skipped > 0
+              ? `${seedResult.created > 0 ? ", " : ""}${seedResult.skipped} already exist`
+              : ""}
+          </span>
+        )}
+      </div>
+
       <div
         style={{
           background: "#111110",

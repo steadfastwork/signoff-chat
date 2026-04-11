@@ -1,9 +1,10 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { IBM_Plex_Mono, VT323, DM_Sans, DM_Serif_Display } from "next/font/google";
 import "./globals.css";
 import { SessionProvider } from "@/components/SessionProvider";
 import { PresenceProvider } from "@/components/PresenceProvider";
 import { ThemeProvider, ThemeScript } from "@/components/ThemeProvider";
+import { SidebarProvider } from "@/components/SidebarProvider";
 import { Navbar } from "@/components/layout/Navbar";
 import { ElectronBridge } from "@/components/ElectronBridge";
 import { getFeatureFlag, BOARDS_ENABLED } from "@/lib/featureFlags";
@@ -35,6 +36,20 @@ const dmSerifDisplay = DM_Serif_Display({
 export const metadata: Metadata = {
   title: "Signoff Chat",
   description: "A retro-styled social chat app",
+  manifest: "/manifest.json",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "Signoff",
+  },
+  formatDetection: { telephone: false },
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+  themeColor: "#111110",
 };
 
 export default async function RootLayout({
@@ -53,16 +68,21 @@ export default async function RootLayout({
     >
       <head>
         <ThemeScript />
+        {/* Prevent wallet extension crashes — stubs window.ethereum so injected
+            scripts don't throw when the extension loads before its own setup */}
+        <script dangerouslySetInnerHTML={{ __html: `try{if(!window.ethereum)window.ethereum={}}catch(e){}` }} />
       </head>
       <body>
         <ThemeProvider>
           <SessionProvider>
             <PresenceProvider>
-              {/* Electron IPC bridge — renders nothing, wires all main↔renderer comms */}
-              <ElectronBridge />
-              {/* Fixed top navbar — always visible */}
-              <Navbar boardsEnabled={boardsEnabled} />
-              {children}
+              <SidebarProvider>
+                {/* Electron IPC bridge — renders nothing, wires all main↔renderer comms */}
+                <ElectronBridge />
+                {/* Fixed top navbar — always visible */}
+                <Navbar boardsEnabled={boardsEnabled} />
+                {children}
+              </SidebarProvider>
             </PresenceProvider>
           </SessionProvider>
         </ThemeProvider>

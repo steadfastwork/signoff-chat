@@ -84,6 +84,11 @@ export const EVENTS = {
   STATUS_CHANGE: "status-change",
   BUDDY_REQUEST: "buddy-request",
   BUDDY_ACCEPTED: "buddy-accepted",
+  CURRENTLY_CHANGED: "user-currently-changed",
+  AWAY_MESSAGE_CHANGED: "buddy-away-changed",
+  // Typing events (client-to-client via Soketi client events)
+  TYPING: "client-typing",
+  STOPPED_TYPING: "client-stopped-typing",
   // Channel events
   CHANNEL_MESSAGE: "new-message",
   CHANNEL_THREAD_REPLY: "thread-reply",

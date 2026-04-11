@@ -3,6 +3,8 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { pusherServer, CHANNELS, EVENTS } from "@/lib/pusher";
+import { getFeatureFlag } from "@/lib/featureFlags";
+import { VALID_DM_COLORS, VALID_DM_FONT_SIZES } from "@/lib/dmColors";
 
 const senderSelect = {
   id: true,
@@ -19,6 +21,8 @@ const messageSelect = {
   encryptedContent: true,
   iv: true,
   keyVersion: true,
+  textColor: true,
+  fontSize: true,
   createdAt: true,
   author: { select: senderSelect },
 } as const;
@@ -68,9 +72,20 @@ export async function POST(
     encryptedContent?: string;
     iv?: string;
     keyVersion?: number;
+    textColor?: string;
+    fontSize?: string;
   };
 
   const isEncrypted = body.isEncrypted === true;
+
+  // Feature-flag-gated color fields — silently ignore if flag is off or values invalid
+  const dmFontColorsEnabled = await getFeatureFlag("DM_FONT_COLORS");
+  const textColor = dmFontColorsEnabled && body.textColor && VALID_DM_COLORS.includes(body.textColor)
+    ? body.textColor
+    : null;
+  const fontSize = dmFontColorsEnabled && body.fontSize && (VALID_DM_FONT_SIZES as string[]).includes(body.fontSize)
+    ? body.fontSize
+    : null;
 
   const hasMedia = !!body.mediaUrl;
   if (isEncrypted) {
@@ -128,6 +143,8 @@ export async function POST(
           encryptedContent: body.encryptedContent!,
           iv: body.iv!,
           keyVersion: body.keyVersion!,
+          textColor,
+          fontSize,
           authorId: session.user.id,
           channelId: dmChannel.id,
           expiresAt: dmExpiresAt,
@@ -136,6 +153,8 @@ export async function POST(
           content: body.content?.trim() ?? "",
           mediaUrl: body.mediaUrl ?? null,
           mediaType: body.mediaType ?? null,
+          textColor,
+          fontSize,
           authorId: session.user.id,
           channelId: dmChannel.id,
           expiresAt: dmExpiresAt,

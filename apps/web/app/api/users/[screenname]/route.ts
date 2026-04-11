@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions, deriveAvatarColor } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { parseCurrently } from "@/lib/currently";
 
 type Params = { params: { screenname: string } };
 
@@ -15,12 +16,14 @@ export async function GET(_req: NextRequest, { params }: Params) {
       screenname: true,
       bio: true,
       awayMessage: true,
+      currently: true,
       status: true,
       isGoldMember: true,
       profileTheme: true,
       avatarUrl: true,
       createdAt: true,
       feedVisibility: true,
+      badges: { select: { id: true, badge: true, awardedAt: true } },
     },
   });
 
@@ -208,6 +211,7 @@ export async function GET(_req: NextRequest, { params }: Params) {
     screenname: target.screenname,
     bio: target.bio,
     awayMessage: target.awayMessage,
+    currently: parseCurrently(target.currently),
     status: displayStatus,
     isGoldMember: target.isGoldMember,
     profileTheme: target.profileTheme ?? null,
@@ -223,5 +227,6 @@ export async function GET(_req: NextRequest, { params }: Params) {
     posts,
     mutualChannels,
     publicBoards,
+    badges: target.badges,
   });
 }

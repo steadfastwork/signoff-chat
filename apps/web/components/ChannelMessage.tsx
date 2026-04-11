@@ -18,6 +18,9 @@ export interface ChannelMessageData {
   keyVersion?: number | null;
   mediaUrl: string | null;
   mediaType: "IMAGE" | "VIDEO" | "GIF" | null;
+  gifId?: string | null;
+  gifUrl?: string | null;
+  gifTitle?: string | null;
   createdAt: string;
   author: {
     id: string;
@@ -25,7 +28,7 @@ export interface ChannelMessageData {
     isGoldMember: boolean;
     status: StatusValue;
   };
-  thread: { id: string; messageCount: number } | null;
+  thread: { id: string; messageCount: number; lastReplyBy?: string | null } | null;
 }
 
 const AVATAR_COLORS: Record<string, { bg: string; text: string }> = {

@@ -15,16 +15,23 @@ interface Tab {
 const ALL_TABS: Tab[] = [
   {
     href: "/feed",
-    label: "Feed",
+    label: "Away",
     icon: "◉",
-    match: (p) => p.startsWith("/feed"),
+    match: (p) => p === "/" || p.startsWith("/feed"),
     accent: "amber",
   },
   {
     href: "/channels",
     label: "Channels",
     icon: "#",
-    match: (p) => p.startsWith("/channels"),
+    match: (p) => p.startsWith("/channels") || p.startsWith("/dm/"),
+    accent: "amber",
+  },
+  {
+    href: "/discover",
+    label: "Discover",
+    icon: "✦",
+    match: (p) => p.startsWith("/discover"),
     accent: "amber",
   },
   {
@@ -49,6 +56,7 @@ export function MobileNav({ boardsEnabled = false }: { boardsEnabled?: boolean }
 
   if (!session?.user?.id) return null;
 
+  // Show: feed, channels, boards (if enabled), notifs, profile
   const tabs = boardsEnabled ? ALL_TABS : ALL_TABS.filter((t) => t.href !== "/boards");
 
   return (
@@ -70,9 +78,15 @@ export function MobileNav({ boardsEnabled = false }: { boardsEnabled?: boolean }
             <Link
               key={tab.href}
               href={tab.href}
-              className="flex-1 flex flex-col items-center justify-center gap-0.5 transition-colors"
+              className="flex-1 relative flex flex-col items-center justify-center gap-0.5 transition-colors min-w-0"
               style={{ color: active ? color : "var(--text-dim)" }}
             >
+              {active && (
+                <span
+                  className="absolute top-0 left-1/2 -translate-x-1/2 w-8 h-0.5 rounded-b-full"
+                  style={{ background: color }}
+                />
+              )}
               <span
                 className="text-base leading-none font-mono"
                 style={{ color: active ? color : "var(--text-muted)" }}
@@ -85,12 +99,6 @@ export function MobileNav({ boardsEnabled = false }: { boardsEnabled?: boolean }
               >
                 {tab.label}
               </span>
-              {active && (
-                <span
-                  className="absolute bottom-0 w-8 h-0.5 rounded-full"
-                  style={{ background: color }}
-                />
-              )}
             </Link>
           );
         })}

@@ -7,31 +7,41 @@ import { useSession } from "next-auth/react";
 import { pusherClient, CHANNELS, EVENTS } from "@/lib/pusher";
 import { playSound, unlockSounds, getSoundPack, setSoundPack } from "@/lib/sounds";
 import { usePresence } from "@/components/PresenceProvider";
+import { useSidebar } from "@/components/SidebarProvider";
 import { Avatar } from "@/components/layout/Avatar";
 import { StatusDot, type StatusValue } from "@/components/StatusDot";
 import { BuddyRequest, type BuddyRequestData } from "@/components/BuddyRequest";
-
-// ---------------------------------------------------------------------------
-// Buddy list group types
-// ---------------------------------------------------------------------------
-
-interface BuddyGroupList {
-  id: string;
-  name: string;
-  position: number;
-  buddyIds: string[];
-}
+import { BadgeList } from "@/components/badges/BadgeList";
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-interface Buddy {
-  id: string;
+interface BuddyInGroup {
+  userId: string;
+  relationId: string;
   screenname: string;
-  isGoldMember: boolean;
-  awayMessage: string | null;
-  status: StatusValue;
+  isGold: boolean;
+  isOnline: boolean;
+  isAway: boolean;
+  awayMessage: string;
+  currently: Record<string, string>;
+  badges?: { id: string; badge: string; awardedAt: string }[];
+}
+
+interface BuddyGroup {
+  id: string;
+  name: string;
+  order: number;
+  memberIds: string[];
+  buddies: BuddyInGroup[];
+  totalCount: number;
+}
+
+interface BuddiesResponse {
+  groups: BuddyGroup[];
+  ungrouped: BuddyInGroup[];
+  offlineBuddies: BuddyInGroup[];
 }
 
 interface Channel {
@@ -51,6 +61,7 @@ interface StatusChangePayload {
   userId: string;
   status: StatusValue;
   awayMessage: string | null;
+  currently?: unknown;
 }
 
 interface BuddyAcceptedPayload {
@@ -74,6 +85,90 @@ function buddySection(s: StatusValue): "online" | "away" | "offline" {
   if (s === "ONLINE") return "online";
   if (s === "AWAY" || s === "IDLE") return "away";
   return "offline";
+}
+
+function sortOnline(a: BuddyInGroup, b: BuddyInGroup) {
+  if (a.isAway !== b.isAway) return a.isAway ? 1 : -1;
+  return a.screenname.localeCompare(b.screenname);
+}
+
+// Apply a status change to the buddy data without a full refetch.
+// If the buddy moves online/offline, they are relocated between sections.
+function applyStatusChange(
+  prev: BuddiesResponse,
+  p: { userId: string; status: string; awayMessage: string | null }
+): BuddiesResponse {
+  const effectiveStatus = p.status === "INVISIBLE" ? "OFFLINE" : p.status;
+  const nowOnline = effectiveStatus !== "OFFLINE";
+  const isAway =
+    effectiveStatus === "AWAY" ||
+    (p.awayMessage != null && p.awayMessage.length > 0);
+
+  // Find the buddy in any section
+  let existing: BuddyInGroup | undefined;
+  let wasOnline = false;
+
+  for (const g of prev.groups) {
+    const b = g.buddies.find((b) => b.userId === p.userId);
+    if (b) { existing = b; wasOnline = true; break; }
+  }
+  if (!existing) {
+    const b = prev.ungrouped.find((b) => b.userId === p.userId);
+    if (b) { existing = b; wasOnline = true; }
+  }
+  if (!existing) {
+    existing = prev.offlineBuddies.find((b) => b.userId === p.userId);
+  }
+  if (!existing) return prev;
+
+  const updated: BuddyInGroup = {
+    ...existing,
+    isOnline: nowOnline,
+    isAway,
+    awayMessage: p.awayMessage ? p.awayMessage.slice(0, 60) : "",
+  };
+
+  if (wasOnline === nowOnline) {
+    // Same section — just update in place
+    return {
+      groups: prev.groups.map((g) => ({
+        ...g,
+        buddies: g.buddies.map((b) => (b.userId === p.userId ? updated : b)),
+      })),
+      ungrouped: prev.ungrouped.map((b) => (b.userId === p.userId ? updated : b)),
+      offlineBuddies: prev.offlineBuddies.map((b) =>
+        b.userId === p.userId ? updated : b
+      ),
+    };
+  }
+
+  if (!wasOnline && nowOnline) {
+    // Offline → Online: put in the correct group(s) or ungrouped
+    const targetGroupIds = new Set(
+      prev.groups.filter((g) => g.memberIds.includes(p.userId)).map((g) => g.id)
+    );
+    const newOffline = prev.offlineBuddies.filter((b) => b.userId !== p.userId);
+    const newGroups = prev.groups.map((g) => {
+      if (!targetGroupIds.has(g.id)) return g;
+      return { ...g, buddies: [...g.buddies, updated].sort(sortOnline) };
+    });
+    const newUngrouped =
+      targetGroupIds.size === 0
+        ? [...prev.ungrouped, updated].sort(sortOnline)
+        : prev.ungrouped;
+    return { groups: newGroups, ungrouped: newUngrouped, offlineBuddies: newOffline };
+  }
+
+  // Online → Offline: remove from groups/ungrouped, add to offline
+  const newGroups = prev.groups.map((g) => ({
+    ...g,
+    buddies: g.buddies.filter((b) => b.userId !== p.userId),
+  }));
+  const newUngrouped = prev.ungrouped.filter((b) => b.userId !== p.userId);
+  const newOffline = [...prev.offlineBuddies, updated].sort((a, b) =>
+    a.screenname.localeCompare(b.screenname)
+  );
+  return { groups: newGroups, ungrouped: newUngrouped, offlineBuddies: newOffline };
 }
 
 // ---------------------------------------------------------------------------
@@ -109,7 +204,7 @@ function SidebarStatusSelector() {
             disabled={!!pending}
             className="flex items-center gap-1.5 text-xs font-medium rounded-lg px-2 border transition-all"
             style={{
-              height: 32,
+              minHeight: 44,
               background: active ? "var(--amber-tint)" : "transparent",
               borderColor: active ? "var(--amber)" : "var(--border)",
               color: active ? "var(--amber)" : "var(--text-muted)",
@@ -143,12 +238,10 @@ function SoundToggle() {
 
   const toggle = () => {
     if (muted) {
-      // Unmute — restore last pack or default to "classic"
       const last = (localStorage.getItem("sc-sound-pack-last") ?? "classic") as Parameters<typeof setSoundPack>[0];
       setSoundPack(last);
       setMuted(false);
     } else {
-      // Save current pack before muting
       const current = getSoundPack();
       if (current !== "off") localStorage.setItem("sc-sound-pack-last", current);
       setSoundPack("off");
@@ -177,7 +270,7 @@ function SoundToggle() {
 }
 
 // ---------------------------------------------------------------------------
-// Section header
+// SectionHeader (channels / boards / etc.)
 // ---------------------------------------------------------------------------
 
 function SectionHeader({
@@ -196,7 +289,10 @@ function SectionHeader({
     <div className="flex items-center justify-between px-3 pt-4 pb-1.5">
       <span
         className="text-[10px] font-mono uppercase tracking-[0.15em] select-none"
-        style={{ color: accent === "teal" ? "var(--teal-dark, #0f766e)" : "var(--text-dim)" }}
+        style={{
+          color:
+            accent === "teal" ? "var(--teal-dark, #0f766e)" : "var(--text-dim)",
+        }}
       >
         {label}
       </span>
@@ -221,62 +317,227 @@ function SectionHeader({
 }
 
 // ---------------------------------------------------------------------------
-// Buddy row
+// AIM group header — arrow + name + online/total count
 // ---------------------------------------------------------------------------
 
-function BuddyRow({ buddy, unreadCount, onClear }: { buddy: Buddy; unreadCount?: number; onClear?: () => void }) {
-  const section = buddySection(buddy.status);
+function AimGroupHeader({
+  name,
+  onlineCount,
+  totalCount,
+  collapsed,
+  onToggle,
+  isOffline = false,
+  onRename,
+  onDelete,
+  onAddBuddy,
+}: {
+  name: string;
+  onlineCount: number;
+  totalCount: number;
+  collapsed: boolean;
+  onToggle: () => void;
+  isOffline?: boolean;
+  onRename?: () => void;
+  onDelete?: () => void;
+  onAddBuddy?: () => void;
+}) {
   return (
     <div
-      className="flex items-center gap-1 px-2 py-1 rounded-lg mx-1 group transition-colors"
+      className="flex items-center gap-1.5 select-none cursor-pointer group"
+      style={{ height: 28, padding: "0 14px" }}
+      onClick={onToggle}
       onMouseEnter={(e) =>
-        ((e.currentTarget as HTMLDivElement).style.background = "var(--card)")
+        ((e.currentTarget as HTMLDivElement).style.background =
+          "rgba(255,255,255,.02)")
       }
       onMouseLeave={(e) =>
         ((e.currentTarget as HTMLDivElement).style.background = "transparent")
       }
     >
-      {/* Avatar + name → profile */}
-      <Link
-        href={`/u/${buddy.screenname}`}
-        className="flex items-center gap-2 flex-1 min-w-0 py-0.5"
-        style={{ color: "inherit" }}
+      {/* Collapse arrow */}
+      <span
+        style={{
+          fontSize: 9,
+          color: "var(--text-dim)",
+          flexShrink: 0,
+          display: "inline-block",
+          transform: collapsed ? "rotate(0deg)" : "rotate(90deg)",
+          transition: "transform .15s",
+          fontFamily: "monospace",
+        }}
       >
-        <Avatar
-          screenname={buddy.screenname}
-          size="sm"
-          isGoldMember={buddy.isGoldMember}
-          status={buddy.status}
-          bg="var(--surface)"
-        />
-        <div className="flex-1 min-w-0">
-          <p
-            className="truncate text-[13px] font-medium leading-tight"
-            style={{
-              fontFamily: "var(--font-dm-sans)",
-              color:
-                section === "online"
-                  ? "var(--text)"
-                  : section === "away"
-                  ? "var(--text-muted)"
-                  : "var(--text-dim)",
-            }}
-          >
-            {buddy.screenname}
-            {buddy.isGoldMember && (
-              <span className="ml-0.5 text-[10px]" style={{ color: "#d4a017" }}>★</span>
-            )}
-          </p>
-          {buddy.awayMessage && section !== "offline" && (
-            <p
-              className="truncate text-[11px] italic leading-tight mt-0.5"
-              style={{ color: "var(--text-dim)", fontFamily: "var(--font-dm-sans)" }}
+        ▶
+      </span>
+
+      {/* Group name */}
+      <span
+        className="flex-1 min-w-0 truncate"
+        style={{
+          fontSize: 11,
+          fontWeight: 600,
+          color: "var(--text-muted)",
+          letterSpacing: ".02em",
+          fontFamily: "var(--font-dm-sans)",
+        }}
+      >
+        {name}
+      </span>
+
+      {/* Count */}
+      {!isOffline ? (
+        <span style={{ fontSize: 10, flexShrink: 0 }}>
+          <span style={{ color: "var(--amber)" }}>{onlineCount}</span>
+          <span style={{ color: "var(--text-dim)" }}>/{totalCount}</span>
+        </span>
+      ) : (
+        <span style={{ fontSize: 10, color: "var(--text-dim)", flexShrink: 0 }}>
+          {totalCount}
+        </span>
+      )}
+
+      {/* Management buttons — hover only, not for special sections */}
+      {(onRename || onDelete || onAddBuddy) && (
+        <div
+          className="hidden group-hover:flex items-center gap-0.5 flex-shrink-0"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {onAddBuddy && (
+            <button
+              onClick={onAddBuddy}
+              className="text-[10px] font-mono px-0.5 transition-colors"
+              style={{ color: "var(--text-dim)" }}
+              title="add buddy to group"
+              onMouseEnter={(e) =>
+                ((e.currentTarget as HTMLButtonElement).style.color =
+                  "var(--amber)")
+              }
+              onMouseLeave={(e) =>
+                ((e.currentTarget as HTMLButtonElement).style.color =
+                  "var(--text-dim)")
+              }
             >
-              {buddy.awayMessage}
-            </p>
+              +
+            </button>
+          )}
+          {onRename && (
+            <button
+              onClick={onRename}
+              className="text-[10px] font-mono px-0.5 transition-colors"
+              style={{ color: "var(--text-dim)" }}
+              title="rename group"
+              onMouseEnter={(e) =>
+                ((e.currentTarget as HTMLButtonElement).style.color =
+                  "var(--text-muted)")
+              }
+              onMouseLeave={(e) =>
+                ((e.currentTarget as HTMLButtonElement).style.color =
+                  "var(--text-dim)")
+              }
+            >
+              ✎
+            </button>
+          )}
+          {onDelete && (
+            <button
+              onClick={onDelete}
+              className="text-[10px] font-mono px-0.5 transition-colors"
+              style={{ color: "var(--text-dim)" }}
+              title="delete group"
+              onMouseEnter={(e) =>
+                ((e.currentTarget as HTMLButtonElement).style.color = "#ef4444")
+              }
+              onMouseLeave={(e) =>
+                ((e.currentTarget as HTMLButtonElement).style.color =
+                  "var(--text-dim)")
+              }
+            >
+              ×
+            </button>
           )}
         </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// AIM buddy row — no avatar, status dot + name + away snippet
+// ---------------------------------------------------------------------------
+
+function AimBuddyRow({
+  buddy,
+  unreadCount,
+  onClearUnread,
+  onCtxMenu,
+  isOffline = false,
+}: {
+  buddy: BuddyInGroup;
+  unreadCount?: number;
+  onClearUnread?: () => void;
+  onCtxMenu: (e: React.MouseEvent) => void;
+  isOffline?: boolean;
+}) {
+  const dotColor = isOffline
+    ? "#3a3a34"
+    : buddy.isAway
+    ? "#f59e0b"
+    : "#22c55e";
+
+  return (
+    <div
+      className="flex items-center gap-2 cursor-pointer group"
+      style={{ minHeight: 28, padding: "5px 14px 5px 26px" }}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        onCtxMenu(e);
+      }}
+      onMouseEnter={(e) =>
+        ((e.currentTarget as HTMLDivElement).style.background =
+          "rgba(255,255,255,.03)")
+      }
+      onMouseLeave={(e) =>
+        ((e.currentTarget as HTMLDivElement).style.background = "transparent")
+      }
+    >
+      {/* Status dot */}
+      <span
+        style={{
+          width: 6,
+          height: 6,
+          borderRadius: "50%",
+          background: dotColor,
+          flexShrink: 0,
+          display: "inline-block",
+        }}
+      />
+
+      {/* Name → profile */}
+      <Link
+        href={`/u/${buddy.screenname}`}
+        className="flex-1 min-w-0 leading-none"
+        style={{ color: "inherit", textDecoration: "none" }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <span
+          style={{
+            fontSize: 12,
+            fontWeight: 500,
+            color: "var(--text)",
+            fontFamily: "var(--font-dm-sans)",
+          }}
+        >
+          {buddy.screenname}
+        </span>
+        {buddy.isGold && (
+          <span style={{ color: "var(--amber)", fontSize: 10, marginLeft: 2 }}>
+            ★
+          </span>
+        )}
       </Link>
+
+      {buddy.badges && buddy.badges.length > 0 && (
+        <BadgeList badges={buddy.badges as any} size="sm" />
+      )}
 
       {/* Unread badge */}
       {!!unreadCount && (
@@ -288,18 +549,22 @@ function BuddyRow({ buddy, unreadCount, onClear }: { buddy: Buddy; unreadCount?:
         </span>
       )}
 
-      {/* Message button — visible on hover */}
+      {/* DM button — hover only */}
       <Link
-        href={`/dm/${buddy.id}`}
-        onClick={onClear}
+        href={`/dm/${buddy.userId}`}
+        onClick={(e) => {
+          e.stopPropagation();
+          onClearUnread?.();
+        }}
         title={`message ${buddy.screenname}`}
-        className="flex-shrink-0 w-8 h-8 rounded flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity text-[22px]"
+        className="flex-shrink-0 w-6 h-6 rounded flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity text-[14px]"
         style={{ color: "var(--text-muted)" }}
         onMouseEnter={(e) =>
           ((e.currentTarget as HTMLAnchorElement).style.color = "var(--amber)")
         }
         onMouseLeave={(e) =>
-          ((e.currentTarget as HTMLAnchorElement).style.color = "var(--text-muted)")
+          ((e.currentTarget as HTMLAnchorElement).style.color =
+            "var(--text-muted)")
         }
       >
         💬
@@ -309,71 +574,159 @@ function BuddyRow({ buddy, unreadCount, onClear }: { buddy: Buddy; unreadCount?:
 }
 
 // ---------------------------------------------------------------------------
-// BuddyRow with remove button (for list view)
+// Context menu
 // ---------------------------------------------------------------------------
 
-function BuddyRowWithRemove({ buddy, onRemove, unreadCount, onClear }: { buddy: Buddy; onRemove: () => void; unreadCount?: number; onClear?: () => void }) {
-  const section = buddySection(buddy.status);
+function BuddyContextMenu({
+  buddy,
+  x,
+  y,
+  listId,
+  listName,
+  onClose,
+  onRemoved,
+  onRemovedFromList,
+}: {
+  buddy: BuddyInGroup;
+  x: number;
+  y: number;
+  listId?: string;
+  listName?: string;
+  onClose: () => void;
+  onRemoved: (userId: string) => void;
+  onRemovedFromList?: (userId: string, listId: string) => void;
+}) {
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  // Close on click outside or Escape
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        onClose();
+      }
+    };
+    const keyHandler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    setTimeout(() => {
+      document.addEventListener("mousedown", handler);
+      document.addEventListener("keydown", keyHandler);
+    }, 0);
+    return () => {
+      document.removeEventListener("mousedown", handler);
+      document.removeEventListener("keydown", keyHandler);
+    };
+  }, [onClose]);
+
+  const removeBuddy = async () => {
+    onClose();
+    if (!window.confirm(`Remove ${buddy.screenname} from your buddy list?`)) return;
+    const res = await fetch(`/api/buddies/${buddy.relationId}`, { method: "DELETE" });
+    if (res.ok) onRemoved(buddy.userId);
+  };
+
+  const removeFromList = async () => {
+    if (!listId) return;
+    onClose();
+    const res = await fetch(`/api/buddy-lists/${listId}/members/${buddy.userId}`, { method: "DELETE" });
+    if (res.ok) onRemovedFromList?.(buddy.userId, listId);
+  };
+
+  // Clamp to viewport
+  const left = Math.min(x, window.innerWidth - 160);
+  const top = Math.min(y, window.innerHeight - 120);
+
   return (
-    <div className="flex items-center mx-1 rounded-lg group transition-colors relative"
-      onMouseEnter={(e) => ((e.currentTarget as HTMLDivElement).style.background = "var(--card)")}
-      onMouseLeave={(e) => ((e.currentTarget as HTMLDivElement).style.background = "transparent")}
+    <div
+      ref={menuRef}
+      style={{
+        position: "fixed",
+        left,
+        top,
+        zIndex: 9999,
+        background: "var(--surface)",
+        border: "1px solid var(--border)",
+        borderRadius: 8,
+        padding: "4px 0",
+        minWidth: 150,
+        boxShadow: "0 4px 16px rgba(0,0,0,.4)",
+      }}
     >
       <Link
-        href={`/dm/${buddy.id}`}
-        onClick={onClear}
-        className="flex items-center gap-2 px-3 py-1.5 flex-1 min-w-0"
-        style={{ color: "inherit" }}
-      >
-        <Avatar
-          screenname={buddy.screenname}
-          size="sm"
-          isGoldMember={buddy.isGoldMember}
-          status={buddy.status}
-          bg="var(--surface)"
-        />
-        <div className="flex-1 min-w-0">
-          <p
-            className="truncate text-[13px] font-medium leading-tight"
-            style={{
-              fontFamily: "var(--font-dm-sans)",
-              color:
-                section === "online"
-                  ? "var(--text)"
-                  : section === "away"
-                  ? "var(--text-muted)"
-                  : "var(--text-dim)",
-            }}
-          >
-            {buddy.screenname}
-            {buddy.isGoldMember && (
-              <span className="ml-0.5 text-[10px]" style={{ color: "#d4a017" }}>★</span>
-            )}
-          </p>
-        </div>
-        {!!unreadCount && (
-          <span
-            className="flex-shrink-0 min-w-[16px] h-4 rounded-full flex items-center justify-center text-[9px] font-mono font-bold px-1"
-            style={{ background: "#ef4444", color: "#fff" }}
-          >
-            {unreadCount > 9 ? "9+" : unreadCount}
-          </span>
-        )}
-      </Link>
-      {/* Remove from list button */}
-      <button
-        onClick={onRemove}
-        className="flex-shrink-0 pr-2 text-[11px] font-mono opacity-0 group-hover:opacity-100 transition-opacity"
-        style={{ color: "var(--text-dim)" }}
-        title="remove from list"
+        href={`/dm/${buddy.userId}`}
+        onClick={onClose}
+        className="block px-3 py-1.5 text-[12px] transition-colors"
+        style={{
+          color: "var(--text-muted)",
+          fontFamily: "var(--font-dm-sans)",
+          textDecoration: "none",
+        }}
         onMouseEnter={(e) =>
-          ((e.currentTarget as HTMLButtonElement).style.color = "#ef4444")
+          ((e.currentTarget as HTMLAnchorElement).style.background =
+            "var(--card)")
         }
         onMouseLeave={(e) =>
-          ((e.currentTarget as HTMLButtonElement).style.color = "var(--text-dim)")
+          ((e.currentTarget as HTMLAnchorElement).style.background =
+            "transparent")
         }
       >
-        ×
+        Message {buddy.screenname}
+      </Link>
+      <Link
+        href={`/u/${buddy.screenname}`}
+        onClick={onClose}
+        className="block px-3 py-1.5 text-[12px] transition-colors"
+        style={{
+          color: "var(--text-muted)",
+          fontFamily: "var(--font-dm-sans)",
+          textDecoration: "none",
+        }}
+        onMouseEnter={(e) =>
+          ((e.currentTarget as HTMLAnchorElement).style.background =
+            "var(--card)")
+        }
+        onMouseLeave={(e) =>
+          ((e.currentTarget as HTMLAnchorElement).style.background =
+            "transparent")
+        }
+      >
+        View profile
+      </Link>
+      {listId && (
+        <>
+          <div style={{ height: 1, background: "var(--border)", margin: "3px 0" }} />
+          <button
+            onClick={removeFromList}
+            className="block w-full text-left px-3 py-1.5 text-[12px] transition-colors"
+            style={{ color: "var(--text-muted)", fontFamily: "var(--font-dm-sans)" }}
+            onMouseEnter={(e) =>
+              ((e.currentTarget as HTMLButtonElement).style.background = "var(--card)")
+            }
+            onMouseLeave={(e) =>
+              ((e.currentTarget as HTMLButtonElement).style.background = "transparent")
+            }
+          >
+            Remove from {listName ?? "list"}
+          </button>
+        </>
+      )}
+      <div
+        style={{ height: 1, background: "var(--border)", margin: "3px 0" }}
+      />
+      <button
+        onClick={removeBuddy}
+        className="block w-full text-left px-3 py-1.5 text-[12px] transition-colors"
+        style={{ color: "#ef4444", fontFamily: "var(--font-dm-sans)" }}
+        onMouseEnter={(e) =>
+          ((e.currentTarget as HTMLButtonElement).style.background =
+            "var(--card)")
+        }
+        onMouseLeave={(e) =>
+          ((e.currentTarget as HTMLButtonElement).style.background =
+            "transparent")
+        }
+      >
+        Remove buddy
       </button>
     </div>
   );
@@ -436,7 +789,10 @@ function BoardRow({ board }: { board: Board }) {
       >
         {initial}
       </div>
-      <span className="truncate text-[13px] font-medium" style={{ fontFamily: "var(--font-dm-sans)" }}>
+      <span
+        className="truncate text-[13px] font-medium"
+        style={{ fontFamily: "var(--font-dm-sans)" }}
+      >
         {board.displayName}
       </span>
     </Link>
@@ -450,29 +806,63 @@ function BoardRow({ board }: { board: Board }) {
 export function Sidebar({ boardsEnabled = false }: { boardsEnabled?: boolean }) {
   const { data: session } = useSession();
   const { status: userStatus } = usePresence();
+  const { isOpen, close } = useSidebar();
   const pathname = usePathname();
 
-  const [buddies, setBuddies] = useState<Buddy[]>([]);
+  // Close drawer on navigation (mobile)
+  const prevPathname = useRef(pathname);
+  useEffect(() => {
+    if (pathname !== prevPathname.current) {
+      prevPathname.current = pathname;
+      close();
+    }
+  }, [pathname, close]);
+
+  // ---- Core data ----
+  const [buddyData, setBuddyData] = useState<BuddiesResponse | null>(null);
   const [requests, setRequests] = useState<BuddyRequestData[]>([]);
   const [unreadDMs, setUnreadDMs] = useState<Record<string, number>>({});
   const [channels, setChannels] = useState<Channel[]>([]);
   const [boards, setBoards] = useState<Board[]>([]);
-  const [offlineExpanded, setOfflineExpanded] = useState(false);
 
-  // ---- Buddy lists state ----
-  const [buddyLists, setBuddyLists] = useState<BuddyGroupList[]>([]);
-  const [listView, setListView] = useState(false);
-  const [expandedLists, setExpandedLists] = useState<Record<string, boolean>>({});
-  const [renamingListId, setRenamingListId] = useState<string | null>(null);
+  // ---- Collapse state (localStorage) ----
+  const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>(() => {
+    if (typeof localStorage === "undefined") return {};
+    try {
+      return JSON.parse(localStorage.getItem("sc-aim-collapsed") ?? "{}");
+    } catch {
+      return {};
+    }
+  });
+  const [offlineCollapsed, setOfflineCollapsed] = useState(() => {
+    if (typeof localStorage === "undefined") return true;
+    const v = localStorage.getItem("sc-aim-offline-collapsed");
+    return v === null ? true : v === "1";
+  });
+
+  // ---- Group management state ----
+  const [renamingGroupId, setRenamingGroupId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [addingToBuddyListId, setAddingToBuddyListId] = useState<string | null>(null);
-  const [newListInput, setNewListInput] = useState("");
   const [showNewListInput, setShowNewListInput] = useState(false);
+  const [newListInput, setNewListInput] = useState("");
 
-  const buddiesRef = useRef<Buddy[]>([]);
-  useEffect(() => { buddiesRef.current = buddies; }, [buddies]);
+  // ---- Context menu ----
+  const [ctxMenu, setCtxMenu] = useState<{
+    buddy: BuddyInGroup;
+    x: number;
+    y: number;
+    listId?: string;
+    listName?: string;
+  } | null>(null);
 
   const prevUnreadRef = useRef<Record<string, number>>({});
+
+  // ---- Fetch buddies ----
+  const fetchBuddies = async () => {
+    const res = await fetch("/api/buddies");
+    if (res.ok) setBuddyData(await res.json());
+  };
 
   // ---- Fetch data on mount ----
   useEffect(() => {
@@ -482,24 +872,18 @@ export function Sidebar({ boardsEnabled = false }: { boardsEnabled?: boolean }) 
       fetch("/api/buddies").then((r) => r.json()),
       fetch("/api/buddies/requests").then((r) => r.json()),
       fetch("/api/channels?mine=true").then((r) => r.json()),
-      boardsEnabled ? fetch("/api/boards?mine=true").then((r) => r.json()) : Promise.resolve([]),
-      fetch("/api/buddy-lists").then((r) => r.json()),
+      boardsEnabled
+        ? fetch("/api/boards?mine=true").then((r) => r.json())
+        : Promise.resolve([]),
     ])
-      .then(([buddyData, requestData, channelData, boardData, listData]) => {
-        setBuddies(Array.isArray(buddyData) ? buddyData : []);
+      .then(([buddyRes, requestData, channelData, boardData]) => {
+        setBuddyData(buddyRes);
         setRequests(Array.isArray(requestData) ? requestData : []);
         setChannels(Array.isArray(channelData) ? channelData : []);
         setBoards(Array.isArray(boardData) ? boardData : []);
-        if (Array.isArray(listData)) {
-          setBuddyLists(listData);
-          // Default all lists to expanded
-          const expanded: Record<string, boolean> = {};
-          listData.forEach((l: BuddyGroupList) => { expanded[l.id] = true; });
-          setExpandedLists(expanded);
-        }
       })
       .catch(() => {});
-  }, [session?.user?.id]);
+  }, [session?.user?.id, boardsEnabled]);
 
   // ---- Clear unread badge when navigating into a DM ----
   useEffect(() => {
@@ -507,6 +891,7 @@ export function Sidebar({ boardsEnabled = false }: { boardsEnabled?: boolean }) 
     if (match) {
       const buddyId = match[1];
       localStorage.setItem(`dm_last_read_${buddyId}`, new Date().toISOString());
+      fetch(`/api/messages/${buddyId}/read`, { method: "POST" }).catch(() => {});
       setUnreadDMs((prev) => {
         if (!prev[buddyId]) return prev;
         const next = { ...prev };
@@ -516,50 +901,44 @@ export function Sidebar({ boardsEnabled = false }: { boardsEnabled?: boolean }) 
     }
   }, [pathname]);
 
-  // ---- Poll for unread DMs (localStorage-based, reliable without Pusher) ----
+  // ---- Poll for unread DMs ----
   useEffect(() => {
     if (!session?.user?.id) return;
-    const userId = session.user.id;
 
     const checkUnread = () => {
-      // Collect all known lastRead timestamps from localStorage and send
-      // them as query params so the server can count precisely
-      const params = new URLSearchParams();
-      for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i);
-        if (key?.startsWith("dm_last_read_")) {
-          const partnerId = key.slice("dm_last_read_".length);
-          params.set(`since_${partnerId}`, localStorage.getItem(key)!);
-        }
-      }
-
-      fetch(`/api/messages/unread?${params.toString()}`)
+      fetch("/api/messages/unread")
         .then((r) => (r.ok ? r.json() : []))
-        .then((data: Array<{ partnerId: string; unreadCount: number; latestMessageAt: string }>) => {
-          if (!Array.isArray(data)) return;
-          const newUnread: Record<string, number> = {};
-          let hasNewMessages = false;
-          for (const item of data) {
-            const currentPath = window.location.pathname;
-            if (currentPath === `/dm/${item.partnerId}`) {
-              localStorage.setItem(`dm_last_read_${item.partnerId}`, new Date().toISOString());
-              continue;
+        .then(
+          (
+            data: Array<{
+              partnerId: string;
+              unreadCount: number;
+              latestMessageAt: string;
+            }>
+          ) => {
+            if (!Array.isArray(data)) return;
+            const newUnread: Record<string, number> = {};
+            let hasNewMessages = false;
+            for (const item of data) {
+              if (window.location.pathname === `/dm/${item.partnerId}`) continue;
+              if (item.unreadCount > 0) {
+                newUnread[item.partnerId] = item.unreadCount;
+                const prev = prevUnreadRef.current[item.partnerId] ?? 0;
+                if (item.unreadCount > prev) hasNewMessages = true;
+              }
             }
-            if (item.unreadCount > 0) {
-              newUnread[item.partnerId] = item.unreadCount;
-              const prev = prevUnreadRef.current[item.partnerId] ?? 0;
-              if (item.unreadCount > prev) hasNewMessages = true;
-            }
+            if (hasNewMessages) playSound("message_received");
+            prevUnreadRef.current = newUnread;
+            setUnreadDMs(newUnread);
           }
-          if (hasNewMessages) playSound("message_received");
-          prevUnreadRef.current = newUnread;
-          setUnreadDMs(newUnread);
-        })
+        )
         .catch(() => {});
     };
 
     checkUnread();
-    const onVisible = () => { if (document.visibilityState === "visible") checkUnread(); };
+    const onVisible = () => {
+      if (document.visibilityState === "visible") checkUnread();
+    };
     document.addEventListener("visibilitychange", onVisible);
     const interval = setInterval(checkUnread, 5_000);
     return () => {
@@ -568,7 +947,7 @@ export function Sidebar({ boardsEnabled = false }: { boardsEnabled?: boolean }) 
     };
   }, [session?.user?.id]);
 
-  // ---- Re-fetch pending requests when tab regains focus (Pusher fallback) ----
+  // ---- Re-fetch pending requests when tab regains focus ----
   useEffect(() => {
     if (!session?.user?.id) return;
     const onVisible = () => {
@@ -592,15 +971,15 @@ export function Sidebar({ boardsEnabled = false }: { boardsEnabled?: boolean }) 
 
     const presenceCh = pusherClient.subscribe(CHANNELS.presenceBuddies(uid));
     presenceCh.bind(EVENTS.STATUS_CHANGE, (p: StatusChangePayload) => {
-      setBuddies((prev) => {
-        const existing = prev.find((b) => b.id === p.userId);
-        // Play sound when a buddy comes online from a non-online state
-        if (existing && existing.status !== "ONLINE" && p.status === "ONLINE") {
+      setBuddyData((prev) => {
+        if (!prev) return prev;
+        // Play sound when buddy comes online
+        const wasInOffline = prev.offlineBuddies.some((b) => b.userId === p.userId);
+        const effectiveStatus = p.status === "INVISIBLE" ? "OFFLINE" : p.status;
+        if (wasInOffline && effectiveStatus !== "OFFLINE") {
           playSound("buddy_online");
         }
-        return prev.map((b) =>
-          b.id === p.userId ? { ...b, status: p.status, awayMessage: p.awayMessage } : b
-        );
+        return applyStatusChange(prev, { userId: p.userId, status: p.status, awayMessage: p.awayMessage });
       });
     });
 
@@ -610,17 +989,14 @@ export function Sidebar({ boardsEnabled = false }: { boardsEnabled?: boolean }) 
         prev.some((r) => r.requesterId === p.requesterId) ? prev : [p, ...prev]
       );
     });
-    privateCh.bind(EVENTS.BUDDY_ACCEPTED, (p: BuddyAcceptedPayload) => {
-      setBuddies((prev) =>
-        prev.some((b) => b.id === p.id) ? prev : [...prev, p]
-      );
+    privateCh.bind(EVENTS.BUDDY_ACCEPTED, () => {
+      fetchBuddies();
     });
     privateCh.bind(EVENTS.NEW_DM, (p: NewDMNotificationPayload) => {
       const currentPath = window.location.pathname;
       if (currentPath !== `/dm/${p.senderId}`) {
         playSound("message_received");
       }
-      // Only increment badge if the DM panel for this sender isn't currently open
       setUnreadDMs((prev) => {
         if (currentPath === `/dm/${p.senderId}`) return prev;
         return { ...prev, [p.senderId]: (prev[p.senderId] ?? 0) + 1 };
@@ -635,24 +1011,16 @@ export function Sidebar({ boardsEnabled = false }: { boardsEnabled?: boolean }) 
 
   // ---- Request handlers ----
   async function handleAccept(requesterId: string) {
-    // Always remove from UI immediately — if API returns 404 the request was
-    // already handled on the notifications page.
     setRequests((prev) => prev.filter((r) => r.requesterId !== requesterId));
     const res = await fetch(`/api/buddies/${requesterId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action: "accept" }),
     });
-    if (res.ok) {
-      const data = await res.json();
-      if (data.buddy) setBuddies((prev) =>
-        prev.some((b) => b.id === data.buddy.id) ? prev : [...prev, data.buddy]
-      );
-    }
+    if (res.ok) fetchBuddies();
   }
 
   async function handleDecline(requesterId: string) {
-    // Always remove from UI immediately.
     setRequests((prev) => prev.filter((r) => r.requesterId !== requesterId));
     await fetch(`/api/buddies/${requesterId}`, {
       method: "PATCH",
@@ -661,8 +1029,23 @@ export function Sidebar({ boardsEnabled = false }: { boardsEnabled?: boolean }) 
     });
   }
 
-  // ---- Buddy list handlers ----
-  async function createList() {
+  // ---- Group management ----
+  const toggleGroup = (id: string) => {
+    setCollapsedGroups((prev) => {
+      const next = { ...prev, [id]: !prev[id] };
+      localStorage.setItem("sc-aim-collapsed", JSON.stringify(next));
+      return next;
+    });
+  };
+
+  const toggleOffline = () => {
+    setOfflineCollapsed((v) => {
+      localStorage.setItem("sc-aim-offline-collapsed", !v ? "1" : "0");
+      return !v;
+    });
+  };
+
+  async function createGroup() {
     const name = newListInput.trim().slice(0, 32);
     if (!name) return;
     const res = await fetch("/api/buddy-lists", {
@@ -671,164 +1054,177 @@ export function Sidebar({ boardsEnabled = false }: { boardsEnabled?: boolean }) 
       body: JSON.stringify({ name }),
     });
     if (res.ok) {
-      const list = await res.json();
-      setBuddyLists((prev) => [...prev, list]);
-      setExpandedLists((prev) => ({ ...prev, [list.id]: true }));
       setNewListInput("");
       setShowNewListInput(false);
+      fetchBuddies();
     }
   }
 
-  async function renameList(listId: string) {
+  async function renameGroup(listId: string) {
     const name = renameValue.trim().slice(0, 32);
-    if (!name) { setRenamingListId(null); return; }
+    if (!name) { setRenamingGroupId(null); return; }
     const res = await fetch(`/api/buddy-lists/${listId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name }),
     });
     if (res.ok) {
-      setBuddyLists((prev) => prev.map((l) => l.id === listId ? { ...l, name } : l));
+      setBuddyData((prev) =>
+        prev
+          ? {
+              ...prev,
+              groups: prev.groups.map((g) =>
+                g.id === listId ? { ...g, name } : g
+              ),
+            }
+          : prev
+      );
     }
-    setRenamingListId(null);
+    setRenamingGroupId(null);
   }
 
-  async function deleteList(listId: string) {
-    if (!window.confirm("Delete this list?")) return;
+  async function deleteGroup(listId: string) {
+    if (!window.confirm("Delete this group?")) return;
     const res = await fetch(`/api/buddy-lists/${listId}`, { method: "DELETE" });
-    if (res.ok) setBuddyLists((prev) => prev.filter((l) => l.id !== listId));
+    if (res.ok) fetchBuddies();
   }
 
-  async function addToList(listId: string, buddyId: string) {
+  async function addToGroup(listId: string, buddyId: string) {
     const res = await fetch(`/api/buddy-lists/${listId}/members`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ buddyId }),
     });
     if (res.ok) {
-      setBuddyLists((prev) =>
-        prev.map((l) =>
-          l.id === listId && !l.buddyIds.includes(buddyId)
-            ? { ...l, buddyIds: [...l.buddyIds, buddyId] }
-            : l
-        )
-      );
+      setAddingToBuddyListId(null);
+      fetchBuddies();
     }
-    setAddingToBuddyListId(null);
   }
 
-  async function removeFromList(listId: string, buddyId: string) {
-    const res = await fetch(`/api/buddy-lists/${listId}/members/${buddyId}`, { method: "DELETE" });
-    if (res.ok) {
-      setBuddyLists((prev) =>
-        prev.map((l) =>
-          l.id === listId ? { ...l, buddyIds: l.buddyIds.filter((id) => id !== buddyId) } : l
-        )
-      );
-    }
-  }
+  const handleBuddyRemoved = (userId: string) => {
+    setBuddyData((prev) => {
+      if (!prev) return prev;
+      return {
+        groups: prev.groups.map((g) => ({
+          ...g,
+          buddies: g.buddies.filter((b) => b.userId !== userId),
+          memberIds: g.memberIds.filter((id) => id !== userId),
+        })),
+        ungrouped: prev.ungrouped.filter((b) => b.userId !== userId),
+        offlineBuddies: prev.offlineBuddies.filter((b) => b.userId !== userId),
+      };
+    });
+  };
 
   if (!session?.user?.id) return null;
 
-  const online = buddies.filter((b) => buddySection(b.status) === "online");
-  const away = buddies.filter((b) => buddySection(b.status) === "away");
-  const offline = buddies.filter((b) => buddySection(b.status) === "offline");
+  // All buddies flat (for the "add to group" picker)
+  const allBuddies = [
+    ...(buddyData?.groups.flatMap((g) => g.buddies) ?? []),
+    ...(buddyData?.ungrouped ?? []),
+    ...(buddyData?.offlineBuddies ?? []),
+  ];
+
+  const clearUnread = (userId: string) =>
+    setUnreadDMs((p) => {
+      const n = { ...p };
+      delete n[userId];
+      return n;
+    });
+
+  const totalOnline =
+    (buddyData?.groups.flatMap((g) => g.buddies).length ?? 0) +
+    (buddyData?.ungrouped.length ?? 0);
+  const totalBuddies =
+    totalOnline + (buddyData?.offlineBuddies.length ?? 0);
 
   return (
-    <aside
-      onClick={() => unlockSounds()}
-      className="fixed top-[52px] left-0 bottom-0 z-40 hidden md:flex flex-col border-r overflow-y-auto scrollbar-none"
-      style={{
-        width: 220,
-        background: "var(--surface)",
-        borderColor: "var(--border)",
-      }}
-    >
-      {/* ---- Profile mini-card ---- */}
-      <div
-        className="px-3 py-3 border-b"
-        style={{ borderColor: "var(--border)" }}
+    <>
+      {/* Mobile backdrop */}
+      {isOpen && (
+        <div
+          className="md:hidden fixed inset-x-0 bottom-0 z-30 bg-black/60"
+          style={{ top: 52 }}
+          onClick={close}
+          aria-hidden="true"
+        />
+      )}
+
+      <aside
+        onClick={() => unlockSounds()}
+        className={`fixed top-[52px] left-0 bottom-0 z-40 flex flex-col border-r overflow-y-auto scrollbar-none transition-transform duration-200 ease-in-out ${isOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"}`}
+        style={{
+          width: 220,
+          background: "var(--surface)",
+          borderColor: "var(--border)",
+        }}
       >
-        <div className="flex items-center gap-2.5 mb-3">
-          <Link href={`/u/${session.user.screenname}`}>
-            <Avatar
-              screenname={session.user.screenname}
-              size="md"
-              isGoldMember={session.user.isGoldMember}
-              status={userStatus}
-              bg="var(--surface)"
-            />
-          </Link>
-          <div className="flex-1 min-w-0">
-            <Link
-              href={`/u/${session.user.screenname}`}
-              className="text-sm font-semibold leading-tight block truncate transition-colors"
-              style={{ color: "var(--text)", fontFamily: "var(--font-dm-sans)" }}
-            >
-              {session.user.screenname}
-              {session.user.isGoldMember && (
-                <span className="ml-1 text-[10px]" style={{ color: "#d4a017" }}>★</span>
-              )}
+        {/* ---- Profile mini-card ---- */}
+        <div
+          className="px-3 py-3 border-b"
+          style={{ borderColor: "var(--border)" }}
+        >
+          <div className="flex items-center gap-2.5 mb-3">
+            <Link href={`/u/${session.user.screenname}`}>
+              <Avatar
+                screenname={session.user.screenname}
+                size="md"
+                isGoldMember={session.user.isGoldMember}
+                status={userStatus}
+                bg="var(--surface)"
+              />
             </Link>
-            <p className="text-[11px] font-mono" style={{ color: "var(--text-dim)" }}>
-              {userStatus.toLowerCase()}
-            </p>
+            <div className="flex-1 min-w-0">
+              <Link
+                href={`/u/${session.user.screenname}`}
+                className="text-sm font-semibold leading-tight block truncate transition-colors"
+                style={{ color: "var(--text)", fontFamily: "var(--font-dm-sans)" }}
+              >
+                {session.user.screenname}
+                {session.user.isGoldMember && (
+                  <span className="ml-1 text-[10px]" style={{ color: "#d4a017" }}>
+                    ★
+                  </span>
+                )}
+              </Link>
+              <p className="text-[11px] font-mono" style={{ color: "var(--text-dim)" }}>
+                {userStatus.toLowerCase()}
+              </p>
+            </div>
           </div>
+
+          <SidebarStatusSelector />
+          <SoundToggle />
         </div>
 
-        {/* Status selector */}
-        <SidebarStatusSelector />
-        <SoundToggle />
-      </div>
-
-      {/* ---- Buddy list ---- */}
-      <div>
-        {/* Header row with view toggle */}
-        <div className="flex items-center justify-between px-3 pt-4 pb-1.5">
-          <div className="flex items-center gap-1.5">
-            <span
-              className="text-[10px] font-mono uppercase tracking-[0.15em] select-none"
-              style={{ color: "var(--text-dim)" }}
-            >
-              buddies
-            </span>
-            {requests.length > 0 && (
-              <Link
-                href="/notifications"
-                className="min-w-[16px] h-4 rounded-full flex items-center justify-center text-[9px] font-mono font-bold px-1"
-                style={{ background: "#ef4444", color: "#fff" }}
-                title={`${requests.length} pending buddy request${requests.length !== 1 ? "s" : ""}`}
+        {/* ---- Buddy list ---- */}
+        <div>
+          {/* Header row */}
+          <div className="flex items-center justify-between px-3 pt-4 pb-1.5">
+            <div className="flex items-center gap-1.5">
+              <span
+                className="text-[10px] font-mono uppercase tracking-[0.15em] select-none"
+                style={{ color: "var(--text-dim)" }}
               >
-                {requests.length > 9 ? "9+" : requests.length}
-              </Link>
-            )}
-          </div>
-          <div className="flex items-center gap-1.5">
-            {/* View toggle pills */}
-            <div
-              className="flex items-center rounded-md overflow-hidden border"
-              style={{ borderColor: "var(--border)" }}
-            >
-              <button
-                onClick={() => setListView(false)}
-                className="px-1.5 py-0.5 text-[9px] font-mono transition-colors"
-                style={{
-                  background: !listView ? "var(--amber-tint)" : "transparent",
-                  color: !listView ? "var(--amber)" : "var(--text-dim)",
-                }}
-              >
-                status
-              </button>
-              <button
-                onClick={() => setListView(true)}
-                className="px-1.5 py-0.5 text-[9px] font-mono transition-colors"
-                style={{
-                  background: listView ? "var(--amber-tint)" : "transparent",
-                  color: listView ? "var(--amber)" : "var(--text-dim)",
-                }}
-              >
-                lists
-              </button>
+                buddies
+              </span>
+              {/* Summary count */}
+              {buddyData && (
+                <span className="text-[9px] font-mono" style={{ color: "var(--text-dim)" }}>
+                  <span style={{ color: "var(--amber)" }}>{totalOnline}</span>
+                  <span>/{totalBuddies}</span>
+                </span>
+              )}
+              {requests.length > 0 && (
+                <Link
+                  href="/notifications"
+                  className="min-w-[16px] h-4 rounded-full flex items-center justify-center text-[9px] font-mono font-bold px-1"
+                  style={{ background: "#ef4444", color: "#fff" }}
+                  title={`${requests.length} pending buddy request${requests.length !== 1 ? "s" : ""}`}
+                >
+                  {requests.length > 9 ? "9+" : requests.length}
+                </Link>
+              )}
             </div>
             <Link
               href="/find-buddies"
@@ -845,292 +1241,160 @@ export function Sidebar({ boardsEnabled = false }: { boardsEnabled?: boolean }) 
               +
             </Link>
           </div>
-        </div>
 
-        {/* Pending requests */}
-        {requests.map((r) => (
-          <BuddyRequest
-            key={r.requesterId}
-            request={r}
-            onAccept={handleAccept}
-            onDecline={handleDecline}
-          />
-        ))}
+          {/* Pending requests */}
+          {requests.map((r) => (
+            <BuddyRequest
+              key={r.requesterId}
+              request={r}
+              onAccept={handleAccept}
+              onDecline={handleDecline}
+            />
+          ))}
 
-        {/* ---- Status view ---- */}
-        {!listView && (
-          <>
-            {online.length > 0 && (
-              <>
-                <p
-                  className="px-3 pt-1 pb-0.5 text-[9px] font-mono uppercase tracking-[0.15em] select-none"
-                  style={{ color: "var(--text-dim)" }}
-                >
-                  online ({online.length})
-                </p>
-                {online.map((b) => <BuddyRow key={b.id} buddy={b} unreadCount={unreadDMs[b.id]} onClear={() => setUnreadDMs((p) => { const n = { ...p }; delete n[b.id]; return n; })} />)}
-              </>
-            )}
-            {away.length > 0 && (
-              <>
-                <p
-                  className="px-3 pt-2 pb-0.5 text-[9px] font-mono uppercase tracking-[0.15em] select-none"
-                  style={{ color: "var(--text-dim)" }}
-                >
-                  away ({away.length})
-                </p>
-                {away.map((b) => <BuddyRow key={b.id} buddy={b} unreadCount={unreadDMs[b.id]} onClear={() => setUnreadDMs((p) => { const n = { ...p }; delete n[b.id]; return n; })} />)}
-              </>
-            )}
-            {offline.length > 0 && (
-              <>
-                <button
-                  onClick={() => setOfflineExpanded((v) => !v)}
-                  className="w-full px-3 pt-2 pb-0.5 text-left text-[9px] font-mono uppercase tracking-[0.15em] select-none transition-colors"
-                  style={{ color: "var(--text-dim)" }}
-                  onMouseEnter={(e) =>
-                    ((e.currentTarget as HTMLButtonElement).style.color = "var(--text-muted)")
-                  }
-                  onMouseLeave={(e) =>
-                    ((e.currentTarget as HTMLButtonElement).style.color = "var(--text-dim)")
-                  }
-                >
-                  {offlineExpanded ? "▾" : "▸"} offline ({offline.length})
-                </button>
-                {offlineExpanded && offline.map((b) => <BuddyRow key={b.id} buddy={b} unreadCount={unreadDMs[b.id]} onClear={() => setUnreadDMs((p) => { const n = { ...p }; delete n[b.id]; return n; })} />)}
-              </>
-            )}
-            {buddies.length === 0 && requests.length === 0 && (
-              <p
-                className="px-3 py-2 text-[12px] italic"
-                style={{ color: "var(--text-dim)", fontFamily: "var(--font-dm-sans)" }}
-              >
-                no buddies yet.
-              </p>
-            )}
-          </>
-        )}
-
-        {/* ---- List view ---- */}
-        {listView && (
-          <div className="pb-1">
-            {buddyLists.map((list) => {
-              const listBuddies = buddies.filter((b) => list.buddyIds.includes(b.id));
-              const expanded = expandedLists[list.id] ?? true;
-              const notInList = buddies.filter((b) => !list.buddyIds.includes(b.id));
-              return (
-                <div key={list.id} className="mt-1">
-                  {/* List header */}
+          {/* ---- AIM Groups ---- */}
+          {buddyData?.groups.map((group) => {
+            const collapsed = collapsedGroups[group.id] ?? false;
+            const notInGroup = allBuddies.filter(
+              (b) => !group.memberIds.includes(b.userId)
+            );
+            return (
+              <div key={group.id}>
+                {/* Rename input OR group header */}
+                {renamingGroupId === group.id ? (
                   <div
-                    className="flex items-center gap-1 px-3 py-1 group"
-                    style={{ minHeight: 24 }}
+                    className="flex items-center gap-1 px-3 py-1"
+                    style={{ height: 28 }}
                   >
-                    {/* Collapse toggle */}
-                    <button
-                      onClick={() =>
-                        setExpandedLists((prev) => ({ ...prev, [list.id]: !prev[list.id] }))
-                      }
-                      className="text-[9px] font-mono flex-shrink-0 transition-colors"
-                      style={{ color: "var(--text-dim)", width: 10 }}
-                    >
-                      {expanded ? "▾" : "▸"}
-                    </button>
-
-                    {/* List name / rename input */}
-                    {renamingListId === list.id ? (
-                      <input
-                        autoFocus
-                        value={renameValue}
-                        onChange={(e) => setRenameValue(e.target.value.slice(0, 32))}
-                        onBlur={() => renameList(list.id)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") renameList(list.id);
-                          if (e.key === "Escape") setRenamingListId(null);
-                        }}
-                        className="flex-1 min-w-0 bg-transparent outline-none text-[11px] font-mono border-b"
-                        style={{ color: "var(--text)", borderColor: "var(--amber)" }}
-                      />
-                    ) : (
-                      <span
-                        className="flex-1 min-w-0 truncate text-[10px] font-mono uppercase tracking-[0.1em] select-none"
-                        style={{ color: "var(--text-dim)" }}
-                      >
-                        {list.name}
-                        <span className="opacity-60 ml-1">({listBuddies.length})</span>
-                      </span>
-                    )}
-
-                    {/* Actions (show on group hover) */}
-                    {renamingListId !== list.id && (
-                      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
-                        {/* Add buddy to list */}
-                        <button
-                          onClick={() =>
-                            setAddingToBuddyListId(
-                              addingToBuddyListId === list.id ? null : list.id
-                            )
-                          }
-                          className="text-[10px] font-mono transition-colors"
-                          style={{ color: "var(--text-dim)" }}
-                          title="add buddy to list"
-                          onMouseEnter={(e) =>
-                            ((e.currentTarget as HTMLButtonElement).style.color = "var(--amber)")
-                          }
-                          onMouseLeave={(e) =>
-                            ((e.currentTarget as HTMLButtonElement).style.color = "var(--text-dim)")
-                          }
-                        >
-                          +
-                        </button>
-                        {/* Rename */}
-                        <button
-                          onClick={() => {
-                            setRenamingListId(list.id);
-                            setRenameValue(list.name);
-                          }}
-                          className="text-[10px] font-mono transition-colors"
-                          style={{ color: "var(--text-dim)" }}
-                          title="rename list"
-                          onMouseEnter={(e) =>
-                            ((e.currentTarget as HTMLButtonElement).style.color = "var(--text-muted)")
-                          }
-                          onMouseLeave={(e) =>
-                            ((e.currentTarget as HTMLButtonElement).style.color = "var(--text-dim)")
-                          }
-                        >
-                          ✎
-                        </button>
-                        {/* Delete */}
-                        <button
-                          onClick={() => deleteList(list.id)}
-                          className="text-[10px] font-mono transition-colors"
-                          style={{ color: "var(--text-dim)" }}
-                          title="delete list"
-                          onMouseEnter={(e) =>
-                            ((e.currentTarget as HTMLButtonElement).style.color = "#ef4444")
-                          }
-                          onMouseLeave={(e) =>
-                            ((e.currentTarget as HTMLButtonElement).style.color = "var(--text-dim)")
-                          }
-                        >
-                          ×
-                        </button>
-                      </div>
-                    )}
+                    <input
+                      autoFocus
+                      value={renameValue}
+                      onChange={(e) => setRenameValue(e.target.value.slice(0, 32))}
+                      onBlur={() => renameGroup(group.id)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") renameGroup(group.id);
+                        if (e.key === "Escape") setRenamingGroupId(null);
+                      }}
+                      className="flex-1 min-w-0 bg-transparent outline-none text-[11px] font-mono border-b"
+                      style={{ color: "var(--text)", borderColor: "var(--amber)" }}
+                    />
                   </div>
+                ) : (
+                  <AimGroupHeader
+                    name={group.name}
+                    onlineCount={group.buddies.length}
+                    totalCount={group.totalCount}
+                    collapsed={collapsed}
+                    onToggle={() => toggleGroup(group.id)}
+                    onRename={() => {
+                      setRenamingGroupId(group.id);
+                      setRenameValue(group.name);
+                    }}
+                    onDelete={() => deleteGroup(group.id)}
+                    onAddBuddy={() =>
+                      setAddingToBuddyListId(
+                        addingToBuddyListId === group.id ? null : group.id
+                      )
+                    }
+                  />
+                )}
 
-                  {/* Buddy picker for adding to list */}
-                  {addingToBuddyListId === list.id && notInList.length > 0 && (
-                    <div
-                      className="mx-3 mb-1 rounded-lg border overflow-hidden"
-                      style={{ borderColor: "var(--border)", background: "var(--surface)" }}
-                    >
-                      {notInList.map((b) => (
+                {/* Buddy picker */}
+                {addingToBuddyListId === group.id && (
+                  <div
+                    className="mx-3 mb-1 rounded-lg border overflow-hidden"
+                    style={{ borderColor: "var(--border)", background: "var(--surface)" }}
+                  >
+                    {notInGroup.length > 0 ? (
+                      notInGroup.map((b) => (
                         <button
-                          key={b.id}
-                          onClick={() => addToList(list.id, b.id)}
+                          key={b.userId}
+                          onClick={() => addToGroup(group.id, b.userId)}
                           className="w-full flex items-center gap-2 px-2 py-1 text-left transition-colors"
                           style={{ color: "var(--text-muted)" }}
                           onMouseEnter={(e) =>
-                            ((e.currentTarget as HTMLButtonElement).style.background = "var(--card)")
+                            ((e.currentTarget as HTMLButtonElement).style.background =
+                              "var(--card)")
                           }
                           onMouseLeave={(e) =>
-                            ((e.currentTarget as HTMLButtonElement).style.background = "transparent")
+                            ((e.currentTarget as HTMLButtonElement).style.background =
+                              "transparent")
                           }
                         >
-                          <StatusDot status={b.status} size="sm" bg="var(--surface)" />
-                          <span className="truncate text-[12px]" style={{ fontFamily: "var(--font-dm-sans)" }}>
+                          <StatusDot
+                            status={
+                              b.isOnline ? (b.isAway ? "AWAY" : "ONLINE") : "OFFLINE"
+                            }
+                            size="sm"
+                            bg="var(--surface)"
+                          />
+                          <span
+                            className="truncate text-[12px]"
+                            style={{ fontFamily: "var(--font-dm-sans)" }}
+                          >
                             {b.screenname}
                           </span>
                         </button>
-                      ))}
-                    </div>
-                  )}
-                  {addingToBuddyListId === list.id && notInList.length === 0 && (
-                    <p
-                      className="px-4 pb-1 text-[11px] italic"
-                      style={{ color: "var(--text-dim)" }}
-                    >
-                      all buddies added
-                    </p>
-                  )}
+                      ))
+                    ) : (
+                      <p
+                        className="px-2 py-1 text-[11px] italic"
+                        style={{ color: "var(--text-dim)" }}
+                      >
+                        all buddies added
+                      </p>
+                    )}
+                  </div>
+                )}
 
-                  {/* Buddy rows */}
-                  {expanded && (
-                    <>
-                      {listBuddies.length === 0 ? (
-                        <p
-                          className="px-4 pb-1 text-[11px] italic"
-                          style={{ color: "var(--text-dim)" }}
-                        >
-                          empty — hover to add buddies
-                        </p>
-                      ) : (
-                        listBuddies.map((b) => (
-                          <BuddyRowWithRemove
-                            key={b.id}
-                            buddy={b}
-                            onRemove={() => removeFromList(list.id, b.id)}
-                            unreadCount={unreadDMs[b.id]}
-                            onClear={() => setUnreadDMs((p) => { const n = { ...p }; delete n[b.id]; return n; })}
-                          />
-                        ))
-                      )}
-                    </>
-                  )}
-                </div>
-              );
-            })}
+                {/* Buddy rows */}
+                {!collapsed &&
+                  group.buddies.map((b) => (
+                    <AimBuddyRow
+                      key={b.userId}
+                      buddy={b}
+                      unreadCount={unreadDMs[b.userId]}
+                      onClearUnread={() => clearUnread(b.userId)}
+                      onCtxMenu={(e) =>
+                        setCtxMenu({ buddy: b, x: e.clientX, y: e.clientY, listId: group.id, listName: group.name })
+                      }
+                    />
+                  ))}
+              </div>
+            );
+          })}
 
-            {/* New list controls */}
-            <div className="px-3 mt-2">
-              {showNewListInput ? (
-                <div className="flex items-center gap-1">
-                  <input
-                    autoFocus
-                    value={newListInput}
-                    onChange={(e) => setNewListInput(e.target.value.slice(0, 32))}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") createList();
-                      if (e.key === "Escape") { setShowNewListInput(false); setNewListInput(""); }
-                    }}
-                    placeholder="list name…"
-                    className="flex-1 min-w-0 bg-transparent outline-none text-[11px] font-mono border-b"
-                    style={{ color: "var(--text)", borderColor: "var(--border)" }}
+          {/* ---- Ungrouped online buddies ---- */}
+          {buddyData && buddyData.ungrouped.length > 0 && (
+            <div>
+              <AimGroupHeader
+                name="Buddies"
+                onlineCount={buddyData.ungrouped.length}
+                totalCount={buddyData.ungrouped.length}
+                collapsed={collapsedGroups["__ungrouped__"] ?? false}
+                onToggle={() => toggleGroup("__ungrouped__")}
+              />
+              {!(collapsedGroups["__ungrouped__"] ?? false) &&
+                buddyData.ungrouped.map((b) => (
+                  <AimBuddyRow
+                    key={b.userId}
+                    buddy={b}
+                    unreadCount={unreadDMs[b.userId]}
+                    onClearUnread={() => clearUnread(b.userId)}
+                    onCtxMenu={(e) =>
+                      setCtxMenu({ buddy: b, x: e.clientX, y: e.clientY })
+                    }
                   />
-                  <button
-                    onClick={createList}
-                    className="text-[10px] font-mono flex-shrink-0 transition-colors"
-                    style={{ color: "var(--amber)" }}
-                  >
-                    ✓
-                  </button>
-                  <button
-                    onClick={() => { setShowNewListInput(false); setNewListInput(""); }}
-                    className="text-[10px] font-mono flex-shrink-0 transition-colors"
-                    style={{ color: "var(--text-dim)" }}
-                  >
-                    ✕
-                  </button>
-                </div>
-              ) : (
-                <button
-                  onClick={() => setShowNewListInput(true)}
-                  className="text-[10px] font-mono transition-colors"
-                  style={{ color: "var(--text-dim)" }}
-                  onMouseEnter={(e) =>
-                    ((e.currentTarget as HTMLButtonElement).style.color = "var(--amber)")
-                  }
-                  onMouseLeave={(e) =>
-                    ((e.currentTarget as HTMLButtonElement).style.color = "var(--text-dim)")
-                  }
-                >
-                  + new list
-                </button>
-              )}
+                ))}
             </div>
+          )}
 
-            {buddies.length === 0 && (
+          {/* Empty state */}
+          {buddyData &&
+            buddyData.groups.length === 0 &&
+            buddyData.ungrouped.length === 0 &&
+            buddyData.offlineBuddies.length === 0 &&
+            requests.length === 0 && (
               <p
                 className="px-3 py-2 text-[12px] italic"
                 style={{ color: "var(--text-dim)", fontFamily: "var(--font-dm-sans)" }}
@@ -1138,38 +1402,173 @@ export function Sidebar({ boardsEnabled = false }: { boardsEnabled?: boolean }) 
                 no buddies yet.
               </p>
             )}
+
+          {/* New group input */}
+          <div className="px-3 mt-1 mb-1">
+            {showNewListInput ? (
+              <div className="flex items-center gap-1">
+                <input
+                  autoFocus
+                  value={newListInput}
+                  onChange={(e) => setNewListInput(e.target.value.slice(0, 32))}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") createGroup();
+                    if (e.key === "Escape") {
+                      setShowNewListInput(false);
+                      setNewListInput("");
+                    }
+                  }}
+                  placeholder="group name…"
+                  className="flex-1 min-w-0 bg-transparent outline-none text-[11px] font-mono border-b"
+                  style={{ color: "var(--text)", borderColor: "var(--border)" }}
+                />
+                <button
+                  onClick={createGroup}
+                  className="text-[10px] font-mono flex-shrink-0"
+                  style={{ color: "var(--amber)" }}
+                >
+                  ✓
+                </button>
+                <button
+                  onClick={() => {
+                    setShowNewListInput(false);
+                    setNewListInput("");
+                  }}
+                  className="text-[10px] font-mono flex-shrink-0"
+                  style={{ color: "var(--text-dim)" }}
+                >
+                  ✕
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => setShowNewListInput(true)}
+                className="text-[9px] font-mono transition-colors"
+                style={{ color: "var(--text-dim)" }}
+                onMouseEnter={(e) =>
+                  ((e.currentTarget as HTMLButtonElement).style.color = "var(--text-muted)")
+                }
+                onMouseLeave={(e) =>
+                  ((e.currentTarget as HTMLButtonElement).style.color = "var(--text-dim)")
+                }
+              >
+                + new group
+              </button>
+            )}
+          </div>
+
+          {/* ---- Offline section ---- */}
+          {buddyData && buddyData.offlineBuddies.length > 0 && (
+            <div style={{ opacity: 0.45 }}>
+              <div
+                style={{
+                  height: 1,
+                  background: "var(--border)",
+                  margin: "4px 0",
+                }}
+              />
+              <AimGroupHeader
+                name="Offline"
+                onlineCount={0}
+                totalCount={buddyData.offlineBuddies.length}
+                collapsed={offlineCollapsed}
+                onToggle={toggleOffline}
+                isOffline
+              />
+              {!offlineCollapsed &&
+                buddyData.offlineBuddies.map((b) => (
+                  <AimBuddyRow
+                    key={b.userId}
+                    buddy={b}
+                    unreadCount={unreadDMs[b.userId]}
+                    onClearUnread={() => clearUnread(b.userId)}
+                    onCtxMenu={(e) =>
+                      setCtxMenu({ buddy: b, x: e.clientX, y: e.clientY })
+                    }
+                    isOffline
+                  />
+                ))}
+            </div>
+          )}
+        </div>
+
+        {/* ---- Discover ---- */}
+        <div className="px-3 py-2 border-t" style={{ borderColor: "var(--border)" }}>
+          <Link
+            href="/discover"
+            className="flex items-center gap-2 text-[11px] font-mono transition-colors rounded-lg px-2 py-1.5"
+            style={{ color: "var(--text-dim)" }}
+            onMouseEnter={(e) =>
+              ((e.currentTarget as HTMLAnchorElement).style.color = "var(--amber)")
+            }
+            onMouseLeave={(e) =>
+              ((e.currentTarget as HTMLAnchorElement).style.color = "var(--text-dim)")
+            }
+          >
+            <span>✦</span>
+            <span>discover</span>
+          </Link>
+        </div>
+
+        {/* ---- Channels ---- */}
+        {channels.length > 0 && (
+          <div>
+            <SectionHeader
+              label="channels"
+              action="create channel"
+              actionHref="/channels"
+            />
+            {channels.map((ch) => (
+              <ChannelRow key={ch.id} channel={ch} />
+            ))}
           </div>
         )}
-      </div>
 
-      {/* ---- Channels ---- */}
-      {channels.length > 0 && (
-        <div>
-          <SectionHeader
-            label="channels"
-            action="create channel"
-            actionHref="/channels"
-          />
-          {channels.map((ch) => (
-            <ChannelRow key={ch.id} channel={ch} />
-          ))}
-        </div>
-      )}
+        {/* ---- Boards ---- */}
+        {boardsEnabled && boards.length > 0 && (
+          <div className="pb-4">
+            <SectionHeader
+              label="boards"
+              accent="teal"
+              action="create board"
+              actionHref="/boards"
+            />
+            {boards.map((b) => (
+              <BoardRow key={b.id} board={b} />
+            ))}
+          </div>
+        )}
+      </aside>
 
-      {/* ---- Boards ---- */}
-      {boardsEnabled && boards.length > 0 && (
-        <div className="pb-4">
-          <SectionHeader
-            label="boards"
-            accent="teal"
-            action="create board"
-            actionHref="/boards"
-          />
-          {boards.map((b) => (
-            <BoardRow key={b.id} board={b} />
-          ))}
-        </div>
+      {/* Context menu */}
+      {ctxMenu && (
+        <BuddyContextMenu
+          buddy={ctxMenu.buddy}
+          x={ctxMenu.x}
+          y={ctxMenu.y}
+          listId={ctxMenu.listId}
+          listName={ctxMenu.listName}
+          onClose={() => setCtxMenu(null)}
+          onRemoved={(userId) => {
+            setCtxMenu(null);
+            handleBuddyRemoved(userId);
+          }}
+          onRemovedFromList={(userId, listId) => {
+            setCtxMenu(null);
+            setBuddyData((prev) => {
+              if (!prev) return prev;
+              return {
+                ...prev,
+                groups: prev.groups.map((g) =>
+                  g.id === listId
+                    ? { ...g, buddies: g.buddies.filter((b) => b.userId !== userId), memberIds: g.memberIds.filter((id) => id !== userId) }
+                    : g
+                ),
+              };
+            });
+          }}
+        />
       )}
-    </aside>
+    </>
   );
 }

@@ -96,7 +96,7 @@ function AuthorLine({
           ✦
         </span>
       )}
-      <span className="text-[10px] font-mono" style={{ color: "#2a2a1a" }}>
+      <span className="text-[10px] font-mono" style={{ color: "var(--text-dim)" }}>
         {formatTimestamp(createdAt)}
       </span>
     </div>
@@ -145,12 +145,12 @@ function CommentRow({
       {isReply && (
         <div
           className="w-px h-4 mb-1 ml-3"
-          style={{ background: "#1e1e14" }}
+          style={{ background: "var(--surface)" }}
         />
       )}
       <div
         className={`flex gap-2 ${isReply ? "pl-3 border-l" : ""}`}
-        style={isReply ? { borderColor: "#1e1e14" } : {}}
+        style={isReply ? { borderColor: "var(--border)" } : {}}
       >
         <Avatar userId={comment.author.id} screenname={comment.author.screenname} />
         <div className="flex-1 min-w-0">
@@ -169,7 +169,7 @@ function CommentRow({
             <button
               onClick={() => onNudge(comment.id)}
               className="text-[11px] font-mono transition-colors"
-              style={{ color: comment.nudgedByMe ? "#2dd4bf" : "#3a3a2a" }}
+              style={{ color: comment.nudgedByMe ? "var(--teal)" : "var(--text-dim)" }}
             >
               👋 {comment.nudgeCount}
             </button>
@@ -177,7 +177,7 @@ function CommentRow({
               <button
                 onClick={() => setReplying((v) => !v)}
                 className="text-[11px] font-mono"
-                style={{ color: "#3a3a2a" }}
+                style={{ color: "var(--text-dim)" }}
               >
                 reply
               </button>
@@ -409,7 +409,7 @@ export function BoardPostDetail({
             ✦ founding
           </span>
         )}
-        <span className="ml-auto text-[11px] font-mono" style={{ color: "#2a2a1a" }}>
+        <span className="ml-auto text-[11px] font-mono" style={{ color: "var(--text-dim)" }}>
           {formatTimestamp(post.createdAt)}
         </span>
       </div>
@@ -454,7 +454,7 @@ export function BoardPostDetail({
         <div className="mb-4">
           <span
             className="text-[10px] font-mono px-2 py-0.5 rounded-full border"
-            style={{ color: "#4b5563", borderColor: "#1e1e14" }}
+            style={{ color: "var(--text-muted)", borderColor: "var(--border)" }}
           >
             {post.tag}
           </span>
@@ -466,12 +466,12 @@ export function BoardPostDetail({
         <button
           onClick={nudgePost}
           className="flex items-center gap-1.5 text-sm font-mono transition-colors"
-          style={{ color: post.nudgedByMe ? "#2dd4bf" : "#3a3a2a" }}
+          style={{ color: post.nudgedByMe ? "var(--teal)" : "var(--text-dim)" }}
         >
           <span>👋</span>
           <span>{post.nudgeCount} nudge{post.nudgeCount !== 1 ? "s" : ""}</span>
         </button>
-        <span className="text-[11px] font-mono" style={{ color: "#2a2a1a" }}>
+        <span className="text-[11px] font-mono" style={{ color: "var(--text-dim)" }}>
           💬 {post.commentCount} comment{post.commentCount !== 1 ? "s" : ""}
         </span>
       </div>
@@ -480,13 +480,13 @@ export function BoardPostDetail({
       <section id="comments">
         <h2
           className="text-xs font-mono uppercase tracking-widest mb-4"
-          style={{ color: "#3a3a2a" }}
+          style={{ color: "var(--text-dim)" }}
         >
           comments
         </h2>
 
         {loadingComments && (
-          <p className="text-xs font-mono animate-pulse mb-4" style={{ color: "#2a2a1a" }}>
+          <p className="text-xs font-mono animate-pulse mb-4" style={{ color: "var(--text-dim)" }}>
             loading…
           </p>
         )}
@@ -506,7 +506,7 @@ export function BoardPostDetail({
         </div>
 
         {comments.length === 0 && !loadingComments && (
-          <p className="text-sm italic mb-4" style={{ color: "#2a2a1a", fontFamily: "var(--font-dm-sans)" }}>
+          <p className="text-sm italic mb-4" style={{ color: "var(--text-dim)", fontFamily: "var(--font-dm-sans)" }}>
             no comments yet.
           </p>
         )}

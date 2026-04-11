@@ -150,6 +150,9 @@ declare global {
       /** Call when away message is updated from within the web UI. */
       reportAwayMessage(message: string): void;
 
+      /** Fire when a new DM arrives so main can show a native notification. */
+      reportDM(payload: { fromUserId: string; screenname: string; preview: string }): void;
+
       // ── Notification preferences ────────────────────────────────────────
       /** Read the current notification preferences from electron-store. */
       getNotifPrefs(): Promise<ElectronNotifPrefs>;

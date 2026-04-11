@@ -24,6 +24,8 @@ interface RichTextEditorProps {
   disabled?: boolean;
   onGifClick?: () => void;
   onPhotoClick?: () => void;
+  /** When set, applies this color to the editor text (DM color preview) */
+  textColor?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -78,6 +80,7 @@ export function RichTextEditor({
   disabled = false,
   onGifClick,
   onPhotoClick,
+  textColor,
 }: RichTextEditorProps) {
   const [showLinkPopover, setShowLinkPopover] = useState(false);
   const editor = useEditor({
@@ -119,8 +122,8 @@ export function RichTextEditor({
           onSubmit?.();
           return true;
         }
-        // In inline variant: Enter (no shift) → submit
-        if (variant === "inline" && event.key === "Enter" && !event.shiftKey) {
+        // compact + inline: Enter (no shift) → submit; Shift+Enter inserts line break
+        if ((variant === "compact" || variant === "inline") && event.key === "Enter" && !event.shiftKey) {
           onSubmit?.();
           return true;
         }
@@ -143,7 +146,10 @@ export function RichTextEditor({
     ? editor.state.doc.textContent.length
     : 0;
   const remaining = maxChars != null ? maxChars - textLen : null;
-  const overLimit = remaining != null && remaining < 0;
+  // Show counter only when >= 400 chars typed (remaining <= 112)
+  const showCounter = remaining != null && remaining <= 112;
+  // Display clamped to 0 — never show negative
+  const displayRemaining = remaining != null ? Math.max(0, remaining) : null;
 
   if (!editor) return null;
 
@@ -155,7 +161,7 @@ export function RichTextEditor({
       {/* Toolbar — hidden for inline */}
       {!isInline && (
         <div
-          className="flex items-center gap-0.5 px-1 py-1 border-b flex-wrap"
+          className="hidden md:flex items-center gap-0.5 px-1 py-1 border-b flex-wrap"
           style={{ borderColor: "var(--border)" }}
         >
           <ToolBtn
@@ -270,26 +276,25 @@ export function RichTextEditor({
           maxHeight: isInline ? 120 : 400,
           overflowY: "auto",
           padding: isInline ? "4px 0" : "8px 12px",
-          fontSize: 14,
           fontFamily: "var(--font-dm-sans)",
-          color: "var(--text)",
+          color: textColor ?? "var(--text)",
           cursor: disabled ? "not-allowed" : "text",
         }}
       />
 
-      {/* Char counter */}
-      {remaining != null && (
+      {/* Char counter — only shown when >= 400 chars typed (Change 13) */}
+      {showCounter && displayRemaining != null && (
         <div
           className="px-3 py-1 text-[10px] font-mono tabular-nums self-end"
           style={{
-            color: overLimit
+            color: displayRemaining < 10
               ? "#ef4444"
-              : remaining <= 20
-              ? "var(--away)"
+              : displayRemaining < 50
+              ? "#c8860a"
               : "var(--text-dim)",
           }}
         >
-          {remaining}
+          {displayRemaining}
         </div>
       )}
     </div>

@@ -4,7 +4,11 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
   return (
     <div
       className="fixed inset-0 z-50 overflow-y-auto"
-      style={{ background: "var(--bg, #0d0d0b)" }}
+      style={{
+        background: "var(--bg, #0d0d0b)",
+        paddingTop: "env(safe-area-inset-top, 0px)",
+        paddingBottom: "env(safe-area-inset-bottom, 0px)",
+      }}
     >
       {children}
     </div>

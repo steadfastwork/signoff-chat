@@ -12,6 +12,7 @@ const PAGE_TITLES: Record<string, string> = {
   "/admin/channels": "Channels",
   "/admin/boards": "Boards",
   "/admin/invites": "Invite links",
+  "/admin/badges": "Badges",
   "/admin/flags": "Feature flags",
   "/admin/crons": "Cron jobs",
   "/admin/admins": "Admin access",
@@ -131,6 +132,7 @@ export default function AdminShell({
             <NavLink href="/admin/channels" label="Channels" active={pathname.startsWith("/admin/channels")} />
             <NavLink href="/admin/boards" label="Boards" active={pathname.startsWith("/admin/boards")} />
             <NavLink href="/admin/invites" label="Invites" active={pathname.startsWith("/admin/invites")} />
+            <NavLink href="/admin/badges" label="⚡ Badges" active={pathname.startsWith("/admin/badges")} />
           </NavSection>
 
           <NavSection label="System">

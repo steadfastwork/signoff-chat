@@ -7,6 +7,9 @@ import { StatusDot } from "@/components/StatusDot";
 import type { StatusValue } from "@/components/StatusDot";
 import { formatTimestamp } from "@/lib/utils";
 import TipButton from "@/components/TipButton";
+import { CurrentlyDisplay } from "@/components/currently/CurrentlyDisplay";
+import { type CurrentlyData, hasCurrently } from "@/lib/currently";
+import { BadgeList } from "@/components/badges/BadgeList";
 
 // ---------------------------------------------------------------------------
 // Avatar colors — consistent with rest of app
@@ -30,6 +33,7 @@ export interface ProfileData {
   screenname: string;
   bio: string | null;
   awayMessage: string | null;
+  currently?: CurrentlyData | null;
   status: string;
   isGoldMember: boolean;
   avatarColor: string;
@@ -40,6 +44,7 @@ export interface ProfileData {
   joinedAt: string;
   relationship: "self" | "buddy" | "pending" | "none" | "blocked";
   pendingDirection: "sent" | "received" | null;
+  badges?: { id: string; badge: string; awardedAt: string }[];
 }
 
 interface ProfileCardProps {
@@ -48,6 +53,8 @@ interface ProfileCardProps {
     relationship: ProfileData["relationship"],
     pendingDirection: "sent" | "received" | null
   ) => void;
+  currentlyEditorOpen?: boolean;
+  onOpenCurrentlyEditor?: () => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -140,7 +147,7 @@ function DotMenu({
 // ProfileCard
 // ---------------------------------------------------------------------------
 
-export function ProfileCard({ profile, onRelationshipChange }: ProfileCardProps) {
+export function ProfileCard({ profile, onRelationshipChange, currentlyEditorOpen, onOpenCurrentlyEditor }: ProfileCardProps) {
   const [loading, setLoading] = useState(false);
   const colors = AVATAR_COLORS[profile.avatarColor] ?? AVATAR_COLORS.amber;
 
@@ -284,6 +291,13 @@ export function ProfileCard({ profile, onRelationshipChange }: ProfileCardProps)
             </span>
           </div>
 
+          {/* Badges */}
+          {profile.badges && profile.badges.length > 0 && (
+            <div style={{ marginTop: 6 }}>
+              <BadgeList badges={profile.badges as any} size="md" />
+            </div>
+          )}
+
           {/* Away message */}
           {profile.awayMessage && (
             <p
@@ -296,6 +310,18 @@ export function ProfileCard({ profile, onRelationshipChange }: ProfileCardProps)
             >
               {profile.awayMessage}
             </p>
+          )}
+
+          {/* Currently */}
+          {(hasCurrently(profile.currently) || profile.relationship === "self") && (
+            <div className="mt-3">
+              <CurrentlyDisplay
+                currently={profile.currently ?? {}}
+                size="full"
+                editable={profile.relationship === "self" && !currentlyEditorOpen}
+                onEdit={onOpenCurrentlyEditor}
+              />
+            </div>
           )}
 
           {/* Bio */}

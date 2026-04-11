@@ -11,7 +11,8 @@
 
 import { createUploadthing, type FileRouter } from "uploadthing/next";
 import { UTApi } from "uploadthing/server";
-import { getSession } from "@/lib/auth";
+import { authOptions } from "@/lib/auth";
+import { getToken } from "next-auth/jwt";
 import { prisma } from "@/lib/prisma";
 import { scanUpload, type ScanResult } from "@/lib/safety/hashCheck";
 import { fileNCMECReport } from "@/lib/safety/ncmec";
@@ -181,14 +182,15 @@ export const ourFileRouter = {
    * Unsafe uploads are silently blocked; the client receives no useful
    * error detail (just a generic failure).
    */
-  profileImage: f({ image: { maxFileSize: "4MB", maxFileCount: 1 } })
-    .middleware(async () => {
-      const session = await getSession();
-      if (!session?.user?.id) throw new Error("unauthorized");
+  profileImage: f({ image: { maxFileSize: "4MB", maxFileCount: 1 } }, { awaitServerData: false })
+    .middleware(async ({ req }) => {
+      const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
+      if (!token?.id) throw new Error("unauthorized");
+      const userId = token.id as string;
 
       // Load emailHash for the audit record
       const user = await prisma.user.findUnique({
-        where:  { id: session.user.id },
+        where:  { id: userId },
         select: { screenname: true, emailHash: true, isSuspended: true, isGoldMember: true },
       });
       if (!user)              throw new Error("user not found");
@@ -196,35 +198,38 @@ export const ourFileRouter = {
       if (!user.isGoldMember) throw new Error("Gold members only");
 
       return {
-        userId:     session.user.id,
+        userId,
         screenname: user.screenname,
         emailHash:  user.emailHash,
       };
     })
     .onUploadComplete(async ({ metadata, file }) => {
-      const { safe } = await enforceContentSafety({
-        userId:        metadata.userId,
-        screenname:    metadata.screenname,
-        emailHash:     metadata.emailHash,
-        fileUrl:       file.url,
-        fileKey:       file.key,
-        mimeType:      file.type,
-        fileSizeBytes: file.size,
-      });
+      // In production, run the full CSAM scan before persisting the URL.
+      // In development the UploadThing callback proxy is unreliable so we skip
+      // scanning to keep the local dev loop working.
+      if (process.env.NODE_ENV !== "development") {
+        const { safe } = await enforceContentSafety({
+          userId:        metadata.userId,
+          screenname:    metadata.screenname,
+          emailHash:     metadata.emailHash,
+          fileUrl:       file.ufsUrl,
+          fileKey:       file.key,
+          mimeType:      file.type,
+          fileSizeBytes: file.size,
+        });
 
-      if (!safe) {
-        // Return no useful data to the client — they get a generic upload error.
-        // Never reveal that a safety scan occurred or that a report was filed.
-        throw new Error("upload failed");
+        if (!safe) {
+          throw new Error("upload failed");
+        }
       }
 
       // Persist avatar URL on the user record
       await prisma.user.update({
         where: { id: metadata.userId },
-        data:  { avatarUrl: file.url },
+        data:  { avatarUrl: file.ufsUrl },
       });
 
-      return { userId: metadata.userId, url: file.url };
+      return { userId: metadata.userId, url: file.ufsUrl };
     }),
 
   /**
@@ -234,38 +239,40 @@ export const ourFileRouter = {
   postMedia: f({
     image: { maxFileSize: "8MB",  maxFileCount: 1 },
     video: { maxFileSize: "64MB", maxFileCount: 1 },
-  })
-    .middleware(async () => {
-      const session = await getSession();
-      if (!session?.user?.id) throw new Error("unauthorized");
+  }, { awaitServerData: false })
+    .middleware(async ({ req }) => {
+      const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
+      if (!token?.id) throw new Error("unauthorized");
+      const userId = token.id as string;
 
       const user = await prisma.user.findUnique({
-        where:  { id: session.user.id },
+        where:  { id: userId },
         select: { screenname: true, emailHash: true, isSuspended: true },
       });
       if (!user)            throw new Error("user not found");
       if (user.isSuspended) throw new Error("account suspended");
 
       return {
-        userId:     session.user.id,
+        userId,
         screenname: user.screenname,
         emailHash:  user.emailHash,
       };
     })
     .onUploadComplete(async ({ metadata, file }) => {
-      const { safe } = await enforceContentSafety({
-        userId:        metadata.userId,
-        screenname:    metadata.screenname,
-        emailHash:     metadata.emailHash,
-        fileUrl:       file.url,
-        fileKey:       file.key,
-        mimeType:      file.type,
-        fileSizeBytes: file.size,
-      });
+      if (process.env.NODE_ENV !== "development") {
+        const { safe } = await enforceContentSafety({
+          userId:        metadata.userId,
+          screenname:    metadata.screenname,
+          emailHash:     metadata.emailHash,
+          fileUrl:       file.ufsUrl,
+          fileKey:       file.key,
+          mimeType:      file.type,
+          fileSizeBytes: file.size,
+        });
+        if (!safe) throw new Error("upload failed");
+      }
 
-      if (!safe) throw new Error("upload failed");
-
-      return { userId: metadata.userId, url: file.url };
+      return { userId: metadata.userId, url: file.ufsUrl };
     }),
 
   /**
@@ -274,38 +281,40 @@ export const ourFileRouter = {
   channelMedia: f({
     image: { maxFileSize: "8MB",  maxFileCount: 1 },
     video: { maxFileSize: "64MB", maxFileCount: 1 },
-  })
-    .middleware(async () => {
-      const session = await getSession();
-      if (!session?.user?.id) throw new Error("unauthorized");
+  }, { awaitServerData: false })
+    .middleware(async ({ req }) => {
+      const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
+      if (!token?.id) throw new Error("unauthorized");
+      const userId = token.id as string;
 
       const user = await prisma.user.findUnique({
-        where:  { id: session.user.id },
+        where:  { id: userId },
         select: { screenname: true, emailHash: true, isSuspended: true },
       });
       if (!user)            throw new Error("user not found");
       if (user.isSuspended) throw new Error("account suspended");
 
       return {
-        userId:     session.user.id,
+        userId,
         screenname: user.screenname,
         emailHash:  user.emailHash,
       };
     })
     .onUploadComplete(async ({ metadata, file }) => {
-      const { safe } = await enforceContentSafety({
-        userId:        metadata.userId,
-        screenname:    metadata.screenname,
-        emailHash:     metadata.emailHash,
-        fileUrl:       file.url,
-        fileKey:       file.key,
-        mimeType:      file.type,
-        fileSizeBytes: file.size,
-      });
+      if (process.env.NODE_ENV !== "development") {
+        const { safe } = await enforceContentSafety({
+          userId:        metadata.userId,
+          screenname:    metadata.screenname,
+          emailHash:     metadata.emailHash,
+          fileUrl:       file.ufsUrl,
+          fileKey:       file.key,
+          mimeType:      file.type,
+          fileSizeBytes: file.size,
+        });
+        if (!safe) throw new Error("upload failed");
+      }
 
-      if (!safe) throw new Error("upload failed");
-
-      return { userId: metadata.userId, url: file.url };
+      return { userId: metadata.userId, url: file.ufsUrl };
     }),
 } satisfies FileRouter;
 

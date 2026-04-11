@@ -3,7 +3,13 @@ import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { DirectMessagePanel } from "@/components/DirectMessagePanel";
 
-export default async function DMPage({ params }: { params: { userId: string } }) {
+export default async function DMPage({
+  params,
+  searchParams,
+}: {
+  params: { userId: string };
+  searchParams: { quote?: string };
+}) {
   const session = await getSession();
   if (!session?.user?.id) redirect("/login");
   if (params.userId === session.user.id) redirect("/");
@@ -14,12 +20,19 @@ export default async function DMPage({ params }: { params: { userId: string } })
   });
   if (!otherUser) notFound();
 
+  const quote = searchParams.quote
+    ? `> ${searchParams.quote}\n\n`
+    : undefined;
+
   return (
     <div
-      className="max-w-2xl mx-auto border-x h-[calc(100vh-52px)]"
-      style={{ borderColor: "var(--border)" }}
+      className="max-w-2xl mx-auto border-x"
+      style={{
+        borderColor: "var(--border)",
+        height: "calc(100dvh - 52px - var(--tab-bar-h))",
+      }}
     >
-      <DirectMessagePanel otherUser={otherUser} />
+      <DirectMessagePanel otherUser={otherUser} initialDraft={quote} />
     </div>
   );
 }

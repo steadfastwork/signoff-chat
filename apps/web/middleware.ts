@@ -101,10 +101,15 @@ export async function middleware(req: NextRequest) {
       try {
         const incoming = new URL(origin);
 
-        // In development, allow any localhost origin regardless of port.
-        // The port can shift (3000→3001) if another process is already bound.
+        // In development, allow localhost and private-network IPs (for mobile testing).
         const isDev = process.env.NODE_ENV === "development";
-        if (isDev && incoming.hostname === "localhost") {
+        const isLocalOrigin =
+          incoming.hostname === "localhost" ||
+          incoming.hostname === "127.0.0.1" ||
+          /^192\.168\./.test(incoming.hostname) ||
+          /^10\./.test(incoming.hostname) ||
+          /^172\.(1[6-9]|2\d|3[01])\./.test(incoming.hostname);
+        if (isDev && isLocalOrigin) {
           // allowed — fall through
         } else {
           const expectedRaw = process.env.NEXTAUTH_URL ?? "";
@@ -180,6 +185,25 @@ export async function middleware(req: NextRequest) {
         suspendedPage.searchParams.set("until", token.suspendedUntil);
       }
       return addSecurityHeaders(NextResponse.redirect(suspendedPage));
+    }
+
+    // Onboarding guard — send new users through setup flow
+    if (
+      !token.onboardingComplete &&
+      !pathname.startsWith("/onboarding") &&
+      !pathname.startsWith("/setup-keys") &&
+      !pathname.startsWith("/recover-keys")
+    ) {
+      const steps = [
+        "/onboarding/welcome",
+        "/onboarding/account",
+        "/onboarding/keys",
+        "/onboarding/away",
+        "/onboarding/find-friends",
+        "/onboarding/done",
+      ];
+      const step = steps[token.onboardingStep ?? 0] ?? "/onboarding/welcome";
+      return addSecurityHeaders(NextResponse.redirect(new URL(step, req.url)));
     }
   } else if (pathname === "/") {
     // Authenticated users visiting the landing page → send them to the feed

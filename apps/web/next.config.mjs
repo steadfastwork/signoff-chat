@@ -15,7 +15,7 @@ const csp = [
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "font-src 'self' data: https://fonts.gstatic.com",
   // Images from UploadThing CDN + Giphy CDN + data URIs for avatars
-  "img-src 'self' data: blob: https://utfs.io https://uploadthing.com https://*.giphy.com",
+  "img-src 'self' data: blob: https://utfs.io https://*.ufs.sh https://uploadthing.com https://*.giphy.com",
   // Soketi WebSocket (local: ws://localhost:6001, prod: wss://), Stripe, UploadThing, Giphy
   [
     "connect-src 'self'",
@@ -27,6 +27,8 @@ const csp = [
     "https://q.stripe.com",
     "https://uploadthing.com",
     "https://utfs.io",
+    "https://*.ufs.sh",
+    "https://*.ingest.uploadthing.com",
     "https://api.giphy.com",
   ].join(" "),
   // Audio files served from public/sounds/

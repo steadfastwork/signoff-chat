@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
@@ -6,36 +6,30 @@ import { prisma } from "@/lib/prisma";
 // ---------------------------------------------------------------------------
 // GET /api/messages/unread
 //
-// Accepts optional query params `since_{partnerId}=ISO_TIMESTAMP` so the
-// server can count messages newer than the client's "last read" timestamp.
+// Returns unread DM counts for all DM channels the user belongs to.
+// Uses lastReadAt from ChannelMember (set server-side) as the cutoff —
+// no client-supplied timestamps needed.
 // Returns: Array<{ partnerId, unreadCount, latestMessageAt }>
 // ---------------------------------------------------------------------------
 
-export async function GET(req: NextRequest) {
+export async function GET() {
   const session = await getServerSession(authOptions);
   if (!session?.user?.id) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
   const userId = session.user.id;
-  const { searchParams } = new URL(req.url);
-
-  // Build a map of partnerId → lastReadDate from query params
-  const sinceMap: Record<string, Date> = {};
-  searchParams.forEach((value, key) => {
-    if (key.startsWith("since_")) {
-      const partnerId = key.slice(6);
-      const d = new Date(value);
-      if (!isNaN(d.getTime())) sinceMap[partnerId] = d;
-    }
-  });
 
   const memberships = await prisma.channelMember.findMany({
     where: {
       userId,
       channel: { name: { contains: "__dm__" } },
     },
-    select: { channelId: true, channel: { select: { name: true } } },
+    select: {
+      channelId: true,
+      lastReadAt: true,
+      channel: { select: { name: true } },
+    },
   });
 
   if (memberships.length === 0) return NextResponse.json([]);
@@ -44,7 +38,7 @@ export async function GET(req: NextRequest) {
     memberships.map(async (m) => {
       const parts = m.channel.name.split("__dm__");
       const partnerId = parts[0] === userId ? parts[1] : parts[0];
-      const since = sinceMap[partnerId];
+      const since = m.lastReadAt;
 
       const [unreadCount, latest] = await Promise.all([
         prisma.channelMessage.count({

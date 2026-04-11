@@ -41,6 +41,7 @@ export function deriveAvatarColor(id: string): AvatarColor {
 // ---------------------------------------------------------------------------
 
 export const authOptions: NextAuthOptions = {
+  trustHost: true,
   providers: [
     CredentialsProvider({
       name: "credentials",
@@ -66,6 +67,8 @@ export const authOptions: NextAuthOptions = {
             adminRole: true,
             isSuspended: true,
             suspendedUntil: true,
+            onboardingComplete: true,
+            onboardingStep: true,
           },
         });
 
@@ -93,6 +96,8 @@ export const authOptions: NextAuthOptions = {
           adminRole: user.adminRole ?? null,
           isSuspended,
           suspendedUntil: suspendedUntil?.toISOString() ?? null,
+          onboardingComplete: user.onboardingComplete,
+          onboardingStep: user.onboardingStep,
         };
       },
     }),
@@ -101,21 +106,44 @@ export const authOptions: NextAuthOptions = {
   session: { strategy: "jwt" },
 
   callbacks: {
-    async jwt({ token, user }) {
+    async jwt({ token, user, trigger }) {
       // ── Initial sign-in: populate from authorize() return value ───────────
       if (user) {
         const u = user as {
           id: string; screenname: string; isGoldMember: boolean;
           adminRole: string | null; isSuspended: boolean; suspendedUntil: string | null;
+          onboardingComplete: boolean; onboardingStep: number;
         };
-        token.id             = u.id;
-        token.screenname     = u.screenname;
-        token.isGoldMember   = u.isGoldMember;
-        token.adminRole      = u.adminRole ?? null;
-        token.avatarColor    = deriveAvatarColor(u.id);
-        token.isSuspended    = u.isSuspended;
-        token.suspendedUntil = u.suspendedUntil;
+        token.id                 = u.id;
+        token.screenname         = u.screenname;
+        token.isGoldMember       = u.isGoldMember;
+        token.adminRole          = u.adminRole ?? null;
+        token.avatarColor        = deriveAvatarColor(u.id);
+        token.isSuspended        = u.isSuspended;
+        token.suspendedUntil     = u.suspendedUntil;
         token.suspensionCheckedAt = Date.now();
+        token.onboardingComplete = u.onboardingComplete;
+        token.onboardingStep     = u.onboardingStep;
+        return token;
+      }
+
+      // ── Force refresh on useSession().update() — e.g. after onboarding ───
+      if (trigger === "update") {
+        try {
+          const fresh = await prisma.user.findUnique({
+            where: { id: token.id },
+            select: { isSuspended: true, suspendedUntil: true, adminRole: true, isGoldMember: true, onboardingComplete: true, onboardingStep: true },
+          });
+          if (fresh) {
+            token.isSuspended        = fresh.isSuspended;
+            token.suspendedUntil     = fresh.suspendedUntil?.toISOString() ?? null;
+            token.adminRole          = fresh.adminRole ?? null;
+            token.isGoldMember       = fresh.isGoldMember;
+            token.onboardingComplete = fresh.onboardingComplete;
+            token.onboardingStep     = fresh.onboardingStep;
+            token.suspensionCheckedAt = Date.now();
+          }
+        } catch { /* keep cached value */ }
         return token;
       }
 
@@ -127,7 +155,7 @@ export const authOptions: NextAuthOptions = {
         try {
           const user = await prisma.user.findUnique({
             where: { id: token.id },
-            select: { isSuspended: true, suspendedUntil: true, adminRole: true, isGoldMember: true },
+            select: { isSuspended: true, suspendedUntil: true, adminRole: true, isGoldMember: true, onboardingComplete: true, onboardingStep: true },
           });
           if (user) {
             // Auto-lift expired suspension
@@ -142,8 +170,10 @@ export const authOptions: NextAuthOptions = {
               token.isSuspended    = user.isSuspended;
               token.suspendedUntil = user.suspendedUntil?.toISOString() ?? null;
             }
-            token.adminRole    = user.adminRole ?? null;
-            token.isGoldMember = user.isGoldMember;
+            token.adminRole          = user.adminRole ?? null;
+            token.isGoldMember       = user.isGoldMember;
+            token.onboardingComplete = user.onboardingComplete;
+            token.onboardingStep     = user.onboardingStep;
           }
         } catch { /* DB unavailable — keep cached value */ }
         token.suspensionCheckedAt = Date.now();

@@ -8,6 +8,12 @@ import Link from "next/link";
 import { useUploadThing } from "@/lib/uploadthing";
 import { useTheme, COLOR_SCHEMES, type ColorScheme } from "@/components/ThemeProvider";
 import { getSoundPack, setSoundPack, previewSound, type SoundPack } from "@/lib/sounds";
+import {
+  CURRENTLY_KEYS,
+  CURRENTLY_META,
+  CURRENTLY_MAX_CHARS,
+  type CurrentlyData,
+} from "@/lib/currently";
 
 // ---------------------------------------------------------------------------
 // Password strength (reused from register pattern in the codebase)
@@ -37,6 +43,9 @@ export default function EditProfilePage() {
   const [bio, setBio] = useState("");
   const [awayMessage, setAwayMessage] = useState("");
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const [currently, setCurrently] = useState<Record<string, string>>(() =>
+    Object.fromEntries(CURRENTLY_KEYS.map((k) => [k, ""]))
+  );
   const [saved, setSaved] = useState(true); // track unsaved changes
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -72,6 +81,11 @@ export default function EditProfilePage() {
         setAwayMessage(a);
         setAvatarUrl(d.avatarUrl ?? null);
         initialRef.current = { bio: b, awayMessage: a };
+        // Load currently fields
+        if (d.currently && typeof d.currently === "object") {
+          const c = d.currently as Record<string, string>;
+          setCurrently(Object.fromEntries(CURRENTLY_KEYS.map((k) => [k, c[k] ?? ""])));
+        }
 
         // Sync color scheme from DB to localStorage/DOM on load
         if (d.profileTheme) {
@@ -122,9 +136,22 @@ export default function EditProfilePage() {
   // (edit page is only accessible via /u/me/edit or /u/[own-name]/edit)
 
   const { startUpload, isUploading } = useUploadThing("profileImage", {
-    onClientUploadComplete: (res) => {
-      if (res?.[0]?.serverData?.url) {
-        setAvatarUrl(res[0].serverData.url);
+    onClientUploadComplete: async (res) => {
+      const file = res?.[0];
+      if (!file) return;
+      // serverData.url is set by onUploadComplete in production.
+      // In dev the server callback may not fire, so fall back to the
+      // client-visible URL and save it via the profile API.
+      const url = file.serverData?.url ?? (file as Record<string, unknown>).ufsUrl as string ?? (file as Record<string, unknown>).url as string;
+      if (url) {
+        setAvatarUrl(url);
+        if (!file.serverData?.url) {
+          await fetch("/api/profile", {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ avatarUrl: url }),
+          }).catch(() => {});
+        }
       }
       setUploadError(null);
     },
@@ -165,6 +192,9 @@ export default function EditProfilePage() {
         body: JSON.stringify({
           bio: bio.trim(),
           awayMessage: awayMessage.trim(),
+          currently: Object.fromEntries(
+            CURRENTLY_KEYS.map((k) => [k, currently[k]?.trim() ?? ""])
+          ) as CurrentlyData,
         }),
       });
 
@@ -259,8 +289,8 @@ export default function EditProfilePage() {
 
   return (
     <div
-      className="min-h-screen"
-      style={{ background: "#0d0d0b", fontFamily: "var(--font-dm-sans)" }}
+      className="min-h-screen profile-page"
+      style={{ background: "var(--bg, #0d0d0b)", fontFamily: "var(--font-dm-sans)" }}
     >
       <div className="max-w-lg mx-auto px-4 py-8">
         {/* Header */}
@@ -533,6 +563,58 @@ export default function EditProfilePage() {
             <p className="text-[10px] font-mono" style={{ color: "#2a2a1a" }}>
               shown on your buddy list
             </p>
+          </div>
+
+          {/* Currently */}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-mono" style={{ color: "#6b7280" }}>
+                currently
+              </label>
+              <span className="text-[10px] font-mono" style={{ color: "#2a2a1a" }}>
+                shown on your profile
+              </span>
+            </div>
+            <div className="space-y-2">
+              {CURRENTLY_KEYS.map((key) => {
+                const meta = CURRENTLY_META[key];
+                const val = currently[key] ?? "";
+                return (
+                  <div key={key} className="flex items-center gap-2.5">
+                    <span className="text-base w-6 text-center flex-shrink-0">{meta.emoji}</span>
+                    <div className="relative flex-1">
+                      <input
+                        value={val}
+                        onChange={(e) =>
+                          setCurrently((prev) => ({
+                            ...prev,
+                            [key]: e.target.value.slice(0, CURRENTLY_MAX_CHARS),
+                          }))
+                        }
+                        placeholder={meta.placeholder}
+                        className="w-full h-9 rounded-xl border px-3 text-sm outline-none pr-10"
+                        style={{
+                          background: "#111109",
+                          borderColor: "#1e1e14",
+                          color: "#d1d5db",
+                          fontFamily: "var(--font-dm-sans)",
+                        }}
+                        onFocus={(e) => (e.target.style.borderColor = "#c8860a44")}
+                        onBlur={(e) => (e.target.style.borderColor = "#1e1e14")}
+                      />
+                      {val.length > 40 && (
+                        <span
+                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[9px] font-mono tabular-nums pointer-events-none"
+                          style={{ color: val.length >= CURRENTLY_MAX_CHARS ? "#f59e0b" : "#3a3a2a" }}
+                        >
+                          {CURRENTLY_MAX_CHARS - val.length}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
 
           {/* Error / success */}

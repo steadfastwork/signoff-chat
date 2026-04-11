@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 
 interface Profile {
   id: string;
@@ -99,6 +100,15 @@ export default function ProfilePage() {
           </div>
 
           {saved && <p className="text-green-500 text-xs">saved.</p>}
+
+          <div className="flex gap-3">
+            <Link
+              href="/settings/digest"
+              className="border border-green-950 text-green-700 hover:text-green-500 hover:border-green-800 px-4 py-1.5 text-sm transition-colors"
+            >
+              [digest settings]
+            </Link>
+          </div>
 
           <div className="flex gap-3">
             {editing ? (

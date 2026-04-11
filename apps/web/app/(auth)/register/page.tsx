@@ -198,7 +198,7 @@ export default function RegisterPage() {
         // Registration succeeded but auto-login failed — send to login
         router.push("/login?registered=1");
       } else {
-        router.push("/setup-keys");
+        router.push("/onboarding/welcome");
         router.refresh();
       }
     } catch {

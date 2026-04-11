@@ -86,9 +86,15 @@ export function PresenceProvider({ children }: { children: React.ReactNode }) {
 
   // Public updater — used by StatusSelector and the Navbar sign-off
   const updateStatus = useCallback(async (next: UserStatus) => {
+    const prev = statusRef.current;
+    // Optimistic update so the UI responds immediately on mobile
+    syncStatus(next);
     const ok = await patchStatus(next);
-    if (ok) {
-      syncStatus(next);
+    if (!ok) {
+      // Roll back to previous if the server rejected it
+      syncStatus(prev);
+      console.warn("[presence] status update failed for", next);
+    } else {
       // Keep the tray icon and menu in sync
       if (typeof window !== "undefined" && "electronAPI" in window) {
         window.electronAPI!.reportStatus(next);

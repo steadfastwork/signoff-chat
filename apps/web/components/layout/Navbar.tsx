@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
 import { useTheme } from "@/components/ThemeProvider";
 import { usePresence } from "@/components/PresenceProvider";
+import { useSidebar } from "@/components/SidebarProvider";
 import { Avatar } from "@/components/layout/Avatar";
 import { pusherClient } from "@/lib/pusher";
 import { EncryptionBadge } from "@/components/EncryptionBadge";
@@ -30,7 +31,7 @@ function EncryptedPill() {
 
   return (
     <span
-      className="hidden sm:flex items-center gap-1.5 text-[11px] font-mono px-2.5 py-1 rounded-full border select-none"
+      className="flex items-center gap-1.5 text-[11px] font-mono px-2.5 py-1 rounded-full border select-none"
       style={
         connected
           ? {
@@ -52,7 +53,9 @@ function EncryptedPill() {
           animation: connected ? "status-glow 2s ease-in-out infinite" : undefined,
         }}
       />
-      {connected ? "encrypted" : "reconnecting…"}
+      <span className="hidden sm:inline">
+        {connected ? "encrypted" : "reconnecting…"}
+      </span>
     </span>
   );
 }
@@ -100,6 +103,7 @@ export function Navbar({ boardsEnabled = false }: { boardsEnabled?: boolean }) {
   const pathname = usePathname();
   const { theme, toggle } = useTheme();
   const { updateStatus } = usePresence();
+  const { toggle: toggleSidebar } = useSidebar();
   const [notifCount, setNotifCount] = useState(0);
 
   // Load + poll notification count — no Pusher subscription here so we don't
@@ -144,13 +148,38 @@ export function Navbar({ boardsEnabled = false }: { boardsEnabled?: boolean }) {
       ` }} />
 
       <nav
-        className="fixed top-0 left-0 right-0 z-50 h-[52px] border-b"
+        className="fixed top-0 left-0 right-0 z-50 border-b"
         style={{
           background: "var(--surface)",
           borderColor: "var(--border)",
+          paddingTop: "env(safe-area-inset-top, 0px)",
+          paddingLeft: "env(safe-area-inset-left, 0px)",
+          paddingRight: "env(safe-area-inset-right, 0px)",
         }}
       >
-        <div className="h-full flex items-center px-4 gap-1">
+        <div className="h-[52px] flex items-center px-4 gap-1">
+          {/* Hamburger — mobile only, authenticated */}
+          {isAuthenticated && (
+            <button
+              onClick={toggleSidebar}
+              className="md:hidden w-9 h-9 flex items-center justify-center rounded-lg mr-1 flex-shrink-0 transition-colors"
+              style={{ color: "var(--text-muted)" }}
+              aria-label="Open sidebar"
+              onMouseEnter={(e) =>
+                ((e.currentTarget as HTMLButtonElement).style.background = "var(--card)")
+              }
+              onMouseLeave={(e) =>
+                ((e.currentTarget as HTMLButtonElement).style.background = "transparent")
+              }
+            >
+              <svg width="18" height="14" viewBox="0 0 18 14" fill="none" aria-hidden="true">
+                <rect y="0" width="18" height="2" rx="1" fill="currentColor" />
+                <rect y="6" width="18" height="2" rx="1" fill="currentColor" />
+                <rect y="12" width="18" height="2" rx="1" fill="currentColor" />
+              </svg>
+            </button>
+          )}
+
           {/* Logo */}
           <Link href="/" className="mr-3 flex-shrink-0">
             <span

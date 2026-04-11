@@ -15,14 +15,14 @@ function PostDetailSkeleton() {
   return (
     <div className="animate-pulse">
       <div className="flex items-center gap-2 mb-4">
-        <div className="w-[26px] h-[26px] rounded-lg" style={{ background: "#1a1a12" }} />
-        <div className="h-3 rounded w-24" style={{ background: "#1a1a12" }} />
+        <div className="w-[26px] h-[26px] rounded-lg" style={{ background: "var(--surface)" }} />
+        <div className="h-3 rounded w-24" style={{ background: "var(--surface)" }} />
       </div>
-      <div className="h-6 rounded w-3/4 mb-3" style={{ background: "#161610" }} />
+      <div className="h-6 rounded w-3/4 mb-3" style={{ background: "var(--card)" }} />
       <div className="space-y-2 mb-4">
-        <div className="h-3 rounded w-full" style={{ background: "#161610" }} />
-        <div className="h-3 rounded w-5/6" style={{ background: "#161610" }} />
-        <div className="h-3 rounded w-4/6" style={{ background: "#161610" }} />
+        <div className="h-3 rounded w-full" style={{ background: "var(--card)" }} />
+        <div className="h-3 rounded w-5/6" style={{ background: "var(--card)" }} />
+        <div className="h-3 rounded w-4/6" style={{ background: "var(--card)" }} />
       </div>
     </div>
   );
@@ -65,12 +65,12 @@ export default function BoardPostPage() {
     return (
       <div
         className="flex flex-col items-center justify-center min-h-screen gap-3"
-        style={{ background: "#0d0d0b" }}
+        style={{ background: "var(--bg)" }}
       >
-        <p className="text-sm" style={{ color: "#6b7280", fontFamily: "var(--font-dm-sans)" }}>
+        <p className="text-sm" style={{ color: "var(--text-muted)", fontFamily: "var(--font-dm-sans)" }}>
           post not found.
         </p>
-        <Link href={`/boards/${boardName}`} className="text-xs font-mono" style={{ color: "#2dd4bf" }}>
+        <Link href={`/boards/${boardName}`} className="text-xs font-mono" style={{ color: "var(--teal)" }}>
           ← back to board
         </Link>
       </div>
@@ -80,7 +80,7 @@ export default function BoardPostPage() {
   return (
     <div
       className="min-h-screen"
-      style={{ background: "#0d0d0b", fontFamily: "var(--font-dm-sans)" }}
+      style={{ background: "var(--bg)", fontFamily: "var(--font-dm-sans)" }}
     >
       <div className="max-w-2xl mx-auto px-4 py-6">
         {/* Back nav */}
@@ -88,11 +88,11 @@ export default function BoardPostPage() {
           <Link
             href={`/boards/${boardName}`}
             className="text-sm font-mono"
-            style={{ color: "#3a3a2a" }}
+            style={{ color: "var(--text-dim)" }}
           >
             ←
           </Link>
-          <span className="text-xs font-mono" style={{ color: "#2a2a1a" }}>
+          <span className="text-xs font-mono" style={{ color: "var(--text-dim)" }}>
             {boardName}
           </span>
         </div>
@@ -100,7 +100,7 @@ export default function BoardPostPage() {
         {/* Content */}
         <div
           className="rounded-2xl border p-5"
-          style={{ borderColor: "#1a1a12", background: "#0a0a08" }}
+          style={{ borderColor: "var(--border)", background: "var(--surface)" }}
         >
           {loading ? (
             <PostDetailSkeleton />

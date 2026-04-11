@@ -12,8 +12,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       <Sidebar boardsEnabled={boardsEnabled} />
 
       {/* Main content — offset for navbar (52px top) and sidebar (220px left on md+) */}
+      {/* pb-tab-bar adds bottom padding on mobile to prevent tab bar overlap on normal-scroll pages */}
       <main
-        className="pt-[52px] md:ml-[220px] min-h-screen"
+        className="pt-[52px] md:ml-[220px] min-h-screen pb-tab-bar md:pb-0"
         style={{ background: "var(--bg)" }}
       >
         {children}

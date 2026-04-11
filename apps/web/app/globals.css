@@ -30,6 +30,14 @@
   --green: #22c55e;
   --away: #f59e0b;
 
+  /* Chat bubble colors */
+  --msg-own-bg: #1a1400;
+  --msg-own-border: rgba(200, 134, 10, 0.22);
+  --msg-other-bg: #1a1a0e;
+  --msg-other-border: transparent;
+  --msg-meta-bg: #0d0a00;
+  --msg-other-meta-bg: #111108;
+
   /* Legacy compat */
   --background: #0d0d0b;
   --foreground: #e8e4d0;
@@ -48,13 +56,25 @@
   --amber-tint: rgba(200, 134, 10, 0.08);
   --teal-tint: rgba(45, 212, 191, 0.08);
 
+  /* Chat bubble colors */
+  --msg-own-bg: #fff8ec;
+  --msg-own-border: rgba(200, 134, 10, 0.18);
+  --msg-other-bg: #f0ede8;
+  --msg-other-border: #e8e2d8;
+  --msg-meta-bg: #fff3dc;
+  --msg-other-meta-bg: #e8e4de;
+
   --background: #f7f4ef;
   --foreground: #1a1714;
 }
 
-/* ── Color scheme overrides (Gold members) ─────────────────────── */
+/* ── Color scheme overrides (Gold members) ──────────────────────
+   Scoped to .profile-page so chat/nav/tab UI is never affected.
+   The data-color-scheme attribute sits on <html>; CSS variable
+   inheritance means only descendants of .profile-page see them.
+   ─────────────────────────────────────────────────────────────── */
 
-[data-color-scheme="midnight"] {
+html[data-color-scheme="midnight"] .profile-page {
   --bg: #07071a;
   --surface: #0d0d24;
   --card: #12123a;
@@ -70,7 +90,7 @@
   --teal: #818cf8;
 }
 
-[data-color-scheme="forest"] {
+html[data-color-scheme="forest"] .profile-page {
   --bg: #04100a;
   --surface: #081a10;
   --card: #0d2218;
@@ -86,7 +106,7 @@
   --teal: #34d399;
 }
 
-[data-color-scheme="ocean"] {
+html[data-color-scheme="ocean"] .profile-page {
   --bg: #04091a;
   --surface: #070f28;
   --card: #0c1838;
@@ -102,7 +122,7 @@
   --teal: #22d3ee;
 }
 
-[data-color-scheme="rose"] {
+html[data-color-scheme="rose"] .profile-page {
   --bg: #140409;
   --surface: #20080f;
   --card: #2c0f1a;
@@ -118,7 +138,7 @@
   --teal: #f472b6;
 }
 
-[data-color-scheme="matrix"] {
+html[data-color-scheme="matrix"] .profile-page {
   --bg: #000000;
   --surface: #020802;
   --card: #040f04;
@@ -134,7 +154,7 @@
   --teal: #00e5ff;
 }
 
-[data-color-scheme="sepia"] {
+html[data-color-scheme="sepia"] .profile-page {
   --bg: #100c06;
   --surface: #1a1408;
   --card: #221c0e;
@@ -151,6 +171,21 @@
 }
 
 /* ---------------------------------------------------------------------------
+   Mobile layout tokens
+   --------------------------------------------------------------------------- */
+
+:root {
+  /* Height of the bottom tab bar (used in calc() for chat pages) */
+  --tab-bar-h: 0px;
+}
+
+@media (max-width: 767px) {
+  :root {
+    --tab-bar-h: calc(56px + env(safe-area-inset-bottom, 0px));
+  }
+}
+
+/* ---------------------------------------------------------------------------
    Base styles
    --------------------------------------------------------------------------- */
 
@@ -160,6 +195,25 @@ body {
   font-family: var(--font-dm-sans), system-ui, sans-serif;
   font-size: 14px;
   line-height: 1.65;
+  /* Smooth inertia scrolling on iOS */
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Prevent iOS from zooming on input focus — enforce 16px minimum */
+@media screen and (max-width: 767px) {
+  input[type="text"],
+  input[type="email"],
+  input[type="password"],
+  input[type="search"],
+  input[type="tel"],
+  input[type="url"],
+  input[type="number"],
+  textarea,
+  select,
+  .ProseMirror,
+  .rich-editor .ProseMirror {
+    font-size: max(16px, 1em);
+  }
 }
 
 /* Theme transition — applied after first mount via .theme-ready class */
@@ -213,6 +267,20 @@ body {
     scrollbar-width: none;
   }
   .scrollbar-none::-webkit-scrollbar { display: none; }
+
+  /* Safe area padding helpers */
+  .pb-safe {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  /* Bottom padding that accounts for the mobile tab bar + safe area */
+  .pb-tab-bar {
+    padding-bottom: var(--tab-bar-h);
+  }
+  /* Minimum 44px tap targets */
+  .tap-target {
+    min-height: 44px;
+    min-width: 44px;
+  }
 }
 
 /* ---------------------------------------------------------------------------
@@ -235,6 +303,11 @@ body {
 .rich-content,
 .rich-editor .ProseMirror {
   line-height: 1.6;
+}
+@media screen and (min-width: 768px) {
+  .rich-editor .ProseMirror {
+    font-size: 14px;
+  }
 }
 .rich-content p,
 .rich-editor .ProseMirror p { margin: 0 0 0.4em; }

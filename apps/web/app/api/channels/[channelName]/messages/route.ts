@@ -69,7 +69,18 @@ export async function GET(req: NextRequest, { params }: Params) {
     orderBy: { createdAt: "desc" },
     include: {
       author: { select: authorSelect },
-      threads: { select: { id: true, messageCount: true }, take: 1 },
+      threads: {
+        select: {
+          id: true,
+          messageCount: true,
+          messages: {
+            select: { author: { select: { screenname: true } } },
+            orderBy: { createdAt: "desc" as const },
+            take: 1,
+          },
+        },
+        take: 1,
+      },
     },
   });
 
@@ -86,12 +97,21 @@ export async function GET(req: NextRequest, { params }: Params) {
       keyVersion: m.keyVersion ?? null,
       mediaUrl: m.mediaUrl,
       mediaType: m.mediaType,
+      gifId: m.gifId ?? null,
+      gifUrl: m.gifUrl ?? null,
+      gifTitle: m.gifTitle ?? null,
       createdAt: m.createdAt,
       author: {
         ...m.author,
         status: m.author.status === "INVISIBLE" ? "OFFLINE" : m.author.status,
       },
-      thread: m.threads[0] ?? null,
+      thread: m.threads[0]
+        ? {
+            id: m.threads[0].id,
+            messageCount: m.threads[0].messageCount,
+            lastReplyBy: m.threads[0].messages[0]?.author?.screenname ?? null,
+          }
+        : null,
     })),
     nextCursor: hasMore ? data[data.length - 1].id : null,
   });
@@ -171,6 +191,9 @@ export async function POST(req: NextRequest, { params }: Params) {
     content?: string;
     mediaUrl?: string;
     mediaType?: "IMAGE" | "VIDEO" | "GIF";
+    gifId?: string;
+    gifUrl?: string;
+    gifTitle?: string;
     isEncrypted?: boolean;
     encryptedContent?: string;
     iv?: string;
@@ -179,6 +202,9 @@ export async function POST(req: NextRequest, { params }: Params) {
 
   const isEncrypted = body.isEncrypted === true;
   const mediaUrl = sanitizeUrl(body.mediaUrl);
+  const gifId = body.gifId?.trim() || null;
+  const gifUrl = sanitizeUrl(body.gifUrl) || null;
+  const gifTitle = body.gifTitle?.slice(0, 120) || null;
 
   let content = "";
   if (isEncrypted) {
@@ -193,7 +219,8 @@ export async function POST(req: NextRequest, { params }: Params) {
     content = sanitizeRichText(body.content ?? "");
     const contentLen = richTextLength(content);
     const hasMedia = !!mediaUrl;
-    if (!contentLen && !hasMedia) {
+    const hasGif = !!gifUrl;
+    if (!contentLen && !hasMedia && !hasGif) {
       return NextResponse.json(
         { error: "content is required." },
         { status: 400 }
@@ -236,6 +263,9 @@ export async function POST(req: NextRequest, { params }: Params) {
             content,
             mediaUrl: mediaUrl ?? null,
             mediaType: body.mediaType ?? null,
+            gifId,
+            gifUrl,
+            gifTitle,
             authorId: session.user.id,
             channelId: channel.id,
             expiresAt,
@@ -277,6 +307,9 @@ export async function POST(req: NextRequest, { params }: Params) {
     keyVersion: message.keyVersion ?? null,
     mediaUrl: message.mediaUrl,
     mediaType: message.mediaType,
+    gifId: message.gifId ?? null,
+    gifUrl: message.gifUrl ?? null,
+    gifTitle: message.gifTitle ?? null,
     createdAt: message.createdAt,
     author: {
       ...message.author,

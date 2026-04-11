@@ -11,6 +11,8 @@ import { ProfileBoards } from "@/components/ProfileBoards";
 import { StatusDot } from "@/components/StatusDot";
 import { RichTextContent } from "@/components/RichTextContent";
 import { formatTimestamp } from "@/lib/utils";
+import { CurrentlyEditor } from "@/components/currently/CurrentlyEditor";
+import { type CurrentlyData } from "@/lib/currently";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -163,6 +165,17 @@ export default function ProfilePage() {
   const [profile, setProfile] = useState<ProfileResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
+  const [currentlyEditorOpen, setCurrentlyEditorOpen] = useState(false);
+  const [currentlySaving, setCurrentlySaving] = useState(false);
+  const [currentlyUpdated, setCurrentlyUpdated] = useState(false);
+  const [boardsEnabled, setBoardsEnabled] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/feature-flags/boards")
+      .then((r) => (r.ok ? r.json() : { enabled: false }))
+      .then((d: { enabled: boolean }) => setBoardsEnabled(d.enabled === true))
+      .catch(() => setBoardsEnabled(false));
+  }, []);
 
   // Redirect /u/me to own profile
   const resolvedScreenname =
@@ -186,6 +199,26 @@ export default function ProfilePage() {
     setLoading(true);
     fetchProfile().finally(() => setLoading(false));
   }, [fetchProfile]);
+
+  const handleSaveCurrently = async (data: CurrentlyData) => {
+    setCurrentlySaving(true);
+    try {
+      const res = await fetch("/api/profile", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ currently: data }),
+      });
+      if (res.ok) {
+        const updated = await res.json();
+        setProfile((p) => p ? { ...p, currently: updated.currently } : p);
+        setCurrentlyEditorOpen(false);
+        setCurrentlyUpdated(true);
+        setTimeout(() => setCurrentlyUpdated(false), 2000);
+      }
+    } finally {
+      setCurrentlySaving(false);
+    }
+  };
 
   const handleRelationshipChange = (
     relationship: ProfileData["relationship"],
@@ -220,8 +253,8 @@ export default function ProfilePage() {
 
   return (
     <div
-      className="min-h-screen"
-      style={{ background: "#0d0d0b", fontFamily: "var(--font-dm-sans)" }}
+      className="min-h-screen profile-page"
+      style={{ background: "var(--bg, #0d0d0b)", fontFamily: "var(--font-dm-sans)" }}
     >
       <div className="max-w-2xl mx-auto px-4 py-6">
         {/* Back nav */}
@@ -243,16 +276,43 @@ export default function ProfilePage() {
             <ProfileCard
               profile={profile}
               onRelationshipChange={handleRelationshipChange}
+              currentlyEditorOpen={currentlyEditorOpen}
+              onOpenCurrentlyEditor={() => setCurrentlyEditorOpen(true)}
             />
 
+            {/* Currently editor — own profile only */}
+            {profile.relationship === "self" && currentlyEditorOpen && (
+              <div
+                style={{
+                  animation: "fadeIn 0.15s ease",
+                }}
+              >
+                <CurrentlyEditor
+                  initial={profile.currently ?? {}}
+                  onSave={handleSaveCurrently}
+                  onCancel={() => setCurrentlyEditorOpen(false)}
+                  saving={currentlySaving}
+                />
+              </div>
+            )}
+
+            {currentlyUpdated && (
+              <p
+                className="text-[11px] font-mono text-center"
+                style={{ color: "var(--text-dim)", animation: "fadeIn 0.2s ease" }}
+              >
+                currently updated.
+              </p>
+            )}
+
             {/* Channels + boards row */}
-            {(profile.mutualChannels.length > 0 || profile.publicBoards.length > 0) && (
+            {(profile.mutualChannels.length > 0 || (boardsEnabled && profile.publicBoards.length > 0)) && (
               <div
                 className="rounded-2xl border p-4 flex flex-col gap-4"
                 style={{ borderColor: "#1a1a12", background: "#0a0a08" }}
               >
                 <MutualChannels channels={profile.mutualChannels} />
-                <ProfileBoards boards={profile.publicBoards} />
+                {boardsEnabled && <ProfileBoards boards={profile.publicBoards} />}
               </div>
             )}
 

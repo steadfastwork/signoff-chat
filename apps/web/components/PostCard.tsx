@@ -6,6 +6,9 @@ import Image from "next/image";
 import { RichTextContent } from "@/components/RichTextContent";
 import { StatusDot, type StatusValue } from "@/components/StatusDot";
 import { formatTimestamp } from "@/lib/utils";
+import { CurrentlyDisplay } from "@/components/currently/CurrentlyDisplay";
+import { parseCurrently, type CurrentlyData } from "@/lib/currently";
+import { BadgeList } from "@/components/badges/BadgeList";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -17,6 +20,8 @@ interface PostAuthor {
   isGoldMember: boolean;
   status: StatusValue;
   awayMessage: string | null;
+  currently?: CurrentlyData | null;
+  badges?: { id: string; badge: string; awardedAt: string }[];
 }
 
 interface ReplyPreview {
@@ -257,6 +262,10 @@ export function PostCard({
               <span className="text-[10px]" style={{ color: "#d4a017" }}>★</span>
             )}
 
+            {post.author.badges && post.author.badges.length > 0 && (
+              <BadgeList badges={post.author.badges as any} size="sm" />
+            )}
+
             {post.isAwayMessage && (
               <span
                 className="text-[10px] font-mono px-1.5 py-0.5 rounded"
@@ -290,6 +299,15 @@ export function PostCard({
               {formatTimestamp(post.createdAt)}
             </span>
           </div>
+
+          {/* Currently pills — shown on away message cards */}
+          {post.isAwayMessage && post.author.currently && (
+            <CurrentlyDisplay
+              currently={parseCurrently(post.author.currently)}
+              size="compact"
+              maxCompact={3}
+            />
+          )}
 
           {/* Post content */}
           <div

@@ -15,6 +15,7 @@ const authorSelect = {
   isGoldMember: true,
   status: true,
   awayMessage: true,
+  currently: true,
 } as const;
 
 // ---------------------------------------------------------------------------

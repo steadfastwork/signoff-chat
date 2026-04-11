@@ -1,0 +1,1265 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Signoff — Smooth Chat Preview</title>
+<link href="https://fonts.googleapis.com/css2?family=VT323&family=DM+Sans:ital,wght@0,300;0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+:root{
+  --bg:#0a0a08;--surface:#111110;--card:#181816;--card2:#1e1e1c;
+  --border:#222220;--border2:#2a2a28;
+  --text:#e4e0cc;--muted:#6a6860;--dim:#3a3a34;
+  --amber:#c8860a;--amber-d:#8a6010;--amber-t:rgba(200,134,10,0.10);
+  --teal:#2dd4bf;--green:#22c55e;--away:#f59e0b;
+  --msg-self:#1a1400;--msg-other:#161614;
+  --msg-self-b:#4a3200;--msg-other-b:#282826;
+  --radius-sm:8px;--radius-md:14px;--radius-lg:20px;
+  --radius-bubble:18px;
+}
+body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden;}
+
+/* ── HEADER ── */
+.page-header{
+  text-align:center;padding:40px 20px 32px;
+  border-bottom:1px solid var(--border);
+}
+.page-header h1{
+  font-family:'DM Serif Display',serif;font-size:clamp(24px,4vw,40px);
+  font-weight:400;margin-bottom:8px;
+}
+.page-header h1 em{color:var(--amber);font-style:italic;}
+.page-header p{font-size:15px;color:var(--muted);max-width:480px;margin:0 auto 20px;}
+.view-toggle{
+  display:inline-flex;background:var(--surface);border:1px solid var(--border2);
+  border-radius:99px;padding:3px;gap:3px;
+}
+.vt-btn{
+  height:32px;padding:0 18px;border-radius:99px;border:none;
+  font-size:12px;font-weight:500;cursor:pointer;transition:all .2s;
+  font-family:'DM Sans',sans-serif;color:var(--muted);background:transparent;
+}
+.vt-btn.act{background:var(--amber);color:#fff;}
+
+/* ── LAYOUT CONTAINER ── */
+.demo-area{display:flex;height:calc(100vh - 200px);min-height:600px;}
+
+/* ════════════════════════════════════
+   WEB LAYOUT
+════════════════════════════════════ */
+#view-web{display:flex;width:100%;height:100%;}
+#view-mobile{display:none;width:100%;height:100%;align-items:center;justify-content:center;padding:24px;background:var(--bg);}
+
+/* ── WEB SIDEBAR ── */
+.web-sidebar{
+  width:260px;flex-shrink:0;
+  background:var(--surface);
+  border-right:1px solid var(--border);
+  display:flex;flex-direction:column;
+  height:100%;overflow:hidden;
+}
+.wsb-profile{
+  padding:14px 14px 12px;
+  border-bottom:1px solid var(--border);
+}
+.wsb-prof-row{display:flex;align-items:center;gap:9px;margin-bottom:10px;}
+.wsb-av{
+  width:34px;height:34px;border-radius:9px;flex-shrink:0;
+  background:linear-gradient(135deg,#f0c040,#c8860a);
+  display:flex;align-items:center;justify-content:center;
+  font-size:11px;font-weight:700;color:#fff;position:relative;
+}
+.wsb-av-dot{
+  position:absolute;bottom:-1px;right:-1px;
+  width:9px;height:9px;border-radius:50%;background:var(--green);border:2px solid var(--surface);
+}
+.wsb-name{font-size:13px;font-weight:600;color:var(--text);}
+.wsb-away-msg{
+  font-size:11px;color:var(--muted);font-style:italic;
+  border-left:2px solid var(--amber-d);padding-left:8px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.wsb-status-grid{display:grid;grid-template-columns:1fr 1fr;gap:3px;}
+.wsb-sg-btn{
+  height:22px;border-radius:5px;border:1px solid var(--border2);
+  background:var(--card);font-size:9px;font-weight:500;
+  color:var(--muted);cursor:pointer;font-family:'DM Sans',sans-serif;
+  display:flex;align-items:center;justify-content:center;gap:4px;
+  transition:all .15s;
+}
+.wsb-sg-btn.act{background:var(--amber-t);border-color:var(--amber-d);color:var(--amber);}
+.wsb-sg-dot{width:5px;height:5px;border-radius:50%;}
+
+/* Sidebar sections */
+.wsb-section{flex:1;overflow-y:auto;padding-bottom:8px;}
+.wsb-section::-webkit-scrollbar{width:3px;}
+.wsb-section::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px;}
+.wsb-sec-label{
+  font-size:8px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--dim);padding:10px 14px 3px;
+}
+.wsb-channel{
+  display:flex;align-items:center;gap:7px;
+  padding:5px 14px;cursor:pointer;border-radius:0;
+  transition:background .1s;border-left:2px solid transparent;
+}
+.wsb-channel:hover{background:rgba(255,255,255,.03);}
+.wsb-channel.active{
+  background:var(--amber-t);border-left-color:var(--amber);
+}
+.wsb-channel.active .wsb-ch-name{color:var(--amber);}
+.wsb-ch-prefix{font-size:12px;color:var(--muted);width:14px;text-align:center;}
+.wsb-ch-name{font-size:12px;font-weight:500;color:var(--muted);flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.wsb-unread{
+  font-size:9px;font-weight:700;background:var(--amber);
+  color:#1a0a00;border-radius:99px;padding:1px 5px;min-width:16px;text-align:center;
+}
+
+/* DM section */
+.wsb-dm{
+  display:flex;align-items:center;gap:7px;
+  padding:5px 14px;cursor:pointer;transition:background .1s;
+}
+.wsb-dm:hover{background:rgba(255,255,255,.03);}
+.wsb-dm-av{
+  width:24px;height:24px;border-radius:6px;flex-shrink:0;
+  display:flex;align-items:center;justify-content:center;
+  font-size:8px;font-weight:700;position:relative;
+}
+.wsb-dm-dot{
+  position:absolute;bottom:-1px;right:-1px;
+  width:7px;height:7px;border-radius:50%;border:2px solid var(--surface);
+}
+.wsb-dm-name{font-size:12px;font-weight:500;color:var(--muted);flex:1;}
+.wsb-dm-away{font-size:9px;color:var(--dim);font-style:italic;max-width:80px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+
+/* ── WEB CHAT MAIN ── */
+.web-chat{flex:1;display:flex;flex-direction:column;height:100%;min-width:0;}
+
+.wch-header{
+  height:52px;background:var(--surface);border-bottom:1px solid var(--border);
+  display:flex;align-items:center;gap:10px;padding:0 20px;flex-shrink:0;
+}
+.wch-prefix{font-size:15px;color:var(--muted);}
+.wch-name{font-size:15px;font-weight:600;color:var(--text);}
+.wch-badge{
+  font-size:9px;border-radius:4px;padding:2px 7px;font-weight:600;
+  background:var(--amber-t);color:var(--amber);border:1px solid var(--amber-d);
+}
+.wch-members{font-size:11px;color:var(--dim);margin-left:auto;}
+.wch-invite{
+  height:26px;padding:0 10px;border-radius:6px;
+  border:1px solid var(--border2);background:transparent;
+  font-size:11px;color:var(--muted);cursor:pointer;
+  font-family:'DM Sans',sans-serif;transition:all .15s;
+}
+.wch-invite:hover{border-color:var(--amber);color:var(--amber);}
+
+/* Message area */
+.wch-messages{
+  flex:1;overflow-y:auto;padding:16px 20px;
+  display:flex;flex-direction:column;gap:0;
+  scroll-behavior:smooth;
+}
+.wch-messages::-webkit-scrollbar{width:4px;}
+.wch-messages::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px;}
+
+/* Time separator */
+.time-sep{
+  display:flex;align-items:center;gap:10px;
+  margin:18px 0 12px;
+}
+.time-sep-line{flex:1;height:1px;background:var(--border);}
+.time-sep-text{font-size:10px;color:var(--dim);font-weight:500;letter-spacing:.05em;white-space:nowrap;}
+
+/* Message group */
+.msg-group{display:flex;flex-direction:column;gap:2px;margin-bottom:14px;}
+.msg-group-header{
+  display:flex;align-items:center;gap:8px;margin-bottom:6px;
+}
+.mg-av{
+  width:32px;height:32px;border-radius:8px;flex-shrink:0;
+  display:flex;align-items:center;justify-content:center;
+  font-size:10px;font-weight:700;cursor:pointer;
+  transition:opacity .1s;
+}
+.mg-av:hover{opacity:.8;}
+.mg-name{font-size:13px;font-weight:600;color:var(--text);cursor:pointer;}
+.mg-name:hover{color:var(--amber);}
+.mg-name.is-self{color:var(--amber);}
+.mg-time{font-size:10px;color:var(--dim);margin-left:4px;}
+.mg-gold{color:var(--amber);font-size:11px;margin-left:2px;}
+
+/* Message bubbles */
+.msg-row{display:flex;align-items:flex-end;gap:8px;padding-left:40px;position:relative;}
+.msg-row.is-self{flex-direction:row-reverse;padding-left:0;padding-right:40px;}
+.msg-bubble{
+  max-width:72%;
+  padding:9px 13px;
+  border-radius:var(--radius-bubble);
+  font-size:14px;line-height:1.55;
+  position:relative;
+  transition:all .15s;
+  word-break:break-word;
+}
+/* Other's messages */
+.msg-bubble.other{
+  background:var(--msg-other);
+  border:1px solid var(--msg-other-b);
+  color:var(--text);
+  border-radius:4px var(--radius-bubble) var(--radius-bubble) var(--radius-bubble);
+}
+.msg-bubble.other.first{
+  border-top-left-radius:var(--radius-bubble);
+}
+.msg-bubble.other.last{
+  border-bottom-left-radius:4px;
+}
+/* Self messages */
+.msg-bubble.self{
+  background:var(--msg-self);
+  border:1px solid var(--msg-self-b);
+  color:var(--text);
+  border-radius:var(--radius-bubble) 4px var(--radius-bubble) var(--radius-bubble);
+  margin-left:auto;
+}
+.msg-bubble.self.first{
+  border-top-right-radius:var(--radius-bubble);
+}
+.msg-bubble.self.last{
+  border-bottom-right-radius:4px;
+}
+
+/* Hover reaction bar */
+.msg-row{position:relative;}
+.reaction-hover{
+  position:absolute;right:0;top:50%;transform:translateY(-50%);
+  opacity:0;pointer-events:none;transition:opacity .15s;
+  display:flex;gap:3px;
+  background:var(--surface);border:1px solid var(--border2);
+  border-radius:99px;padding:3px 6px;z-index:10;
+}
+.msg-row.is-self .reaction-hover{left:0;right:auto;}
+.msg-row:hover .reaction-hover{opacity:1;pointer-events:all;}
+.rh-btn{
+  width:22px;height:22px;border-radius:50%;border:none;background:transparent;
+  font-size:12px;cursor:pointer;transition:background .1s;
+  display:flex;align-items:center;justify-content:center;
+}
+.rh-btn:hover{background:var(--card);}
+
+/* Reactions displayed */
+.msg-reactions{
+  display:flex;gap:4px;flex-wrap:wrap;
+  padding-left:40px;margin-top:3px;margin-bottom:4px;
+}
+.msg-reactions.is-self{padding-left:0;padding-right:40px;justify-content:flex-end;}
+.react-pill{
+  display:flex;align-items:center;gap:3px;
+  height:22px;padding:0 7px;border-radius:99px;
+  border:1px solid var(--border2);background:var(--surface);
+  font-size:11px;cursor:pointer;transition:all .15s;
+}
+.react-pill:hover,.react-pill.active{border-color:var(--amber);background:var(--amber-t);}
+.react-count{font-size:10px;color:var(--muted);}
+
+/* Message image */
+.msg-img{
+  max-width:260px;border-radius:12px;
+  overflow:hidden;margin-top:4px;
+}
+.msg-img-inner{
+  width:100%;height:140px;
+  background:linear-gradient(135deg,#1a1200,#2a1e00);
+  display:flex;align-items:center;justify-content:center;
+  font-size:32px;
+}
+
+/* Thread link */
+.thread-link{
+  font-size:11px;color:var(--amber);cursor:pointer;
+  margin-top:3px;padding-left:40px;
+  display:flex;align-items:center;gap:4px;
+}
+.thread-link:hover{text-decoration:underline;}
+
+/* Away message banner */
+.away-banner{
+  background:var(--amber-t);border-top:1px solid var(--amber-d);
+  border-bottom:1px solid var(--amber-d);
+  padding:7px 20px;
+  display:flex;align-items:center;gap:10px;
+  flex-shrink:0;
+}
+.ab-label{font-size:10px;font-weight:600;color:var(--amber);text-transform:uppercase;letter-spacing:.08em;}
+.ab-text{font-size:12px;color:var(--muted);font-style:italic;flex:1;}
+.ab-time{font-size:10px;color:var(--amber-d);}
+
+/* Typing indicator */
+.typing-indicator{
+  display:flex;align-items:center;gap:8px;
+  padding:8px 20px;font-size:11px;color:var(--dim);
+  flex-shrink:0;
+}
+.typing-dots{display:flex;gap:3px;align-items:center;}
+.td{
+  width:5px;height:5px;border-radius:50%;background:var(--muted);
+  animation:tdPulse 1.4s ease-in-out infinite;
+}
+.td:nth-child(2){animation-delay:.2s;}
+.td:nth-child(3){animation-delay:.4s;}
+@keyframes tdPulse{0%,100%{opacity:.3;transform:translateY(0);}50%{opacity:1;transform:translateY(-3px);}}
+
+/* ── INPUT BAR ── */
+.wch-input{
+  border-top:1px solid var(--border);
+  padding:10px 14px 12px;flex-shrink:0;
+  background:var(--surface);
+}
+.wch-fmt-bar{
+  display:flex;align-items:center;gap:2px;
+  margin-bottom:8px;padding-bottom:8px;
+  border-bottom:1px solid var(--border);
+}
+.fmt-btn{
+  width:26px;height:26px;border-radius:6px;border:none;
+  background:transparent;color:var(--muted);cursor:pointer;
+  font-size:12px;font-weight:700;font-family:'DM Sans',sans-serif;
+  display:flex;align-items:center;justify-content:center;
+  transition:all .15s;
+}
+.fmt-btn:hover{background:var(--card);color:var(--text);}
+.fmt-sep{width:1px;height:14px;background:var(--border2);margin:0 3px;}
+.wch-input-row{display:flex;align-items:flex-end;gap:8px;}
+.wch-input-av{
+  width:30px;height:30px;border-radius:8px;flex-shrink:0;
+  background:linear-gradient(135deg,#f0c040,#c8860a);
+  display:flex;align-items:center;justify-content:center;
+  font-size:10px;font-weight:700;color:#fff;
+}
+.wch-textarea{
+  flex:1;min-height:38px;max-height:120px;
+  background:var(--card);border:1px solid var(--border2);
+  border-radius:var(--radius-md);color:var(--text);
+  font-size:14px;font-family:'DM Sans',sans-serif;
+  padding:9px 12px;outline:none;resize:none;
+  line-height:1.4;overflow-y:auto;
+  transition:border-color .15s;
+}
+.wch-textarea:focus{border-color:var(--amber-d);}
+.wch-textarea::placeholder{color:var(--dim);}
+.wch-btns{display:flex;align-items:flex-end;gap:6px;}
+.wch-btn{
+  width:34px;height:34px;border-radius:8px;
+  border:1px solid var(--border2);background:transparent;
+  color:var(--muted);cursor:pointer;font-size:15px;
+  display:flex;align-items:center;justify-content:center;
+  transition:all .15s;
+}
+.wch-btn:hover{border-color:var(--border);color:var(--text);}
+.wch-send{
+  height:34px;padding:0 16px;border-radius:8px;
+  background:var(--amber);border:none;
+  font-size:13px;font-weight:600;color:#fff;
+  cursor:pointer;transition:background .15s;
+  font-family:'DM Sans',sans-serif;
+  white-space:nowrap;
+}
+.wch-send:hover{background:#a86e08;}
+.send-hint{font-size:10px;color:var(--dim);margin-top:6px;text-align:right;}
+
+/* Slow mode */
+.slow-badge{
+  font-size:10px;color:var(--away);
+  display:flex;align-items:center;gap:4px;
+}
+
+/* ════════════════════════════════════
+   MOBILE LAYOUT
+════════════════════════════════════ */
+.phone-frame{
+  width:375px;height:720px;
+  background:var(--bg);border-radius:44px;
+  border:8px solid #1a1a18;overflow:hidden;
+  display:flex;flex-direction:column;
+  box-shadow:0 40px 80px rgba(0,0,0,.7),inset 0 0 0 1px #2a2a28;
+  position:relative;
+}
+.ph-status{
+  height:44px;background:var(--surface);
+  display:flex;align-items:flex-end;justify-content:space-between;
+  padding:0 28px 8px;position:relative;flex-shrink:0;
+}
+.ph-island{
+  position:absolute;top:10px;left:50%;transform:translateX(-50%);
+  width:100px;height:28px;background:#0a0a08;border-radius:14px;
+}
+.ph-time{font-size:13px;font-weight:600;color:var(--text);}
+.ph-icons{display:flex;align-items:center;gap:4px;}
+.ph-icon{font-size:11px;color:var(--text);}
+
+.ph-header{
+  height:52px;background:var(--surface);border-bottom:1px solid var(--border);
+  display:flex;align-items:center;gap:10px;padding:0 14px;flex-shrink:0;
+}
+.ph-back{font-size:22px;color:var(--amber);cursor:pointer;}
+.ph-ch-info{flex:1;min-width:0;}
+.ph-ch-name{font-size:14px;font-weight:600;color:var(--text);}
+.ph-ch-meta{font-size:10px;color:var(--dim);}
+.ph-header-badge{
+  font-size:9px;border-radius:4px;padding:2px 6px;font-weight:600;
+  background:var(--amber-t);color:var(--amber);border:1px solid var(--amber-d);
+}
+
+.ph-messages{
+  flex:1;overflow-y:auto;padding:10px 12px;
+  display:flex;flex-direction:column;gap:0;
+}
+.ph-messages::-webkit-scrollbar{display:none;}
+
+/* Mobile message - slightly more compact */
+.ph-msg-group{display:flex;flex-direction:column;gap:1px;margin-bottom:10px;}
+.ph-mg-header{display:flex;align-items:center;gap:6px;margin-bottom:4px;}
+.ph-mg-av{
+  width:28px;height:28px;border-radius:7px;flex-shrink:0;
+  display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;
+}
+.ph-mg-name{font-size:12px;font-weight:600;color:var(--text);}
+.ph-mg-time{font-size:9px;color:var(--dim);}
+
+.ph-msg-row{padding-left:34px;}
+.ph-msg-row.is-self{padding-left:0;}
+.ph-bubble{
+  display:inline-block;max-width:82%;
+  padding:8px 11px;border-radius:16px;
+  font-size:13px;line-height:1.5;
+  word-break:break-word;
+}
+.ph-bubble.other{
+  background:var(--card2);color:var(--text);
+  border:1px solid var(--border2);
+  border-radius:3px 16px 16px 16px;
+}
+.ph-bubble.self{
+  background:var(--msg-self);color:var(--text);
+  border:1px solid var(--msg-self-b);
+  border-radius:16px 3px 16px 16px;
+  margin-left:auto;display:block;
+}
+
+.ph-time-sep{
+  display:flex;align-items:center;gap:8px;margin:12px 0 8px;
+}
+.ph-ts-line{flex:1;height:1px;background:var(--border);}
+.ph-ts-text{font-size:9px;color:var(--dim);font-weight:500;letter-spacing:.05em;}
+
+/* Mobile input */
+.ph-input{
+  border-top:1px solid var(--border);padding:8px 10px 10px;
+  background:var(--surface);flex-shrink:0;
+}
+.ph-input-row{display:flex;align-items:flex-end;gap:6px;}
+.ph-input-av{
+  width:28px;height:28px;border-radius:7px;flex-shrink:0;
+  background:linear-gradient(135deg,#f0c040,#c8860a);
+  display:flex;align-items:center;justify-content:center;
+  font-size:9px;font-weight:700;color:#fff;
+}
+.ph-input-box{
+  flex:1;background:var(--card);border:1px solid var(--border2);
+  border-radius:20px;padding:7px 12px;
+  font-size:13px;color:var(--dim);font-style:italic;
+  font-family:'DM Sans',sans-serif;
+}
+.ph-input-media{
+  width:32px;height:32px;border-radius:50%;
+  border:1px solid var(--border2);background:transparent;
+  color:var(--muted);font-size:14px;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;
+}
+.ph-input-send{
+  width:32px;height:32px;border-radius:50%;
+  background:var(--amber);border:none;color:#fff;
+  font-size:16px;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;
+}
+.ph-slow{font-size:10px;color:var(--away);margin-top:5px;text-align:center;}
+
+/* ── GIPHY PICKER ── */
+.giphy-picker{
+  background:var(--surface);border-top:1px solid var(--border);
+  flex-shrink:0;
+}
+.gp-header{padding:10px 14px 0;}
+.gp-search-row{display:flex;align-items:center;gap:8px;margin-bottom:8px;}
+.gp-search{
+  flex:1;height:32px;background:var(--card);
+  border:1px solid var(--border2);border-radius:8px;
+  color:var(--text);font-size:13px;font-family:'DM Sans',sans-serif;
+  padding:0 10px;outline:none;transition:border-color .15s;
+}
+.gp-search:focus{border-color:var(--teal);}
+.gp-search::placeholder{color:var(--dim);}
+.gp-close{
+  width:28px;height:28px;border-radius:6px;
+  border:1px solid var(--border2);background:transparent;
+  color:var(--muted);cursor:pointer;font-size:12px;
+  display:flex;align-items:center;justify-content:center;
+  transition:all .15s;
+}
+.gp-close:hover{border-color:var(--border);color:var(--text);}
+.gp-cats{
+  display:flex;gap:5px;overflow-x:auto;padding-bottom:10px;
+  scrollbar-width:none;
+}
+.gp-cats::-webkit-scrollbar{display:none;}
+.gp-cat{
+  height:24px;padding:0 11px;border-radius:99px;
+  border:1px solid var(--border2);background:transparent;
+  font-size:11px;font-weight:500;color:var(--muted);
+  cursor:pointer;white-space:nowrap;transition:all .15s;
+  font-family:'DM Sans',sans-serif;flex-shrink:0;
+}
+.gp-cat:hover{border-color:var(--border);color:var(--text);}
+.gp-cat.act{background:rgba(45,212,191,.12);border-color:#0f766e;color:var(--teal);}
+.gp-grid{
+  display:grid;grid-template-columns:repeat(4,1fr);gap:3px;
+  padding:3px 14px 10px;max-height:180px;overflow-y:auto;
+}
+.gp-grid::-webkit-scrollbar{width:3px;}
+.gp-grid::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px;}
+.gp-gif{
+  aspect-ratio:1.6;border-radius:7px;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  font-size:22px;cursor:pointer;transition:all .15s;
+  position:relative;overflow:hidden;border:1px solid var(--border);
+}
+.gp-gif:hover{transform:scale(1.04);border-color:var(--teal);z-index:1;}
+.gp-gif-label{
+  font-size:9px;color:rgba(255,255,255,.6);margin-top:3px;
+  text-align:center;padding:0 4px;line-height:1.2;
+}
+.gp-attribution{
+  display:flex;align-items:center;justify-content:center;
+  padding:6px 14px 10px;border-top:1px solid var(--border);
+}
+.gp-giphy-logo{height:14px;opacity:.4;filter:grayscale(1);}
+
+/* GIF message bubble */
+.msg-gif{
+  max-width:240px;border-radius:12px;overflow:hidden;
+  border:1px solid var(--border2);margin-top:2px;cursor:pointer;
+  transition:all .15s;position:relative;
+}
+.msg-gif:hover{border-color:var(--teal);}
+.msg-gif-inner{
+  width:100%;aspect-ratio:1.78;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  position:relative;
+}
+.msg-gif-emoji{font-size:36px;margin-bottom:4px;}
+.msg-gif-caption{font-size:10px;color:rgba(255,255,255,.6);letter-spacing:.03em;}
+.msg-gif-badge{
+  position:absolute;bottom:5px;right:5px;
+  background:rgba(0,0,0,.6);border-radius:3px;
+  padding:1px 5px;font-size:8px;font-weight:700;
+  letter-spacing:.06em;color:rgba(255,255,255,.8);
+}
+/* Mobile GIF button */
+.ph-gif-btn{
+  height:32px;padding:0 10px;border-radius:8px;
+  border:1px solid #0f766e;background:rgba(45,212,191,.08);
+  font-size:10px;font-weight:700;letter-spacing:.04em;
+  color:var(--teal);cursor:pointer;font-family:'DM Sans',sans-serif;
+  flex-shrink:0;
+}
+/* Mobile Giphy picker */
+.ph-giphy{
+  background:var(--surface);border-top:1px solid var(--border);
+  flex-shrink:0;
+}
+.ph-gp-search-row{display:flex;gap:6px;align-items:center;padding:8px 10px 6px;}
+.ph-gp-search{
+  flex:1;height:30px;background:var(--card);
+  border:1px solid var(--border2);border-radius:8px;
+  color:var(--text);font-size:12px;font-family:'DM Sans',sans-serif;
+  padding:0 9px;outline:none;
+}
+.ph-gp-search::placeholder{color:var(--dim);}
+.ph-gp-close{
+  width:26px;height:26px;border-radius:6px;
+  border:1px solid var(--border2);background:transparent;
+  color:var(--muted);cursor:pointer;font-size:11px;
+  display:flex;align-items:center;justify-content:center;
+}
+.ph-gp-cats{
+  display:flex;gap:4px;padding:0 10px 7px;
+  overflow-x:auto;scrollbar-width:none;
+}
+.ph-gp-cats::-webkit-scrollbar{display:none;}
+.ph-gp-cat{
+  height:22px;padding:0 9px;border-radius:99px;flex-shrink:0;
+  border:1px solid var(--border2);background:transparent;
+  font-size:10px;color:var(--muted);cursor:pointer;
+  font-family:'DM Sans',sans-serif;white-space:nowrap;
+}
+.ph-gp-cat.act{background:rgba(45,212,191,.12);border-color:#0f766e;color:var(--teal);}
+.ph-gp-grid{
+  display:grid;grid-template-columns:repeat(3,1fr);
+  gap:2px;padding:0 10px;max-height:140px;overflow-y:auto;
+}
+.ph-gp-gif{
+  aspect-ratio:1.6;border-radius:6px;
+  display:flex;flex-direction:column;align-items:center;
+  justify-content:center;font-size:18px;cursor:pointer;
+  border:1px solid var(--border);
+}
+.ph-gp-attribution{
+  display:flex;align-items:center;justify-content:center;
+  padding:5px 10px 8px;border-top:1px solid var(--border);
+  margin-top:4px;
+}
+
+/* ── COMPARISON BOX ── */
+.comparison{
+  display:flex;gap:0;
+  border-top:1px solid var(--border);
+  background:var(--bg);flex-shrink:0;
+}
+.comp-item{
+  flex:1;padding:14px 20px;
+  border-right:1px solid var(--border);
+}
+.comp-item:last-child{border-right:none;}
+.comp-label{font-size:9px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--dim);margin-bottom:8px;}
+.comp-tag{
+  display:inline-block;font-size:10px;font-weight:500;
+  border-radius:4px;padding:2px 8px;margin:2px 3px 2px 0;
+}
+.ct-new{background:var(--amber-t);color:var(--amber);border:1px solid var(--amber-d);}
+.ct-keep{background:rgba(34,197,94,.08);color:var(--green);border:1px solid #14532d;}
+</style>
+</head>
+<body>
+
+<div class="page-header">
+  <h1>A smoother chat.<br><em>Same soul.</em></h1>
+  <p>Less rigid, more breathing room. Grouped messages, hover reactions, bubble-style layout — Discord's smoothness with AIM's warmth.</p>
+  <div class="view-toggle">
+    <button class="vt-btn act" onclick="setView('web',this)">🖥 Web</button>
+    <button class="vt-btn" onclick="setView('mobile',this)">📱 Mobile</button>
+  </div>
+</div>
+
+<div class="demo-area">
+
+<!-- ═══════════════════ WEB VIEW ═══════════════════ -->
+<div id="view-web">
+
+  <!-- Sidebar -->
+  <div class="web-sidebar">
+    <div class="wsb-profile">
+      <div class="wsb-prof-row">
+        <div class="wsb-av">CK<span class="wsb-av-dot"></span></div>
+        <div>
+          <div class="wsb-name">craig_k ★</div>
+        </div>
+      </div>
+      <div class="wsb-away-msg">"windows down, no destination"</div>
+      <div class="wsb-status-grid" style="margin-top:8px;">
+        <div class="wsb-sg-btn act"><span class="wsb-sg-dot" style="background:var(--green);"></span>Online</div>
+        <div class="wsb-sg-btn"><span class="wsb-sg-dot" style="background:var(--away);"></span>Away</div>
+        <div class="wsb-sg-btn"><span class="wsb-sg-dot" style="background:var(--muted);"></span>Idle</div>
+        <div class="wsb-sg-btn"><span class="wsb-sg-dot" style="background:var(--dim);"></span>Invisible</div>
+      </div>
+    </div>
+
+    <div class="wsb-section">
+      <div class="wsb-sec-label">channels</div>
+      <div class="wsb-channel"><span class="wsb-ch-prefix" style="color:var(--muted);">#</span><span class="wsb-ch-name">general</span><span class="wsb-unread">9</span></div>
+      <div class="wsb-channel active"><span class="wsb-ch-prefix">🔒</span><span class="wsb-ch-name">film-nerds</span></div>
+      <div class="wsb-channel"><span class="wsb-ch-prefix">👁</span><span class="wsb-ch-name">rooftop-crew</span><span class="wsb-unread">2</span></div>
+      <div class="wsb-channel"><span class="wsb-ch-prefix" style="color:var(--muted);">#</span><span class="wsb-ch-name">late-nite</span></div>
+
+      <div class="wsb-sec-label" style="margin-top:6px;">direct messages</div>
+      <div class="wsb-dm">
+        <div class="wsb-dm-av" style="background:#1e2a4a;color:#93b4f8;">JR<span class="wsb-dm-dot" style="background:var(--green);"></span></div>
+        <div class="wsb-dm-name">j_russo ★</div>
+        <div class="wsb-dm-away">✦ grateful</div>
+      </div>
+      <div class="wsb-dm">
+        <div class="wsb-dm-av" style="background:#2d1a2a;color:#f0a0c8;">PW<span class="wsb-dm-dot" style="background:var(--green);"></span></div>
+        <div class="wsb-dm-name">pam_w</div>
+        <div class="wsb-dm-away">making soup</div>
+      </div>
+      <div class="wsb-dm">
+        <div class="wsb-dm-av" style="background:#0f2a1a;color:#6ee7b7;">MB<span class="wsb-dm-dot" style="background:var(--away);"></span></div>
+        <div class="wsb-dm-name">mikeyb</div>
+        <div class="wsb-dm-away">at the studio</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Chat -->
+  <div class="web-chat">
+    <div class="wch-header">
+      <span class="wch-prefix">🔒</span>
+      <span class="wch-name">film-nerds</span>
+      <span class="wch-badge">invite only</span>
+      <span class="wch-members">47 members · 10 min slow mode</span>
+      <button class="wch-invite">Invite</button>
+    </div>
+
+    <!-- Away banner for someone in channel -->
+    <div class="away-banner">
+      <div class="ab-label">pam_w</div>
+      <div class="ab-text">"making soup. logging off early. talk tomorrow."</div>
+      <div class="ab-time">set 18 min ago</div>
+    </div>
+
+    <div class="wch-messages" id="web-messages">
+
+      <div class="time-sep">
+        <div class="time-sep-line"></div>
+        <div class="time-sep-text">Today at 2:14 PM</div>
+        <div class="time-sep-line"></div>
+      </div>
+
+      <!-- Message group 1: j_russo -->
+      <div class="msg-group">
+        <div class="msg-group-header">
+          <div class="mg-av" style="background:#1e2a4a;color:#93b4f8;" onclick="alert('Navigate to j_russo profile')">JR</div>
+          <span class="mg-name" onclick="alert('Navigate to j_russo profile')">j_russo</span>
+          <span class="mg-gold">★</span>
+          <span class="mg-time">2:14 PM</span>
+        </div>
+        <div class="msg-row">
+          <div class="msg-bubble other first">watched <em style="color:#6a6860;">In the Mood for Love</em> again last night. that cinematography is genuinely unfair to every other film.</div>
+          <div class="reaction-hover">
+            <button class="rh-btn" onclick="addReact(this,'🌧')">🌧</button>
+            <button class="rh-btn" onclick="addReact(this,'🫂')">🫂</button>
+            <button class="rh-btn" onclick="addReact(this,'💀')">💀</button>
+            <button class="rh-btn" onclick="addReact(this,'+')">+</button>
+          </div>
+        </div>
+        <div class="msg-row">
+          <div class="msg-bubble other">christopher doyle shoots film like he invented the concept of longing</div>
+          <div class="reaction-hover">
+            <button class="rh-btn" onclick="addReact(this,'🌧')">🌧</button>
+            <button class="rh-btn" onclick="addReact(this,'🫂')">🫂</button>
+            <button class="rh-btn" onclick="addReact(this,'💀')">💀</button>
+            <button class="rh-btn">+</button>
+          </div>
+        </div>
+        <div class="msg-row">
+          <div class="msg-bubble other last">also: the use of the Nat King Cole songs. I can't.</div>
+          <div class="reaction-hover">
+            <button class="rh-btn">🌧</button>
+            <button class="rh-btn">🫂</button>
+            <button class="rh-btn">💀</button>
+            <button class="rh-btn">+</button>
+          </div>
+        </div>
+        <div class="thread-link">💬 3 replies · last by pam_w</div>
+      </div>
+
+      <!-- Message group 2: pam_w -->
+      <div class="msg-group">
+        <div class="msg-group-header">
+          <div class="mg-av" style="background:#2d1a2a;color:#f0a0c8;">PW</div>
+          <span class="mg-name">pam_w</span>
+          <span class="mg-time">2:31 PM</span>
+        </div>
+        <div class="msg-row">
+          <div class="msg-bubble other first">I've been thinking about this. slow cinema requires a different kind of attention — you have to let go of the need for something to happen</div>
+          <div class="reaction-hover">
+            <button class="rh-btn">🌧</button><button class="rh-btn">🫂</button><button class="rh-btn">💀</button><button class="rh-btn">+</button>
+          </div>
+        </div>
+        <div class="msg-row">
+          <div class="msg-bubble other last">which is basically everything the internet trained us NOT to do</div>
+          <div class="reaction-hover">
+            <button class="rh-btn">🌧</button><button class="rh-btn">🫂</button><button class="rh-btn">💀</button><button class="rh-btn">+</button>
+          </div>
+        </div>
+        <div class="msg-reactions">
+          <div class="react-pill"><span>🫂</span><span class="react-count">5</span></div>
+          <div class="react-pill active"><span>💀</span><span class="react-count">3</span></div>
+        </div>
+      </div>
+
+      <!-- Message group 3: mikeyb (now with a GIF) -->
+      <div class="msg-group">
+        <div class="msg-group-header">
+          <div class="mg-av" style="background:#0f2a1a;color:#6ee7b7;">MB</div>
+          <span class="mg-name">mikeyb</span>
+          <span class="mg-time">2:58 PM</span>
+        </div>
+        <div class="msg-row">
+          <div class="msg-bubble other first">Tarkovsky is the ceiling for this. Stalker and everything else becomes relative</div>
+          <div class="reaction-hover"><button class="rh-btn">🌧</button><button class="rh-btn">🫂</button><button class="rh-btn">💀</button><button class="rh-btn">+</button></div>
+        </div>
+        <div class="msg-row" style="margin-top:3px;">
+          <div>
+            <div class="msg-gif">
+              <div class="msg-gif-inner" style="background:linear-gradient(135deg,#0a0a28,#1a0a3a);">
+                <div class="msg-gif-emoji">🎬</div>
+                <div class="msg-gif-caption">mind blown</div>
+                <div class="msg-gif-badge">GIF</div>
+              </div>
+            </div>
+            <div style="font-size:9px;color:var(--dim);margin-top:3px;padding-left:2px;display:flex;align-items:center;gap:4px;">
+              <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/3/38/GIPHY_logo.svg/200px-GIPHY_logo.svg.png" alt="GIPHY" style="height:10px;opacity:.35;filter:grayscale(1);" onerror="this.replaceWith(Object.assign(document.createElement('span'),{textContent:'GIPHY',style:'font-size:8px;font-weight:700;letter-spacing:.06em;color:var(--dim);'}))" />
+            </div>
+          </div>
+          <div class="reaction-hover"><button class="rh-btn">🌧</button><button class="rh-btn">🫂</button><button class="rh-btn">💀</button><button class="rh-btn">+</button></div>
+        </div>
+        <div class="msg-reactions">
+          <div class="react-pill active"><span>🌧</span><span class="react-count">8</span></div>
+          <div class="react-pill"><span>✨</span><span class="react-count">2</span></div>
+        </div>
+      </div>
+
+      <div class="time-sep">
+        <div class="time-sep-line"></div>
+        <div class="time-sep-text">3:12 PM</div>
+        <div class="time-sep-line"></div>
+      </div>
+
+      <!-- Self messages -->
+      <div class="msg-group">
+        <div class="msg-group-header" style="justify-content:flex-end;">
+          <span class="mg-time">3:12 PM</span>
+          <span class="mg-name is-self">craig_k</span>
+          <span class="mg-gold">★</span>
+          <div class="mg-av" style="background:linear-gradient(135deg,#f0c040,#c8860a);color:#fff;">CK</div>
+        </div>
+        <div class="msg-row is-self">
+          <div class="msg-bubble self first">@mikeyb yes — and I think what makes Stalker specifically so unnerving is the Zone doesn't care about you. it's not hostile. it's indifferent.</div>
+          <div class="reaction-hover">
+            <button class="rh-btn">🌧</button><button class="rh-btn">🫂</button><button class="rh-btn">💀</button><button class="rh-btn">+</button>
+          </div>
+        </div>
+        <div class="msg-row is-self">
+          <div class="msg-bubble self last">which is so much more frightening than malevolence</div>
+          <div class="reaction-hover">
+            <button class="rh-btn">🌧</button><button class="rh-btn">🫂</button><button class="rh-btn">💀</button><button class="rh-btn">+</button>
+          </div>
+        </div>
+        <div class="msg-reactions is-self">
+          <div class="react-pill"><span>💀</span><span class="react-count">4</span></div>
+          <div class="react-pill"><span>🫂</span><span class="react-count">2</span></div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Typing indicator -->
+    <div class="typing-indicator">
+      <div class="typing-dots"><div class="td"></div><div class="td"></div><div class="td"></div></div>
+      <span style="font-size:11px;color:var(--dim);">j_russo is typing</span>
+    </div>
+
+    <!-- Giphy picker (hidden by default) -->
+    <div class="giphy-picker" id="giphy-picker" style="display:none;">
+      <div class="gp-header">
+        <div class="gp-search-row">
+          <input class="gp-search" id="gp-search" placeholder="Search GIFs…" oninput="filterGifs(this.value)" />
+          <button class="gp-close" onclick="closeGiphy()">✕</button>
+        </div>
+        <div class="gp-cats">
+          <button class="gp-cat act" onclick="setCat(this,'trending')">Trending</button>
+          <button class="gp-cat" onclick="setCat(this,'reaction')">Reaction</button>
+          <button class="gp-cat" onclick="setCat(this,'film')">Film</button>
+          <button class="gp-cat" onclick="setCat(this,'cinema')">Cinema</button>
+          <button class="gp-cat" onclick="setCat(this,'mood')">Mood</button>
+          <button class="gp-cat" onclick="setCat(this,'space')">Space</button>
+        </div>
+      </div>
+      <div class="gp-grid" id="gp-grid">
+        <!-- GIF placeholders — in real app these come from GIPHY API -->
+        <div class="gp-gif" onclick="sendGif('rain')" style="background:linear-gradient(135deg,#0a1428,#1e3a5a);">🌧<span class="gp-gif-label">rain window</span></div>
+        <div class="gp-gif" onclick="sendGif('cinema')" style="background:linear-gradient(135deg,#1a0a28,#3a1a5a);">🎬<span class="gp-gif-label">old film reel</span></div>
+        <div class="gp-gif" onclick="sendGif('mind blown')" style="background:linear-gradient(135deg,#280a0a,#5a1a1a);">🤯<span class="gp-gif-label">mind blown</span></div>
+        <div class="gp-gif" onclick="sendGif('chef kiss')" style="background:linear-gradient(135deg,#0a2814,#1a5a2a);">🤌<span class="gp-gif-label">chef's kiss</span></div>
+        <div class="gp-gif" onclick="sendGif('thinking')" style="background:linear-gradient(135deg,#1a1a0a,#3a3a1a);">🤔<span class="gp-gif-label">thinking</span></div>
+        <div class="gp-gif" onclick="sendGif('slow clap')" style="background:linear-gradient(135deg,#0a1428,#1a2a3a);">👏<span class="gp-gif-label">slow clap</span></div>
+        <div class="gp-gif" onclick="sendGif('nod')" style="background:linear-gradient(135deg,#1a0a28,#2a1a3a);">🙂<span class="gp-gif-label">slow nod</span></div>
+        <div class="gp-gif" onclick="sendGif('wow')" style="background:linear-gradient(135deg,#280a14,#3a1a24);">😮<span class="gp-gif-label">wow face</span></div>
+      </div>
+      <div class="gp-attribution">
+        <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/3/38/GIPHY_logo.svg/200px-GIPHY_logo.svg.png" alt="Powered by GIPHY" class="gp-giphy-logo" onerror="this.replaceWith(Object.assign(document.createElement('span'),{textContent:'Powered by GIPHY',style:'font-size:9px;font-weight:700;letter-spacing:.08em;color:#6a6860;'}))" />
+      </div>
+    </div>
+
+    <!-- Input area -->
+    <div class="wch-input">
+      <div class="wch-fmt-bar">
+        <button class="fmt-btn" title="Bold"><b>B</b></button>
+        <button class="fmt-btn" title="Italic"><i>I</i></button>
+        <button class="fmt-btn" title="Underline"><u>U</u></button>
+        <button class="fmt-btn" title="Strike"><s>S</s></button>
+        <div class="fmt-sep"></div>
+        <button class="fmt-btn" title="Link">🔗</button>
+        <button class="fmt-btn" title="Quote">❝</button>
+        <button class="fmt-btn" style="font-size:10px;" title="Code">&lt;/&gt;</button>
+        <div class="fmt-sep"></div>
+        <div class="slow-badge">🕐 8:42 until next message</div>
+      </div>
+      <div class="wch-input-row">
+        <div class="wch-input-av">CK</div>
+        <textarea class="wch-textarea" placeholder="Message # film-nerds..." rows="1" oninput="autoResize(this)"></textarea>
+        <div class="wch-btns">
+          <button class="wch-btn">📷</button>
+          <button class="wch-btn gif-btn" id="gif-toggle-btn" title="GIF" onclick="toggleGiphy()" style="font-size:10px;font-weight:700;letter-spacing:.02em;color:var(--teal);border-color:var(--teal-dim,#0f766e);">GIF</button>
+          <button class="wch-send">Send</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════ MOBILE VIEW ═══════════════════ -->
+<div id="view-mobile">
+  <div class="phone-frame">
+    <div class="ph-status">
+      <div class="ph-island"></div>
+      <div class="ph-time">9:41</div>
+      <div class="ph-icons">
+        <span class="ph-icon">●●●●</span>
+        <span class="ph-icon">▲</span>
+        <span class="ph-icon">⬛</span>
+      </div>
+    </div>
+    <div class="ph-header">
+      <div class="ph-back">‹</div>
+      <div class="ph-ch-info">
+        <div class="ph-ch-name">🔒 film-nerds <span class="ph-header-badge">invite only</span></div>
+        <div class="ph-ch-meta">47 members · slow mode</div>
+      </div>
+      <button style="height:26px;padding:0 10px;border-radius:6px;border:1px solid var(--border2);background:transparent;font-size:10px;color:var(--muted);cursor:pointer;font-family:'DM Sans',sans-serif;">Invite</button>
+    </div>
+
+    <div class="ph-messages">
+
+      <div class="ph-time-sep">
+        <div class="ph-ts-line"></div>
+        <div class="ph-ts-text">Today 2:14 PM</div>
+        <div class="ph-ts-line"></div>
+      </div>
+
+      <div class="ph-msg-group">
+        <div class="ph-mg-header">
+          <div class="ph-mg-av" style="background:#1e2a4a;color:#93b4f8;">JR</div>
+          <span class="ph-mg-name">j_russo ★</span>
+          <span class="ph-mg-time" style="margin-left:4px;">2:14</span>
+        </div>
+        <div class="ph-msg-row">
+          <div class="ph-bubble other">watched <em style="color:#6a6860;">In the Mood for Love</em> again. that cinematography is unfair to every other film.</div>
+        </div>
+        <div class="ph-msg-row" style="margin-top:2px;">
+          <div class="ph-bubble other">christopher doyle shoots like he invented the concept of longing</div>
+        </div>
+        <div style="padding-left:34px;margin-top:4px;display:flex;gap:4px;">
+          <div class="react-pill"><span>🌧</span><span class="react-count">5</span></div>
+        </div>
+        <div style="padding-left:34px;margin-top:3px;font-size:10px;color:var(--amber);">💬 3 replies</div>
+      </div>
+
+      <div class="ph-msg-group">
+        <div class="ph-mg-header">
+          <div class="ph-mg-av" style="background:#0f2a1a;color:#6ee7b7;">MB</div>
+          <span class="ph-mg-name">mikeyb</span>
+          <span class="ph-mg-time" style="margin-left:4px;">2:58</span>
+        </div>
+        <div class="ph-msg-row">
+          <div class="ph-bubble other">Tarkovsky is the ceiling for this. Stalker and everything else becomes relative</div>
+        </div>
+        <div class="ph-msg-row" style="margin-top:3px;">
+          <div>
+            <div style="max-width:200px;border-radius:10px;overflow:hidden;border:1px solid var(--border2);">
+              <div style="width:100%;aspect-ratio:1.78;background:linear-gradient(135deg,#0a0a28,#1a0a3a);display:flex;flex-direction:column;align-items:center;justify-content:center;position:relative;">
+                <div style="font-size:28px;">🤯</div>
+                <div style="font-size:9px;color:rgba(255,255,255,.5);margin-top:2px;">mind blown</div>
+                <div style="position:absolute;bottom:4px;right:4px;background:rgba(0,0,0,.6);border-radius:3px;padding:1px 4px;font-size:7px;font-weight:700;color:rgba(255,255,255,.7);">GIF</div>
+              </div>
+            </div>
+            <div style="margin-top:2px;padding-left:1px;">
+              <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/3/38/GIPHY_logo.svg/200px-GIPHY_logo.svg.png" alt="GIPHY" style="height:9px;opacity:.3;filter:grayscale(1);" onerror="this.replaceWith(Object.assign(document.createElement('span'),{textContent:'GIPHY',style:'font-size:8px;font-weight:700;letter-spacing:.06em;color:var(--dim);'}))" />
+            </div>
+          </div>
+        </div>
+        <div style="padding-left:34px;margin-top:4px;display:flex;gap:4px;">
+          <div class="react-pill active"><span>🌧</span><span class="react-count">8</span></div>
+          <div class="react-pill"><span>✨</span><span class="react-count">2</span></div>
+        </div>
+      </div>
+
+      <div class="ph-time-sep">
+        <div class="ph-ts-line"></div>
+        <div class="ph-ts-text">3:12 PM</div>
+        <div class="ph-ts-line"></div>
+      </div>
+
+      <div class="ph-msg-group">
+        <div class="ph-mg-header" style="justify-content:flex-end;">
+          <span class="ph-mg-time">3:12</span>
+          <span class="ph-mg-name" style="color:var(--amber);">craig_k ★</span>
+          <div class="ph-mg-av" style="background:linear-gradient(135deg,#f0c040,#c8860a);color:#fff;">CK</div>
+        </div>
+        <div class="ph-msg-row is-self">
+          <div class="ph-bubble self">the Zone doesn't care about you. not hostile — indifferent. that's so much more frightening than malevolence</div>
+        </div>
+        <div style="margin-top:4px;display:flex;gap:4px;justify-content:flex-end;">
+          <div class="react-pill"><span>💀</span><span class="react-count">4</span></div>
+        </div>
+      </div>
+
+      <div style="display:flex;align-items:center;gap:6px;padding:8px 0 4px;">
+        <div style="display:flex;gap:3px;align-items:center;margin-left:2px;">
+          <div class="td"></div><div class="td"></div><div class="td"></div>
+        </div>
+        <span style="font-size:10px;color:var(--dim);">j_russo is typing</span>
+      </div>
+
+    </div>
+
+    <!-- Mobile Giphy picker -->
+    <div class="ph-giphy" id="ph-giphy" style="display:none;">
+      <div class="ph-gp-search-row">
+        <input class="ph-gp-search" placeholder="Search GIFs…" />
+        <button class="ph-gp-close" onclick="closeMobileGiphy()">✕</button>
+      </div>
+      <div class="ph-gp-cats">
+        <button class="ph-gp-cat act">Trending</button>
+        <button class="ph-gp-cat">Reaction</button>
+        <button class="ph-gp-cat">Film</button>
+        <button class="ph-gp-cat">Mood</button>
+        <button class="ph-gp-cat">Space</button>
+      </div>
+      <div class="ph-gp-grid">
+        <div class="ph-gp-gif" style="background:linear-gradient(135deg,#0a1428,#1e3a5a);" onclick="sendMobileGif('🌧')">🌧</div>
+        <div class="ph-gp-gif" style="background:linear-gradient(135deg,#1a0a28,#3a1a5a);" onclick="sendMobileGif('🎬')">🎬</div>
+        <div class="ph-gp-gif" style="background:linear-gradient(135deg,#280a0a,#5a1a1a);" onclick="sendMobileGif('🤯')">🤯</div>
+        <div class="ph-gp-gif" style="background:linear-gradient(135deg,#0a2814,#1a5a2a);" onclick="sendMobileGif('🤌')">🤌</div>
+        <div class="ph-gp-gif" style="background:linear-gradient(135deg,#1a1a0a,#3a3a1a);" onclick="sendMobileGif('🤔')">🤔</div>
+        <div class="ph-gp-gif" style="background:linear-gradient(135deg,#280a14,#3a1a24);" onclick="sendMobileGif('😮')">😮</div>
+      </div>
+      <div class="ph-gp-attribution">
+        <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/3/38/GIPHY_logo.svg/200px-GIPHY_logo.svg.png" alt="Powered by GIPHY" style="height:12px;opacity:.35;filter:grayscale(1);" onerror="this.replaceWith(Object.assign(document.createElement('span'),{textContent:'Powered by GIPHY',style:'font-size:9px;font-weight:700;letter-spacing:.06em;color:var(--dim);'}))" />
+      </div>
+    </div>
+
+    <div class="ph-input">
+      <div class="ph-input-row">
+        <div class="ph-input-av">CK</div>
+        <div class="ph-input-box" id="ph-input-display">Message # film-nerds...</div>
+        <button class="ph-gif-btn" onclick="toggleMobileGiphy()">GIF</button>
+        <div class="ph-input-media">📷</div>
+        <div class="ph-input-send" style="font-size:12px;">↑</div>
+      </div>
+      <div class="ph-slow">🕐 slow mode · 8 min 42 sec remaining</div>
+    </div>
+
+  </div>
+</div>
+
+</div><!-- demo-area -->
+
+<!-- What changed -->
+<div class="comparison">
+  <div class="comp-item">
+    <div class="comp-label">What's new</div>
+    <span class="comp-tag ct-new">Grouped messages</span>
+    <span class="comp-tag ct-new">Bubble shapes</span>
+    <span class="comp-tag ct-new">Hover reactions</span>
+    <span class="comp-tag ct-new">Time separators</span>
+    <span class="comp-tag ct-new">Typing indicator</span>
+    <span class="comp-tag ct-new">Away banner</span>
+  </div>
+  <div class="comp-item">
+    <div class="comp-label">Still AIM</div>
+    <span class="comp-tag ct-keep">Away messages visible</span>
+    <span class="comp-tag ct-keep">Status dots</span>
+    <span class="comp-tag ct-keep">Slow mode</span>
+    <span class="comp-tag ct-keep">Amber amber amber</span>
+    <span class="comp-tag ct-keep">No read receipts</span>
+    <span class="comp-tag ct-keep">Invite-only rooms</span>
+  </div>
+</div>
+
+<script>
+function setView(v, btn) {
+  document.querySelectorAll('.vt-btn').forEach(b => b.classList.remove('act'))
+  btn.classList.add('act')
+  document.getElementById('view-web').style.display = v === 'web' ? 'flex' : 'none'
+  const mob = document.getElementById('view-mobile')
+  mob.style.display = v === 'mobile' ? 'flex' : 'none'
+}
+
+function autoResize(el) {
+  el.style.height = 'auto'
+  el.style.height = Math.min(el.scrollHeight, 120) + 'px'
+}
+
+// ── WEB GIPHY ──────────────────────────────────────────
+let giphyOpen = false
+function toggleGiphy() {
+  giphyOpen = !giphyOpen
+  const picker = document.getElementById('giphy-picker')
+  const btn = document.getElementById('gif-toggle-btn')
+  picker.style.display = giphyOpen ? 'block' : 'none'
+  btn.style.background = giphyOpen ? 'rgba(45,212,191,.15)' : 'transparent'
+  if (giphyOpen) document.getElementById('gp-search').focus()
+}
+function closeGiphy() {
+  giphyOpen = false
+  document.getElementById('giphy-picker').style.display = 'none'
+  document.getElementById('gif-toggle-btn').style.background = 'transparent'
+}
+function setCat(btn, cat) {
+  document.querySelectorAll('.gp-cat').forEach(b => b.classList.remove('act'))
+  btn.classList.add('act')
+}
+function filterGifs(q) {
+  const gifs = document.querySelectorAll('.gp-gif')
+  gifs.forEach(g => {
+    const label = g.querySelector('.gp-gif-label')?.textContent.toLowerCase() || ''
+    g.style.opacity = (!q || label.includes(q.toLowerCase())) ? '1' : '0.25'
+  })
+}
+function sendGif(label) {
+  // Build a new GIF message in the web chat
+  const msgs = document.getElementById('web-messages')
+  const colors = {
+    'rain':['#0a1428','#1e3a5a','🌧'],
+    'cinema':['#1a0a28','#3a1a5a','🎬'],
+    'mind blown':['#280a0a','#5a1a1a','🤯'],
+    'chef kiss':['#0a2814','#1a5a2a','🤌'],
+    'thinking':['#1a1a0a','#3a3a1a','🤔'],
+    'slow clap':['#0a1428','#1a2a3a','👏'],
+    'nod':['#1a0a28','#2a1a3a','🙂'],
+    'wow':['#280a14','#3a1a24','😮'],
+  }
+  const [c1,c2,emoji] = colors[label] || ['#0a0a18','#1a1a28','✨']
+
+  const group = document.createElement('div')
+  group.className = 'msg-group'
+  group.innerHTML = `
+    <div class="msg-group-header" style="justify-content:flex-end;">
+      <span class="mg-time">just now</span>
+      <span class="mg-name is-self">craig_k</span>
+      <span class="mg-gold">★</span>
+      <div class="mg-av" style="background:linear-gradient(135deg,#f0c040,#c8860a);color:#fff;">CK</div>
+    </div>
+    <div class="msg-row is-self">
+      <div>
+        <div class="msg-gif">
+          <div class="msg-gif-inner" style="background:linear-gradient(135deg,${c1},${c2});">
+            <div class="msg-gif-emoji">${emoji}</div>
+            <div class="msg-gif-caption">${label}</div>
+            <div class="msg-gif-badge">GIF</div>
+          </div>
+        </div>
+        <div style="font-size:9px;color:var(--dim);margin-top:3px;display:flex;justify-content:flex-end;">
+          <span style="font-size:8px;font-weight:700;letter-spacing:.06em;color:var(--dim);">Powered by GIPHY</span>
+        </div>
+      </div>
+    </div>`
+  msgs.appendChild(group)
+  msgs.scrollTop = msgs.scrollHeight
+  closeGiphy()
+}
+
+// ── MOBILE GIPHY ──────────────────────────────────────
+let mobileGiphyOpen = false
+function toggleMobileGiphy() {
+  mobileGiphyOpen = !mobileGiphyOpen
+  const picker = document.getElementById('ph-giphy')
+  picker.style.display = mobileGiphyOpen ? 'block' : 'none'
+}
+function closeMobileGiphy() {
+  mobileGiphyOpen = false
+  document.getElementById('ph-giphy').style.display = 'none'
+}
+function sendMobileGif(emoji) {
+  const msgs = document.querySelector('.ph-messages')
+  const group = document.createElement('div')
+  group.className = 'ph-msg-group'
+  group.innerHTML = `
+    <div class="ph-mg-header" style="justify-content:flex-end;">
+      <span class="ph-mg-time">now</span>
+      <span class="ph-mg-name" style="color:var(--amber);">craig_k ★</span>
+      <div class="ph-mg-av" style="background:linear-gradient(135deg,#f0c040,#c8860a);color:#fff;">CK</div>
+    </div>
+    <div class="ph-msg-row is-self">
+      <div>
+        <div style="max-width:180px;border-radius:10px;overflow:hidden;border:1px solid var(--msg-self-b);margin-left:auto;">
+          <div style="width:100%;aspect-ratio:1.78;background:linear-gradient(135deg,#1a0a00,#3a2000);display:flex;flex-direction:column;align-items:center;justify-content:center;position:relative;">
+            <div style="font-size:26px;">${emoji}</div>
+            <div style="position:absolute;bottom:4px;right:4px;background:rgba(0,0,0,.6);border-radius:3px;padding:1px 4px;font-size:7px;font-weight:700;color:rgba(255,255,255,.7);">GIF</div>
+          </div>
+        </div>
+        <div style="margin-top:2px;text-align:right;">
+          <span style="font-size:8px;font-weight:700;letter-spacing:.06em;color:var(--dim);">Powered by GIPHY</span>
+        </div>
+      </div>
+    </div>`
+  msgs.appendChild(group)
+  msgs.scrollTop = msgs.scrollHeight
+  closeMobileGiphy()
+
+  // Update input display to show something was "sent"
+  const inputDisplay = document.getElementById('ph-input-display')
+  if (inputDisplay) {
+    inputDisplay.textContent = 'GIF sent ✓'
+    inputDisplay.style.color = 'var(--teal)'
+    setTimeout(() => {
+      inputDisplay.textContent = 'Message # film-nerds...'
+      inputDisplay.style.color = ''
+    }, 1500)
+  }
+}
+
+// ── REACTIONS ────────────────────────────────────────
+function addReact(btn, emoji) {
+  const row = btn.closest('.msg-row')
+  let reactionsDiv = row.nextElementSibling
+  if (!reactionsDiv || !reactionsDiv.classList.contains('msg-reactions')) {
+    reactionsDiv = document.createElement('div')
+    reactionsDiv.className = 'msg-reactions' + (row.classList.contains('is-self') ? ' is-self' : '')
+    row.parentNode.insertBefore(reactionsDiv, row.nextSibling)
+  }
+  const existing = Array.from(reactionsDiv.querySelectorAll('.react-pill')).find(p => p.querySelector('span')?.textContent === emoji)
+  if (existing) {
+    const count = existing.querySelector('.react-count')
+    count.textContent = parseInt(count.textContent) + 1
+    existing.classList.add('active')
+  } else if (emoji !== '+') {
+    const pill = document.createElement('div')
+    pill.className = 'react-pill active'
+    pill.innerHTML = `<span>${emoji}</span><span class="react-count">1</span>`
+    pill.addEventListener('click', () => {
+      const c = pill.querySelector('.react-count')
+      const n = parseInt(c.textContent) - 1
+      if (n <= 0) { pill.remove() } else { c.textContent = n; pill.classList.remove('active') }
+    })
+    reactionsDiv.appendChild(pill)
+  }
+}
+
+// Category tabs on mobile (just visual toggle)
+document.querySelectorAll('.ph-gp-cat').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.ph-gp-cat').forEach(b => b.classList.remove('act'))
+    btn.classList.add('act')
+  })
+})
+
+// Scroll to bottom on load
+const webMsgs = document.getElementById('web-messages')
+if (webMsgs) webMsgs.scrollTop = webMsgs.scrollHeight
+</script>
+</body>
+</html>

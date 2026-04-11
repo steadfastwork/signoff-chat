@@ -1,31 +1,23 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { GiphyFetch } from "@giphy/js-fetch-api";
-import type IGif from "@giphy/js-types/dist/gif";
-
-const gf = new GiphyFetch(process.env.NEXT_PUBLIC_GIPHY_API_KEY ?? "");
 
 export interface GifResult {
   id: string;
-  url: string;          // original/downsized CDN URL
-  previewUrl: string;   // fixed_width_small preview
+  url: string;
+  previewUrl: string;
   width: number;
   height: number;
   title: string;
 }
 
-function toGifResult(gif: IGif): GifResult {
-  const orig = gif.images.original;
-  const preview = gif.images.fixed_width_small ?? gif.images.fixed_width;
-  return {
-    id: String(gif.id),
-    url: orig.url,
-    previewUrl: preview.url ?? orig.url,
-    width: Number(orig.width),
-    height: Number(orig.height),
-    title: gif.title ?? "",
-  };
+async function fetchGifs(type: "trending" | "search", q?: string): Promise<GifResult[]> {
+  const params = new URLSearchParams({ type, limit: "24" });
+  if (type === "search" && q) params.set("q", q);
+  const res = await fetch(`/api/giphy?${params}`);
+  if (!res.ok) throw new Error("giphy fetch failed");
+  const data = await res.json();
+  return data.gifs ?? [];
 }
 
 interface GiphyPickerProps {
@@ -45,11 +37,10 @@ export function GiphyPicker({ onSelect, onClose }: GiphyPickerProps) {
   useEffect(() => {
     setLoading(true);
     setApiError(null);
-    gf.trending({ limit: 24 })
-      .then((res) => setGifs(res.data.map(toGifResult)))
-      .catch((err) => {
-        console.error("[GiphyPicker] trending failed:", err);
-        setApiError("could not load GIFs — check NEXT_PUBLIC_GIPHY_API_KEY");
+    fetchGifs("trending")
+      .then(setGifs)
+      .catch(() => {
+        setApiError("could not load GIFs");
         setGifs([]);
       })
       .finally(() => setLoading(false));
@@ -58,28 +49,14 @@ export function GiphyPicker({ onSelect, onClose }: GiphyPickerProps) {
 
   // Search on query change (debounced)
   useEffect(() => {
-    if (!query.trim()) {
-      // Back to trending
-      setLoading(true);
-      setApiError(null);
-      gf.trending({ limit: 24 })
-        .then((res) => setGifs(res.data.map(toGifResult)))
-        .catch((err) => {
-          console.error("[GiphyPicker] trending failed:", err);
-          setApiError("could not load GIFs — check NEXT_PUBLIC_GIPHY_API_KEY");
-          setGifs([]);
-        })
-        .finally(() => setLoading(false));
-      return;
-    }
+    const type = query.trim() ? "search" : "trending";
     const timer = setTimeout(() => {
       setLoading(true);
       setApiError(null);
-      gf.search(query, { limit: 24 })
-        .then((res) => setGifs(res.data.map(toGifResult)))
-        .catch((err) => {
-          console.error("[GiphyPicker] search failed:", err);
-          setApiError("could not load GIFs — check NEXT_PUBLIC_GIPHY_API_KEY");
+      fetchGifs(type, query.trim() || undefined)
+        .then(setGifs)
+        .catch(() => {
+          setApiError("could not load GIFs");
           setGifs([]);
         })
         .finally(() => setLoading(false));
@@ -121,10 +98,7 @@ export function GiphyPicker({ onSelect, onClose }: GiphyPickerProps) {
       </div>
 
       {/* GIF grid */}
-      <div
-        className="overflow-y-auto p-2"
-        style={{ maxHeight: 284 }}
-      >
+      <div className="overflow-y-auto p-2" style={{ maxHeight: 284 }}>
         {loading ? (
           <p className="text-center text-[11px] font-mono py-8" style={{ color: "var(--text-dim)" }}>
             loading…
@@ -163,7 +137,6 @@ export function GiphyPicker({ onSelect, onClose }: GiphyPickerProps) {
           </div>
         )}
 
-        {/* Giphy attribution */}
         <p className="text-center text-[9px] font-mono mt-2" style={{ color: "var(--text-dim)" }}>
           Powered by GIPHY
         </p>

@@ -9,6 +9,8 @@ declare module "next-auth" {
     adminRole: string | null;
     isSuspended: boolean;
     suspendedUntil: string | null;
+    onboardingComplete: boolean;
+    onboardingStep: number;
   }
 
   interface Session {
@@ -32,5 +34,7 @@ declare module "next-auth/jwt" {
     isSuspended: boolean;
     suspendedUntil: string | null;
     suspensionCheckedAt: number;
+    onboardingComplete: boolean;
+    onboardingStep: number;
   }
 }

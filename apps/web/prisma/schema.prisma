@@ -75,6 +75,11 @@ enum FeedVisibility {
   PRIVATE   // only the user themselves can see posts
 }
 
+enum BadgeType {
+  FOUNDER
+  FOUNDING_DONOR
+}
+
 enum ChannelCategory {
   GAMING
   MUSIC
@@ -104,7 +109,9 @@ model User {
   emailHash    String     @unique
   passwordHash String
   bio          String?    @db.VarChar(160)
-  awayMessage  String?    @db.VarChar(140)
+  awayMessage      String?    @db.VarChar(140)
+  awayMessageSetAt DateTime?
+  currently        Json?      @default("{}")
   status       UserStatus @default(OFFLINE)
   // lastSeen intentionally omitted — we do not record activity timestamps.
   // See PRIVACY-ARCHITECTURE.md §4.
@@ -115,6 +122,16 @@ model User {
   avatarUrl         String?    // Gold only — UploadThing CDN URL
   soundPack         String?    // Gold only: "classic" | "retro" | "minimal" | null (= off)
   stripeCustomerId  String?    @unique
+
+  // Encrypted email for digest delivery — stored separately from emailHash
+  emailEncrypted     String?  // AES-256-GCM encrypted email (base64)
+  emailNonce         String?  // 12-byte IV (base64)
+
+  // Digest settings
+  digestEnabled      Boolean  @default(false)
+  digestTime         String   @default("09:00")   // "HH:MM" 24h local time
+  digestTimezone     String   @default("UTC")
+  digestLastSentAt   DateTime?
 
   // Push notifications — cleared on logout and account deletion
   expoPushToken   String?
@@ -129,6 +146,15 @@ model User {
   // Post-quantum encryption
   mlkemPublicKey     String?   // base64 ML-KEM-1024 public key (1568 bytes); secret key lives client-side only
   hasConfirmedBackup Boolean   @default(false)  // user has saved their 24-word recovery phrase
+
+  // Onboarding
+  onboardingComplete  Boolean @default(false)
+  onboardingStep      Int     @default(0)   // 0=welcome,1=account,2=keys,3=away,4=find-friends,5=done
+  aimScreennameHash   String?               // SHA-256 of normalized old AIM screenname (optional, privacy-preserving)
+
+  // DM text style preferences (feature flag: DM_FONT_COLORS)
+  dmTextColor  String?  @default("#c8860a") // hex from DM_COLOR_PALETTE
+  dmFontSize   String?  @default("md")      // "sm" | "md" | "lg"
 
   // Feed privacy
   feedVisibility     FeedVisibility @default(PUBLIC)
@@ -153,6 +179,9 @@ model User {
   savedBoardPosts          SavedBoardPost[]
   favoriteChannels         FavoriteChannel[]
   buddyGroupLists          BuddyGroupList[]
+  awayHistory              AwayMessageHistory[]
+  awayNudges               AwayNudge[]
+  badges                   UserBadge[]
 
   // Safety relations
   blocking          Block[]          @relation("Blocker")
@@ -163,6 +192,60 @@ model User {
   safetyIncidents   SafetyIncident[] @relation("Uploader")
 
   @@map("users")
+}
+
+// ---------------------------------------------------------------------------
+// UserBadge
+// ---------------------------------------------------------------------------
+
+model UserBadge {
+  id          String    @id @default(cuid())
+  userId      String
+  badge       BadgeType
+  awardedAt   DateTime  @default(now())
+  awardedById String
+  note        String?
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, badge])
+  @@index([badge])
+  @@index([userId])
+}
+
+// ---------------------------------------------------------------------------
+// AwayMessageHistory  (every away message set by a user, ordered by setAt)
+// ---------------------------------------------------------------------------
+
+model AwayMessageHistory {
+  id         String         @id @default(cuid())
+  setAt      DateTime       @default(now())
+  content    String         @db.VarChar(140)
+  userId     String
+  user       User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  visibility FeedVisibility @default(PUBLIC)
+  nudgeCount Int            @default(0)
+  replyCount Int            @default(0)
+
+  nudges     AwayNudge[]
+
+  @@index([userId, setAt(sort: Desc)])
+  @@map("away_message_history")
+}
+
+// ---------------------------------------------------------------------------
+// AwayNudge  (one per user per away message history entry)
+// ---------------------------------------------------------------------------
+
+model AwayNudge {
+  id        String             @id @default(cuid())
+  createdAt DateTime           @default(now())
+  userId    String
+  user      User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  awayId    String
+  away      AwayMessageHistory @relation(fields: [awayId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, awayId])
+  @@map("away_nudges")
 }
 
 // ---------------------------------------------------------------------------
@@ -329,6 +412,7 @@ model ChannelMember {
   id            String    @id @default(cuid())
   joinedAt      DateTime  @default(now())
   lastMessageAt DateTime?
+  lastReadAt    DateTime?
   mutedUntil    DateTime?
   userId        String
   user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -354,6 +438,11 @@ model ChannelMessage {
   channelId String
   channel   Channel    @relation(fields: [channelId], references: [id], onDelete: Cascade)
 
+  // GIPHY gif fields (set when message is a gif, content is empty)
+  gifId    String?
+  gifUrl   String?
+  gifTitle String?
+
   // Message expiry (§6) — hard-deleted by cron at 3am UTC
   // Default: 30 days. Gold sender: 90 days. Delivered-to-all: 24h.
   expiresAt      DateTime @default(dbgenerated("now() + interval '30 days'"))
@@ -365,6 +454,10 @@ model ChannelMessage {
   encapsulatedKey  String?
   iv               String?
   keyVersion       Int?
+
+  // DM font color (feature flag: DM_FONT_COLORS) — stored per message
+  textColor  String?  // hex value from DM_COLOR_PALETTE
+  fontSize   String?  // "sm" | "md" | "lg"
 
   threads   ChannelThread[]
 

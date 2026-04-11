@@ -8,8 +8,12 @@ import { useUploadThing } from "@/lib/uploadthing";
 import { GiphyPicker, type GifResult } from "@/components/composer/GiphyPicker";
 import { MediaAttachments, type PendingMedia } from "@/components/composer/MediaAttachments";
 import { pusherClient, CHANNELS } from "@/lib/pusher";
-import { formatTimestamp } from "@/lib/utils";
 import { playSound, unlockSounds } from "@/lib/sounds";
+import { groupMessages } from "@/lib/chat";
+import { FlatMessageGroup } from "@/components/chat/FlatMessageGroup";
+import { TimeSeparator as TimeSeparatorComp } from "@/components/chat/TimeSeparator";
+import { DMColorPickerRow } from "@/components/chat/DMColorPickerRow";
+import { DM_COLOR_PALETTE, type DMColor, type DMFontSize } from "@/lib/dmColors";
 import {
   generateSessionKey,
   encryptSessionKeyForMember,
@@ -41,6 +45,8 @@ interface DMMessage {
   encryptedContent?: string | null;
   iv?: string | null;
   keyVersion?: number | null;
+  textColor?: string | null;
+  fontSize?: string | null;
   createdAt: string;
   author: MessageSender;
 }
@@ -93,16 +99,29 @@ function decryptDMMessage(
 // Component
 // ---------------------------------------------------------------------------
 
-export function DirectMessagePanel({ otherUser }: { otherUser: DMUser }) {
+export function DirectMessagePanel({
+  otherUser,
+  initialDraft,
+}: {
+  otherUser: DMUser;
+  initialDraft?: string;
+}) {
   const { data: session } = useSession();
   const [messages, setMessages] = useState<DMMessage[]>([]);
   const [displayMessages, setDisplayMessages] = useState<
     Array<DMMessage & { displayContent: string }>
   >([]);
   const [loading, setLoading] = useState(true);
-  const [input, setInput] = useState("");
+  const [input, setInput] = useState(initialDraft ?? "");
   const [sending, setSending] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+
+  // DM font color feature
+  const [dmFontColorsEnabled, setDmFontColorsEnabled] = useState(false);
+  const [myColor, setMyColor] = useState<DMColor | string>("#c8860a");
+  const [mySize, setMySize] = useState<DMFontSize>("md");
+  const [mobilePickerOpen, setMobilePickerOpen] = useState(false);
+  const saveColorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Media upload
   const [pendingMedia, setPendingMedia] = useState<PendingMedia[]>([]);
@@ -127,9 +146,24 @@ export function DirectMessagePanel({ otherUser }: { otherUser: DMUser }) {
   const myPublicKeyRef = useRef<string | null>(null);
   const encryptionReadyRef = useRef(false);
 
+  // Load feature flag + user color preferences
+  useEffect(() => {
+    Promise.all([
+      fetch("/api/feature-flags/DM_FONT_COLORS").then((r) => r.ok ? r.json() : { enabled: false }),
+      fetch("/api/profile").then((r) => r.ok ? r.json() : null),
+    ]).then(([flag, profile]) => {
+      if (flag?.enabled) {
+        setDmFontColorsEnabled(true);
+        if (profile?.dmTextColor) setMyColor(profile.dmTextColor as DMColor);
+        if (profile?.dmFontSize) setMySize(profile.dmFontSize as DMFontSize);
+      }
+    }).catch(() => {});
+  }, []);
+
   // Load messages and key info
   useEffect(() => {
     localStorage.setItem(`dm_last_read_${otherUser.id}`, new Date().toISOString());
+    fetch(`/api/messages/${otherUser.id}/read`, { method: "POST" }).catch(() => {});
 
     Promise.all([
       fetch(`/api/messages/${otherUser.id}`).then((r) => r.json()),
@@ -198,10 +232,21 @@ export function DirectMessagePanel({ otherUser }: { otherUser: DMUser }) {
     ch.bind("new-dm", (msg: DMMessage) => {
       setMessages((prev) => {
         if (prev.some((m) => m.id === msg.id)) return prev;
-        if (msg.author.id !== session?.user?.id) playSound("message_received");
+        if (msg.author.id !== session?.user?.id) {
+          playSound("message_received");
+          if (typeof window !== "undefined" && window.electronAPI) {
+            const preview = msg.content.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 80);
+            window.electronAPI.reportDM({
+              fromUserId: msg.author.id,
+              screenname: msg.author.screenname,
+              preview,
+            });
+          }
+        }
         return [...prev, msg];
       });
       localStorage.setItem(`dm_last_read_${otherUser.id}`, new Date().toISOString());
+      fetch(`/api/messages/${otherUser.id}/read`, { method: "POST" }).catch(() => {});
     });
     return () => pusherClient.unsubscribe(CHANNELS.dm(session.user.id, otherUser.id));
   }, [session?.user?.id, otherUser.id]);
@@ -209,6 +254,36 @@ export function DirectMessagePanel({ otherUser }: { otherUser: DMUser }) {
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [displayMessages]);
+
+  // ---------------------------------------------------------------------------
+  // Save color/size preferences (debounced 500ms)
+  // ---------------------------------------------------------------------------
+
+  const saveColorPref = useCallback((hex: string, size: DMFontSize) => {
+    if (saveColorTimerRef.current) clearTimeout(saveColorTimerRef.current);
+    saveColorTimerRef.current = setTimeout(() => {
+      fetch("/api/profile", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dmTextColor: hex, dmFontSize: size }),
+      }).catch(() => {});
+    }, 500);
+  }, []);
+
+  const myColorRef = useRef(myColor);
+  myColorRef.current = myColor;
+  const mySizeRef = useRef(mySize);
+  mySizeRef.current = mySize;
+
+  const handleColorChange = useCallback((hex: DMColor) => {
+    setMyColor(hex);
+    saveColorPref(hex, mySizeRef.current);
+  }, [saveColorPref]);
+
+  const handleSizeChange = useCallback((size: DMFontSize) => {
+    setMySize(size);
+    saveColorPref(myColorRef.current as DMColor, size);
+  }, [saveColorPref]);
 
   // ---------------------------------------------------------------------------
   // Send
@@ -231,6 +306,8 @@ export function DirectMessagePanel({ otherUser }: { otherUser: DMUser }) {
       const optimistic: DMMessage = {
         id: tempId,
         content,
+        textColor: dmFontColorsEnabled ? myColor : null,
+        fontSize: dmFontColorsEnabled ? mySize : null,
         createdAt: new Date().toISOString(),
         author: {
           id: userId,
@@ -298,6 +375,11 @@ export function DirectMessagePanel({ otherUser }: { otherUser: DMUser }) {
           }
         } else {
           body = { content };
+        }
+
+        // Attach color/size when flag is on
+        if (dmFontColorsEnabled) {
+          body = { ...body, textColor: myColor, fontSize: mySize };
         }
 
         const res = await fetch(`/api/messages/${otherUser.id}`, {
@@ -389,7 +471,7 @@ export function DirectMessagePanel({ otherUser }: { otherUser: DMUser }) {
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-4 py-3 flex flex-col gap-2">
+      <div className="flex-1 overflow-y-auto py-3 flex flex-col gap-0">
         {loading && (
           <p
             className="text-sm text-center animate-pulse mt-4"
@@ -406,63 +488,35 @@ export function DirectMessagePanel({ otherUser }: { otherUser: DMUser }) {
             no messages yet. say hi!
           </p>
         )}
-        {displayMessages.map((msg) => {
-          const isMe = msg.author.id === session?.user?.id;
-          const isOptimistic = msg.id.startsWith("temp-");
-          return (
-            <div
-              key={msg.id}
-              className={`flex flex-col gap-0.5 ${isMe ? "items-end" : "items-start"}`}
-            >
-              {!isMe && (
-                <span
-                  className="text-[10px] font-mono px-1"
-                  style={{ color: "var(--text-dim)" }}
-                >
-                  {msg.author.screenname}
-                </span>
-              )}
-              <div
-                className="max-w-[75%] rounded-xl text-sm overflow-hidden"
-                style={
-                  isMe
-                    ? {
-                        background: msg.mediaUrl && !msg.displayContent ? "transparent" : "var(--teal)",
-                        color: "var(--bg)",
-                        opacity: isOptimistic ? 0.6 : 1,
-                      }
-                    : {
-                        background: msg.mediaUrl && !msg.displayContent ? "transparent" : "var(--surface)",
-                        color: "var(--text)",
-                        border: msg.mediaUrl && !msg.displayContent ? "none" : "1px solid var(--border)",
-                      }
-                }
-              >
-                {msg.displayContent && (
-                  <div className="px-3 py-2">{msg.displayContent}</div>
-                )}
-                {msg.mediaUrl && (msg.mediaType === "IMAGE" || msg.mediaType === "GIF") && (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={msg.mediaUrl}
-                    alt="attachment"
-                    className="rounded-xl max-w-[240px] max-h-[200px] object-cover cursor-pointer block"
-                    onClick={() => window.open(msg.mediaUrl!, "_blank")}
-                  />
-                )}
-                {msg.mediaUrl && msg.mediaType === "VIDEO" && (
-                  <video src={msg.mediaUrl} controls className="rounded-xl max-w-[240px] block" />
-                )}
-              </div>
-              <span
-                className="text-[10px] font-mono px-1"
-                style={{ color: "var(--text-dim)" }}
-              >
-                {formatTimestamp(msg.createdAt)}
-              </span>
-            </div>
+        {session?.user?.id && (() => {
+          const grouped = groupMessages(
+            displayMessages.map((m) => ({
+              id: m.id,
+              senderId: m.author.id,
+              screenname: m.author.screenname,
+              isGold: m.author.isGoldMember,
+              content: m.displayContent,
+              mediaUrl: m.mediaUrl ?? null,
+              mediaType: m.mediaType ?? null,
+              createdAt: m.createdAt,
+              isEncrypted: m.isEncrypted,
+              textColor: m.textColor ?? null,
+              fontSize: m.fontSize ?? null,
+            })),
+            session.user.id
           );
-        })}
+          return grouped.map((item, i) =>
+            item.type === "separator" ? (
+              <TimeSeparatorComp key={`sep-${i}`} item={item} />
+            ) : (
+              <FlatMessageGroup
+                key={item.messages[0].id}
+                group={item}
+                myTextColor={dmFontColorsEnabled ? myColor : undefined}
+              />
+            )
+          );
+        })()}
         <div ref={bottomRef} />
       </div>
 
@@ -492,7 +546,63 @@ export function DirectMessagePanel({ otherUser }: { otherUser: DMUser }) {
             </div>
           )}
           <div className="flex items-end gap-2">
+            {/* Mobile web: color dot + GIF buttons (< md) */}
+            <div className="md:hidden flex items-center gap-1.5 flex-shrink-0">
+              {dmFontColorsEnabled && (
+                <button
+                  type="button"
+                  title="Text color"
+                  onClick={() => setMobilePickerOpen((v) => !v)}
+                  style={{
+                    width: 28,
+                    height: 28,
+                    borderRadius: "50%",
+                    background: myColor,
+                    border: "1.5px solid rgba(255,255,255,0.15)",
+                    cursor: "pointer",
+                    padding: 0,
+                    flexShrink: 0,
+                  }}
+                />
+              )}
+              <button
+                type="button"
+                title="Insert GIF"
+                onClick={() => setShowGiphy((v) => !v)}
+                style={{
+                  height: 28,
+                  paddingLeft: 6,
+                  paddingRight: 6,
+                  borderRadius: 6,
+                  border: "1px solid var(--border)",
+                  background: showGiphy ? "var(--amber-tint, rgba(200,134,10,0.12))" : "transparent",
+                  color: showGiphy ? "var(--amber)" : "var(--text-dim)",
+                  fontSize: 11,
+                  fontFamily: "monospace",
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  flexShrink: 0,
+                }}
+              >
+                GIF
+              </button>
+            </div>
+
             <div className="flex-1 rounded-lg border overflow-hidden" style={{ borderColor: "var(--border)" }}>
+              {/* Desktop color picker row (≥ md) */}
+              {dmFontColorsEnabled && (
+                <div
+                  className="hidden md:block px-2 pt-1"
+                  style={{ borderBottom: "1px solid var(--border)" }}
+                >
+                  <DMColorPickerRow
+                    color={myColor}
+                    size={mySize}
+                    onColorChange={handleColorChange}
+                    onSizeChange={handleSizeChange}
+                  />
+                </div>
+              )}
               <RichTextEditor
                 value={input}
                 onChange={setInput}
@@ -502,6 +612,7 @@ export function DirectMessagePanel({ otherUser }: { otherUser: DMUser }) {
                 disabled={sending || isDMUploading}
                 onPhotoClick={() => dmFileInputRef.current?.click()}
                 onGifClick={() => setShowGiphy((v) => !v)}
+                textColor={dmFontColorsEnabled ? myColor : undefined}
               />
               <input
                 ref={dmFileInputRef}
@@ -530,6 +641,75 @@ export function DirectMessagePanel({ otherUser }: { otherUser: DMUser }) {
               {isDMUploading ? "uploading…" : "send"}
             </button>
           </div>
+
+          {/* Mobile web: color picker bottom sheet (< md) */}
+          {dmFontColorsEnabled && mobilePickerOpen && (
+            <div
+              className="md:hidden fixed inset-0 z-50 flex flex-col justify-end"
+              onClick={() => setMobilePickerOpen(false)}
+            >
+              <div
+                className="rounded-t-2xl p-5"
+                style={{ background: "#191714", borderTop: "1px solid #2c2820" }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <p className="text-[11px] font-mono mb-3" style={{ color: "#6a6860" }}>
+                  Your text color
+                </p>
+                <div className="flex gap-3 flex-wrap mb-4">
+                  {DM_COLOR_PALETTE.map((c) => (
+                    <button
+                      key={c.hex}
+                      type="button"
+                      onClick={() => { handleColorChange(c.hex as DMColor); }}
+                      style={{
+                        width: 32,
+                        height: 32,
+                        borderRadius: "50%",
+                        background: c.hex,
+                        border: myColor === c.hex ? "2px solid #fff" : "2px solid transparent",
+                        transform: myColor === c.hex ? "scale(1.15)" : "scale(1)",
+                        cursor: "pointer",
+                        padding: 0,
+                        transition: "transform 0.12s",
+                      }}
+                    />
+                  ))}
+                </div>
+                <div className="flex gap-2 mb-4">
+                  {(["sm", "md", "lg"] as DMFontSize[]).map((s) => (
+                    <button
+                      key={s}
+                      type="button"
+                      onClick={() => handleSizeChange(s)}
+                      style={{
+                        height: 28,
+                        minWidth: 36,
+                        borderRadius: 6,
+                        border: mySize === s ? "1px solid #8a6010" : "1px solid #2c2820",
+                        background: mySize === s ? "#1a1200" : "transparent",
+                        color: mySize === s ? "#c8860a" : "#6a6860",
+                        fontSize: 12,
+                        fontWeight: mySize === s ? 700 : 400,
+                        cursor: "pointer",
+                        padding: "0 10px",
+                      }}
+                    >
+                      {s === "sm" ? "S" : s === "md" ? "M" : "L"}
+                    </button>
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setMobilePickerOpen(false)}
+                  className="w-full py-2.5 rounded-xl text-sm font-semibold"
+                  style={{ background: "#c8860a", color: "#fff8e6" }}
+                >
+                  Done
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>

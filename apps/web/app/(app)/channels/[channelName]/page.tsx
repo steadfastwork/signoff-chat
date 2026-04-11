@@ -17,6 +17,11 @@ import {
   ChannelMessage,
   type ChannelMessageData,
 } from "@/components/ChannelMessage";
+import { FlatMessageGroup } from "@/components/chat/FlatMessageGroup";
+import { TimeSeparator as TimeSeparatorComp } from "@/components/chat/TimeSeparator";
+import { TypingIndicator } from "@/components/chat/TypingIndicator";
+import { AwayBanner } from "@/components/chat/AwayBanner";
+import { groupMessages, type ChatMessage } from "@/lib/chat";
 import { InvitePanel } from "@/components/InvitePanel";
 import { StatusDot, type StatusValue } from "@/components/StatusDot";
 import { RichTextEditor } from "@/components/RichTextEditor";
@@ -168,7 +173,7 @@ function ThreadSidebar({
   thread: ThreadState;
   currentUserId: string;
   onClose: () => void;
-  onReplyAdded: (messageId: string, count: number) => void;
+  onReplyAdded: (messageId: string, count: number, reply: ThreadData["messages"][number], threadId: string) => void;
 }) {
   const [reply, setReply] = useState("");
   const [sending, setSending] = useState(false);
@@ -186,9 +191,10 @@ function ThreadSidebar({
         }
       );
       if (res.ok) {
+        const data = await res.json();
         setReply("");
         const newCount = (ts.thread?.messageCount ?? 0) + 1;
-        onReplyAdded(ts.messageId, newCount);
+        onReplyAdded(ts.messageId, newCount, data.reply, data.threadId);
       }
     } finally {
       setSending(false);
@@ -422,6 +428,7 @@ export default function ChannelRoomPage() {
   const [joining, setJoining] = useState(false);
 
   const [content, setContent] = useState("");
+  const [mobileText, setMobileText] = useState("");
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
 
@@ -451,6 +458,20 @@ export default function ChannelRoomPage() {
   >(null);
   const [threadState, setThreadState] = useState<ThreadState | null>(null);
 
+  // Away banners
+  const [awayMembers, setAwayMembers] = useState<
+    { userId: string; screenname: string; isGold: boolean; awayMessage: string; setAt: string | null }[]
+  >([]);
+
+  // Typing indicator state
+  const [typers, setTypers] = useState<Record<string, string>>({}); // userId → screenname
+  const typingTimeoutsRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const isTypingRef = useRef(false);
+  const stopTypingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // "N new ↓" pill
+  const [unreadBelow, setUnreadBelow] = useState(0);
+
   // Electron: close thread/members panel on Escape shortcut
   useEffect(() => {
     const handler = () => setRightPanel(null);
@@ -475,6 +496,8 @@ export default function ChannelRoomPage() {
         decryptedContent: msg.content ?? null,
         encryptedContent: null,
         iv:               null,
+        gifUrl:           msg.gifUrl   ?? null,
+        gifTitle:         msg.gifTitle ?? null,
         createdAt:        msg.createdAt,
         isThread:         false,
         parentMessageId:  null,
@@ -485,6 +508,15 @@ export default function ChannelRoomPage() {
   // Only run when the message list is first populated (not on every new message)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [channelName, messages.length > 0]);
+
+  // ── Away members (for AwayBanner) ─────────────────────────────────────────
+  useEffect(() => {
+    if (!channelName) return;
+    fetch(`/api/channels/${channelName}/members?away=true`)
+      .then((r) => r.ok ? r.json() : [])
+      .then(setAwayMembers)
+      .catch(() => {});
+  }, [channelName]);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
@@ -616,19 +648,21 @@ export default function ChannelRoomPage() {
       }
       // Increment dock badge if the window is not focused
       if (document.hidden) incrementElectronUnread();
-      // Scroll to bottom if already near bottom
+      // Scroll to bottom or show pill
       if (atBottomRef.current) {
         setTimeout(
           () => messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }),
           50
         );
+      } else if (msg.author?.id !== session?.user?.id) {
+        setUnreadBelow((n) => n + 1);
       }
     });
 
     ch.bind(
       EVENTS.CHANNEL_THREAD_REPLY,
       (data: { messageId: string; threadId: string; reply: object }) => {
-        // Update thread count on affected message
+        // Update thread count badge on affected message
         setMessages((prev) =>
           prev.map((m) =>
             m.id === data.messageId
@@ -641,21 +675,25 @@ export default function ChannelRoomPage() {
               : m
           )
         );
-        // If thread panel is open for this message, append reply
+        // If thread panel is open for this message, append reply (dedup by id)
         setThreadState((prev) => {
           if (!prev || prev.messageId !== data.messageId) return prev;
+          const newReply = data.reply as ThreadData["messages"][number];
+          // Already added optimistically by sender — skip if we have it
+          if (prev.thread?.messages?.some((m) => m.id === newReply.id)) return prev;
           return {
             ...prev,
             thread: prev.thread
               ? {
                   ...prev.thread,
                   messageCount: prev.thread.messageCount + 1,
-                  messages: [
-                    ...prev.thread.messages,
-                    data.reply as ThreadData["messages"][number],
-                  ],
+                  messages: [...prev.thread.messages, newReply],
                 }
-              : null,
+              : {
+                  id: data.threadId,
+                  messageCount: 1,
+                  messages: [newReply],
+                },
           };
         });
       }
@@ -696,6 +734,33 @@ export default function ChannelRoomPage() {
       }
     );
 
+    ch.bind(EVENTS.TYPING, (data: { userId: string; screenname: string }) => {
+      if (data.userId === session?.user?.id) return;
+      setTypers((prev) => ({ ...prev, [data.userId]: data.screenname }));
+      // Auto-clear after 4s if no follow-up event
+      if (typingTimeoutsRef.current[data.userId]) {
+        clearTimeout(typingTimeoutsRef.current[data.userId]);
+      }
+      typingTimeoutsRef.current[data.userId] = setTimeout(() => {
+        setTypers((prev) => {
+          const next = { ...prev };
+          delete next[data.userId];
+          return next;
+        });
+      }, 4000);
+    });
+
+    ch.bind(EVENTS.STOPPED_TYPING, (data: { userId: string }) => {
+      if (typingTimeoutsRef.current[data.userId]) {
+        clearTimeout(typingTimeoutsRef.current[data.userId]);
+      }
+      setTypers((prev) => {
+        const next = { ...prev };
+        delete next[data.userId];
+        return next;
+      });
+    });
+
     return () => {
       pusherClient.unsubscribe(CHANNELS.channelRoom(channel.name));
     };
@@ -710,7 +775,50 @@ export default function ChannelRoomPage() {
     if (!el) return;
     const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
     atBottomRef.current = distFromBottom < 60;
+    if (atBottomRef.current) setUnreadBelow(0);
   };
+
+  // ---------------------------------------------------------------------------
+  // Convert ChannelMessageData → ChatMessage for grouping
+  // ---------------------------------------------------------------------------
+
+  const toChatMessage = useCallback((m: ChannelMessageData): ChatMessage => ({
+    id: m.id,
+    senderId: m.author.id,
+    screenname: m.author.screenname,
+    isGold: m.author.isGoldMember,
+    content: m.content,
+    gifId: m.gifId ?? null,
+    gifUrl: m.gifUrl ?? null,
+    gifTitle: m.gifTitle ?? null,
+    mediaUrl: m.mediaUrl ?? null,
+    mediaType: m.mediaType ?? null,
+    createdAt: typeof m.createdAt === "string" ? m.createdAt : new Date(m.createdAt).toISOString(),
+    isEncrypted: m.isEncrypted,
+    thread: m.thread ?? null,
+  }), []);
+
+  // ---------------------------------------------------------------------------
+  // Emit typing events
+  // ---------------------------------------------------------------------------
+
+  const emitTyping = useCallback(() => {
+    if (!channel) return;
+    const ch = pusherClient.channel(CHANNELS.channelRoom(channel.name));
+    if (!ch) return;
+    if (!isTypingRef.current) {
+      isTypingRef.current = true;
+      ch.trigger(EVENTS.TYPING, {
+        userId: session?.user?.id,
+        screenname: session?.user?.screenname,
+      });
+    }
+    if (stopTypingTimerRef.current) clearTimeout(stopTypingTimerRef.current);
+    stopTypingTimerRef.current = setTimeout(() => {
+      isTypingRef.current = false;
+      ch.trigger(EVENTS.STOPPED_TYPING, { userId: session?.user?.id });
+    }, 3000);
+  }, [channel, session?.user?.id, session?.user?.screenname]);
 
   // ---------------------------------------------------------------------------
   // Send message
@@ -807,7 +915,17 @@ export default function ChannelRoomPage() {
         return;
       }
 
+      // Immediately show the sent message without waiting for Pusher
+      const saved: ChannelMessageData = await res.json();
+      const chanId = channelIdRef.current ?? channel!.id;
+      const displayed = decryptMsg(saved, chanId);
+      setMessages((prev) => {
+        if (prev.some((m) => m.id === displayed.id)) return prev;
+        return [...prev, displayed];
+      });
+
       setContent("");
+      setMobileText("");
 
       // Attach first media item (channel API supports single mediaUrl)
       if (pendingMedia.length > 0) {
@@ -822,7 +940,7 @@ export default function ChannelRoomPage() {
         await fetch(`/api/channels/${channelName}/messages`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ content: gif.title || "GIF", mediaUrl: gif.url, mediaType: "GIF" }),
+          body: JSON.stringify({ content: "", gifId: gif.id, gifUrl: gif.url, gifTitle: gif.title }),
         });
       }
       setPendingMedia([]);
@@ -897,19 +1015,26 @@ export default function ChannelRoomPage() {
     }
   };
 
-  const handleThreadReplyAdded = (messageId: string, newCount: number) => {
-    setMessages((prev) =>
-      prev.map((m) =>
-        m.id === messageId
+  const handleThreadReplyAdded = (messageId: string, _newCount: number, newReply: ThreadData["messages"][number], threadId: string) => {
+    // Pusher handles the setMessages count update for all viewers including sender.
+    // Here we only need to add the reply to the open thread panel immediately.
+    setThreadState((prev) => {
+      if (!prev || prev.messageId !== messageId) return prev;
+      return {
+        ...prev,
+        thread: prev.thread
           ? {
-              ...m,
-              thread: m.thread
-                ? { ...m.thread, messageCount: newCount }
-                : { id: "", messageCount: newCount },
+              ...prev.thread,
+              messageCount: prev.thread.messageCount + 1,
+              messages: [...prev.thread.messages, newReply],
             }
-          : m
-      )
-    );
+          : {
+              id: threadId,
+              messageCount: 1,
+              messages: [newReply],
+            },
+      };
+    });
   };
 
   // ---------------------------------------------------------------------------
@@ -1021,8 +1146,12 @@ export default function ChannelRoomPage() {
 
   return (
     <div
-      className="flex h-screen overflow-hidden"
-      style={{ background: "var(--bg)", fontFamily: "var(--font-dm-sans)" }}
+      className="relative flex overflow-hidden"
+      style={{
+        background: "var(--bg)",
+        fontFamily: "var(--font-dm-sans)",
+        height: "calc(100dvh - 52px - var(--tab-bar-h))",
+      }}
     >
       {/* ---------------------------------------------------------------- */}
       {/* Main panel                                                        */}
@@ -1051,7 +1180,7 @@ export default function ChannelRoomPage() {
           {typeBadge}
 
           <span
-            className="text-[11px] font-mono ml-1"
+            className="text-[11px] font-mono ml-1 hidden sm:inline"
             style={{ color: "var(--text-dim)" }}
           >
             {channel.memberCount} member
@@ -1109,12 +1238,12 @@ export default function ChannelRoomPage() {
           {channel.canManage && (
             <Link
               href={`/channels/${channel.name}/settings`}
-              className="h-7 px-2.5 rounded-lg text-[11px] font-mono flex items-center gap-1 flex-shrink-0 transition-all"
+              className="h-7 w-7 sm:w-auto sm:px-2.5 rounded-lg text-[11px] font-mono flex items-center justify-center gap-1 flex-shrink-0 transition-all"
               style={{ background: "var(--surface)", color: "var(--text-muted)", border: "1px solid var(--border)" }}
               onMouseEnter={(e) => ((e.currentTarget as HTMLAnchorElement).style.borderColor = "var(--amber)")}
               onMouseLeave={(e) => ((e.currentTarget as HTMLAnchorElement).style.borderColor = "var(--border)")}
             >
-              ⚙ settings
+              ⚙<span className="hidden sm:inline"> settings</span>
             </Link>
           )}
         </div>
@@ -1132,28 +1261,79 @@ export default function ChannelRoomPage() {
         )}
 
         {/* Messages */}
-        <div
-          ref={messagesContainerRef}
-          className="flex-1 overflow-y-auto py-2"
-          onScroll={handleScroll}
-        >
-          {messages.length === 0 && (
-            <div className="flex items-center justify-center h-full">
-              <p className="text-sm italic" style={{ color: "var(--text-dim)" }}>
-                no messages yet — say something!
-              </p>
-            </div>
+        <div className="relative flex-1 overflow-hidden">
+          <div
+            ref={messagesContainerRef}
+            className="h-full overflow-y-auto py-2"
+            onScroll={handleScroll}
+          >
+            {messages.length === 0 && (
+              <div className="flex items-center justify-center h-full">
+                <p className="text-sm italic" style={{ color: "var(--text-dim)" }}>
+                  no messages yet — say something!
+                </p>
+              </div>
+            )}
+            {session?.user?.id && (() => {
+              const grouped = groupMessages(
+                messages.map(toChatMessage),
+                session.user.id
+              );
+              return grouped.map((item, i) =>
+                item.type === "separator" ? (
+                  <TimeSeparatorComp key={`sep-${i}`} item={item} />
+                ) : (
+                  <FlatMessageGroup key={item.messages[0].id} group={item} onThreadOpen={openThread} />
+                )
+              );
+            })()}
+            {!session?.user?.id && messages.map((msg) => (
+              <ChannelMessage
+                key={msg.id}
+                message={msg}
+                currentUserId={undefined}
+                onThreadOpen={openThread}
+              />
+            ))}
+            <div ref={messagesEndRef} />
+          </div>
+
+          {/* "N new ↓" pill */}
+          {unreadBelow > 0 && (
+            <button
+              onClick={() => {
+                messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+                setUnreadBelow(0);
+              }}
+              className="absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-mono shadow-lg transition-all hover:scale-105 active:scale-95"
+              style={{
+                background: "var(--amber)",
+                color: "#fff8e6",
+                boxShadow: "0 4px 16px rgba(0,0,0,0.4)",
+              }}
+            >
+              {unreadBelow} new ↓
+            </button>
           )}
-          {messages.map((msg) => (
-            <ChannelMessage
-              key={msg.id}
-              message={msg}
-              currentUserId={session?.user?.id}
-              onThreadOpen={openThread}
-            />
-          ))}
-          <div ref={messagesEndRef} />
         </div>
+
+        {/* Away banners */}
+        {awayMembers.length > 0 && (
+          <div className="border-b" style={{ borderColor: "var(--border)" }}>
+            {awayMembers.map((m) => (
+              <AwayBanner
+                key={m.userId}
+                userId={m.userId}
+                screenname={m.screenname}
+                awayMessage={m.awayMessage}
+                setAt={m.setAt ?? undefined}
+              />
+            ))}
+          </div>
+        )}
+
+        {/* Typing indicator */}
+        <TypingIndicator typers={Object.values(typers)} />
 
         {/* Input bar */}
         <div
@@ -1162,7 +1342,115 @@ export default function ChannelRoomPage() {
         >
           {canPost ? (
             <div className="px-3 py-3">
-              <div className="flex items-end gap-2">
+              {/* Shared hidden file input */}
+              <input
+                ref={channelFileInputRef}
+                type="file"
+                accept="image/*,video/*"
+                className="sr-only"
+                onChange={async (e) => {
+                  const files = e.target.files;
+                  if (!files?.length) return;
+                  await startChannelUpload(Array.from(files));
+                  e.target.value = "";
+                }}
+              />
+
+              {/* Giphy picker — shared between mobile + desktop */}
+              {showGiphy && (
+                <div className="mb-2 max-w-xs">
+                  <GiphyPicker
+                    onSelect={(gif) => { setPendingGifs((prev) => [...prev, gif]); setShowGiphy(false); }}
+                    onClose={() => setShowGiphy(false)}
+                  />
+                </div>
+              )}
+
+              {/* ── Mobile pill input (< md) ── */}
+              <div className="flex md:hidden items-center gap-2">
+                {session?.user?.id && (() => {
+                  const colorKey = hashColor(session.user.id);
+                  const colors = AVATAR_COLORS[colorKey];
+                  return (
+                    <div
+                      className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0"
+                      style={{ background: colors.bg }}
+                    >
+                      <span className="text-[9px] font-bold font-mono" style={{ color: colors.text }}>
+                        {session.user.screenname.slice(0, 2).toUpperCase()}
+                      </span>
+                    </div>
+                  );
+                })()}
+                <textarea
+                  rows={1}
+                  value={mobileText}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    // Mobile browsers may insert \n instead of firing onKeyDown
+                    if (v.includes("\n")) {
+                      const trimmed = v.replace(/\n/g, "").trim();
+                      setMobileText(trimmed);
+                      setContent(trimmed ? `<p>${trimmed}</p>` : "");
+                      if (trimmed) sendMessage();
+                      return;
+                    }
+                    setMobileText(v);
+                    setContent(v ? `<p>${v}</p>` : "");
+                    if (v) emitTyping();
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+                  }}
+                  enterKeyHint="send"
+                  placeholder={inCooldown ? `cooldown ${cooldownStr}` : `message #${channel.name}`}
+                  disabled={inCooldown || sending || isChannelUploading}
+                  className="flex-1 resize-none rounded-full border px-4 py-2 text-sm outline-none"
+                  style={{
+                    background: "var(--surface)",
+                    borderColor: "var(--border)",
+                    color: "var(--text)",
+                    fontSize: 16,
+                    lineHeight: 1.4,
+                    maxHeight: 96,
+                    overflowY: "auto",
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={() => channelFileInputRef.current?.click()}
+                  className="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-base transition-opacity disabled:opacity-30"
+                  style={{ background: "var(--surface)", border: "1px solid var(--border)" }}
+                  disabled={inCooldown || sending}
+                >
+                  📷
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowGiphy((v) => !v)}
+                  className="flex-shrink-0 h-8 px-2 rounded-full flex items-center justify-center text-[11px] font-mono font-bold transition-colors disabled:opacity-30"
+                  style={{
+                    background: showGiphy ? "rgba(200,134,10,0.15)" : "var(--surface)",
+                    border: "1px solid var(--border)",
+                    color: showGiphy ? "var(--amber)" : "var(--text-dim)",
+                  }}
+                  disabled={inCooldown || sending}
+                >
+                  GIF
+                </button>
+                <button
+                  type="button"
+                  onClick={sendMessage}
+                  disabled={(!content && pendingMedia.length === 0 && pendingGifs.length === 0) || sending || inCooldown || isChannelUploading}
+                  className="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-xs font-mono font-bold transition-all disabled:opacity-30"
+                  style={{ background: "var(--amber)", color: "#fff8e6" }}
+                >
+                  ↑
+                </button>
+              </div>
+
+              {/* ── Desktop rich editor (≥ md) ── */}
+              <div className="hidden md:flex items-end gap-2">
                 {/* Avatar */}
                 {session?.user?.id && (() => {
                   const colorKey = hashColor(session.user.id);
@@ -1186,7 +1474,7 @@ export default function ChannelRoomPage() {
                   <div className="rounded-xl border overflow-hidden" style={{ borderColor: "var(--border)" }}>
                     <RichTextEditor
                       value={content}
-                      onChange={setContent}
+                      onChange={(v) => { setContent(v); if (v) emitTyping(); }}
                       placeholder={
                         inCooldown
                           ? `🕐 you can post again in ${cooldownStr}`
@@ -1199,18 +1487,6 @@ export default function ChannelRoomPage() {
                       onPhotoClick={() => channelFileInputRef.current?.click()}
                       onGifClick={() => setShowGiphy((v) => !v)}
                     />
-                    <input
-                      ref={channelFileInputRef}
-                      type="file"
-                      accept="image/*,video/*"
-                      className="sr-only"
-                      onChange={async (e) => {
-                        const files = e.target.files;
-                        if (!files?.length) return;
-                        await startChannelUpload(Array.from(files));
-                        e.target.value = "";
-                      }}
-                    />
                   </div>
                   {/* Media preview */}
                   {(pendingMedia.length > 0 || pendingGifs.length > 0) && (
@@ -1220,14 +1496,6 @@ export default function ChannelRoomPage() {
                         gifs={pendingGifs}
                         onRemoveMedia={(i) => setPendingMedia((prev) => prev.filter((_, idx) => idx !== i))}
                         onRemoveGif={(i) => setPendingGifs((prev) => prev.filter((_, idx) => idx !== i))}
-                      />
-                    </div>
-                  )}
-                  {showGiphy && (
-                    <div className="mt-1 max-w-xs">
-                      <GiphyPicker
-                        onSelect={(gif) => { setPendingGifs((prev) => [...prev, gif]); setShowGiphy(false); }}
-                        onClose={() => setShowGiphy(false)}
                       />
                     </div>
                   )}
@@ -1290,11 +1558,11 @@ export default function ChannelRoomPage() {
       </div>
 
       {/* ---------------------------------------------------------------- */}
-      {/* Right panel                                                        */}
+      {/* Right panel — sidebar on desktop, full-screen overlay on mobile   */}
       {/* ---------------------------------------------------------------- */}
       {rightPanel && (
         <div
-          className="w-72 flex-shrink-0 overflow-hidden"
+          className="absolute inset-0 md:relative md:inset-auto md:w-72 md:flex-shrink-0 overflow-hidden z-20"
           style={{ background: "var(--bg)" }}
         >
           {rightPanel === "members" && (
