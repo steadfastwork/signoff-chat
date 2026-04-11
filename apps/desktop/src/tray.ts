@@ -34,11 +34,32 @@ import path from "path";
 export type UserStatus = "ONLINE" | "AWAY" | "IDLE" | "OFFLINE" | "INVISIBLE";
 type NotificationPref  = "all" | "buddy-requests-only" | "none";
 
+interface TrayBuddy {
+  userId:     string;
+  screenname: string;
+  isGold:     boolean;
+  isAway:     boolean;
+}
+
+interface TrayGroup {
+  id:          string;
+  name:        string;
+  onlineCount: number;
+  buddies:     TrayBuddy[];
+}
+
+interface TrayBuddyData {
+  groups:       TrayGroup[];
+  ungrouped:    TrayBuddy[];
+  offlineCount: number;
+}
+
 interface TrayState {
-  screenname:       string;
-  status:           UserStatus;
-  awayMessage:      string;
-  unreadCount:      number;
+  screenname:   string;
+  status:       UserStatus;
+  awayMessage:  string;
+  unreadCount:  number;
+  buddyData:    TrayBuddyData | null;
 }
 
 interface TrayPrefs {
@@ -75,6 +96,7 @@ let state: TrayState = {
   status:      "OFFLINE",
   awayMessage: "",
   unreadCount: 0,
+  buddyData:   null,
 };
 
 const trayStore = new Store<TrayPrefs>({
@@ -358,6 +380,53 @@ function buildMenu(win: BrowserWindow, onQuit: () => void): Electron.Menu {
     send("navigate", path);
   };
 
+  // Build buddy group items for the menu
+  const buddyMenuItems: Electron.MenuItemConstructorOptions[] = [];
+  if (authenticated && state.buddyData) {
+    const bd = state.buddyData;
+    const hasOnline =
+      bd.groups.some((g) => g.buddies.length > 0) || bd.ungrouped.length > 0;
+
+    if (hasOnline || bd.offlineCount > 0) {
+      buddyMenuItems.push({ type: "separator" });
+      buddyMenuItems.push({ label: "── Buddies ──", enabled: false });
+
+      for (const group of bd.groups) {
+        if (group.buddies.length === 0) continue;
+        buddyMenuItems.push({
+          label:   `${group.name}  (${group.onlineCount} online)`,
+          enabled: false,
+        });
+        for (const b of group.buddies) {
+          buddyMenuItems.push({
+            label: `  ${b.isAway ? "◐" : "●"} ${b.screenname}${b.isGold ? " ★" : ""}`,
+            click: () => navigate(`/dm/${b.userId}`),
+          });
+        }
+      }
+
+      if (bd.ungrouped.length > 0) {
+        if (bd.groups.some((g) => g.buddies.length > 0)) {
+          buddyMenuItems.push({ label: "  ──", enabled: false });
+        }
+        for (const b of bd.ungrouped) {
+          buddyMenuItems.push({
+            label: `  ${b.isAway ? "◐" : "●"} ${b.screenname}${b.isGold ? " ★" : ""}`,
+            click: () => navigate(`/dm/${b.userId}`),
+          });
+        }
+      }
+
+      if (bd.offlineCount > 0) {
+        buddyMenuItems.push({ type: "separator" });
+        buddyMenuItems.push({
+          label:   `Offline  ${bd.offlineCount}`,
+          enabled: false,
+        });
+      }
+    }
+  }
+
   return Menu.buildFromTemplate([
     // ── Identity ────────────────────────────────────────────────────────────
     {
@@ -428,9 +497,20 @@ function buildMenu(win: BrowserWindow, onQuit: () => void): Electron.Menu {
       enabled:      authenticated,
       click:        () => navigate("/buddies"),
     },
+    {
+      label:        "Discover",
+      accelerator:  "CmdOrCtrl+5",
+      enabled:      authenticated,
+      click:        () => navigate("/discover"),
+    },
     { type: "separator" },
 
-    // ── Actions ───────────────────────────────────────────────────────────────
+    // ── Actions ──────────────────────────────────────────────────────────────
+    // Buddy list (injected above separator)
+    ...buddyMenuItems,
+    { type: "separator" },
+
+    // ── Original actions ─────────────────────────────────────────────────────
     {
       label:       "New post\u2026",
       accelerator: "CmdOrCtrl+N",
@@ -585,6 +665,15 @@ export function createTray(
     state.awayMessage = message;
     // no menu rebuild needed — message isn't shown in menu
   });
+
+  // Renderer sends fresh buddy data on mount and on changes
+  ipcMain.on(
+    "buddy-data",
+    (_e, data: { groups: TrayGroup[]; ungrouped: TrayBuddy[]; offlineCount: number }) => {
+      state.buddyData = data;
+      rebuildMenu(win, onQuit);
+    }
+  );
 
   return tray;
 }

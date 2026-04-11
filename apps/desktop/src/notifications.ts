@@ -104,6 +104,14 @@ export function initNotifications(win: BrowserWindow): void {
   ipcMain.handle("notif-set-prefs", (_e, partial: Partial<NotificationPrefs>) => {
     setNotificationPrefs(partial);
   });
+
+  // DM notification triggered from renderer when a new DM arrives via Pusher
+  ipcMain.on(
+    "notify-dm",
+    (_e, payload: { fromUserId: string; screenname: string; preview: string }) => {
+      notifyDirectMessage(payload.fromUserId, payload.screenname, payload.preview);
+    }
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -339,6 +347,21 @@ export function notifyChannelMessage(
     title:      `#${channelName}`,
     body:       `${screenname}: ${truncate(preview)}`,
     navigateTo: `/channel/${channelName}`,
+    sound:      "message",
+  });
+}
+
+export function notifyDirectMessage(
+  fromUserId: string,
+  screenname: string,
+  preview: string
+): void {
+  if (suppressed("channelMessages", `/dm/${fromUserId}`)) return;
+
+  fire({
+    title:      "direct message",
+    body:       `${screenname}: ${truncate(preview)}`,
+    navigateTo: `/dm/${fromUserId}`,
     sound:      "message",
   });
 }

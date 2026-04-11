@@ -119,6 +119,10 @@ contextBridge.exposeInMainWorld("electronAPI", {
   reportAwayMessage: (message: string) =>
     ipcRenderer.send("away-message-changed", message),
 
+  /** Fire when a new DM arrives (so main process shows a native notification). */
+  reportDM: (payload: { fromUserId: string; screenname: string; preview: string }) =>
+    ipcRenderer.send("notify-dm", payload),
+
   // ── Notification preferences ─────────────────────────────────────────────
 
   getNotifPrefs: (): Promise<{

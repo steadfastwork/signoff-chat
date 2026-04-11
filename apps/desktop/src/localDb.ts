@@ -27,6 +27,8 @@ export interface LocalMessage {
   encryptedContent?: string | null;
   decryptedContent?: string | null;
   iv?: string | null;
+  gifUrl?: string | null;
+  gifTitle?: string | null;
   createdAt: string;
   isThread: boolean;
   parentMessageId?: string | null;
@@ -77,12 +79,17 @@ export function initDb(): Database.Database {
       encryptedContent TEXT,
       decryptedContent TEXT,
       iv               TEXT,
+      gifUrl           TEXT,
+      gifTitle         TEXT,
       createdAt        TEXT NOT NULL,
       isThread         INTEGER DEFAULT 0,
       parentMessageId  TEXT,
       localOnly        INTEGER DEFAULT 0,
       cachedAt         TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS _migrations (name TEXT PRIMARY KEY);
+
 
     CREATE TABLE IF NOT EXISTS feed_posts (
       id            TEXT PRIMARY KEY,
@@ -103,6 +110,23 @@ export function initDb(): Database.Database {
     CREATE INDEX IF NOT EXISTS idx_feed
       ON feed_posts(createdAt);
   `);
+
+  // ---------------------------------------------------------------------------
+  // Column migrations — ALTER TABLE does not support IF NOT EXISTS in SQLite,
+  // so we track applied migrations in the _migrations table.
+  // ---------------------------------------------------------------------------
+
+  const hasMigration = db
+    .prepare("SELECT 1 FROM _migrations WHERE name = ?")
+    .get("add_gif_columns");
+
+  if (!hasMigration) {
+    db.exec(`
+      ALTER TABLE channel_messages ADD COLUMN gifUrl  TEXT;
+      ALTER TABLE channel_messages ADD COLUMN gifTitle TEXT;
+    `);
+    db.prepare("INSERT INTO _migrations VALUES (?)").run("add_gif_columns");
+  }
 
   return db;
 }
@@ -137,17 +161,21 @@ export function saveMessage(message: LocalMessage): void {
     `INSERT OR REPLACE INTO channel_messages (
        id, channelId, senderId, screenname,
        encryptedContent, decryptedContent, iv,
+       gifUrl, gifTitle,
        createdAt, isThread, parentMessageId, localOnly, cachedAt
      ) VALUES (
        @id, @channelId, @senderId, @screenname,
        @encryptedContent, @decryptedContent, @iv,
+       @gifUrl, @gifTitle,
        @createdAt, @isThread, @parentMessageId, @localOnly, @cachedAt
      )`
   ).run({
     ...message,
-    encryptedContent: message.encryptedContent  ?? null,
-    decryptedContent: message.decryptedContent  ?? null,
+    encryptedContent: message.encryptedContent ?? null,
+    decryptedContent: message.decryptedContent ?? null,
     iv:               message.iv               ?? null,
+    gifUrl:           message.gifUrl            ?? null,
+    gifTitle:         message.gifTitle          ?? null,
     parentMessageId:  message.parentMessageId  ?? null,
     isThread:         message.isThread  ? 1 : 0,
     localOnly:        message.localOnly ? 1 : 0,
