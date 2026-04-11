@@ -10,7 +10,7 @@ import {
   ActivityIndicator,
   Alert,
 } from "react-native";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter, Stack } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { FlashList } from "@shopify/flash-list";
 import { Ionicons } from "@expo/vector-icons";
@@ -24,9 +24,17 @@ import {
   getMessages,
   type CachedMessage,
 } from "@/lib/db/localMessages";
-import ChannelMessage from "@/components/channels/ChannelMessage";
+import MessageGroupBubble from "@/components/chat/MessageGroupBubble";
+import FlatMessageItem from "@/components/chat/FlatMessageItem";
+import TimeSeparator from "@/components/chat/TimeSeparator";
+import GiphyPickerSheet, { type GifResult } from "@/components/channels/GiphyPickerSheet";
 import InvitePanel from "@/components/channels/InvitePanel";
 import ThreadSheet from "@/components/channels/ThreadSheet";
+
+// ---------------------------------------------------------------------------
+// Change 1: suppress the global Stack header — channel renders its own header
+// ---------------------------------------------------------------------------
+export const options = { headerShown: false };
 
 // ---------------------------------------------------------------------------
 // NO read receipts. NO typing indicators. NO delivery status.
@@ -34,17 +42,65 @@ import ThreadSheet from "@/components/channels/ThreadSheet";
 // Local messages are NEVER auto-deleted. They stay on device forever.
 // ---------------------------------------------------------------------------
 
+const GAP_MS = 15 * 60 * 1000; // 15 minutes
+
+type GroupedItem =
+  | { type: "group"; messages: CachedMessage[]; authorId: string; authorName: string }
+  | { type: "separator"; label: string };
+
+function formatSepLabel(iso: string): string {
+  const d   = new Date(iso);
+  const now = new Date();
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const yestStart  = new Date(todayStart.getTime() - 86_400_000);
+  const msgStart   = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const time = d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
+  if (msgStart.getTime() === todayStart.getTime()) return `Today at ${time}`;
+  if (msgStart.getTime() === yestStart.getTime())  return `Yesterday at ${time}`;
+  return d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }) + ` at ${time}`;
+}
+
+function groupMessages(messages: CachedMessage[]): GroupedItem[] {
+  const ordered = [...messages].reverse();
+  const result: GroupedItem[] = [];
+  let current: (GroupedItem & { type: "group" }) | null = null;
+  let lastTs = 0;
+
+  for (const msg of ordered) {
+    const ts = new Date(msg.created_at).getTime();
+    const gap = ts - lastTs > GAP_MS;
+    const senderChanged = current && current.authorId !== msg.author_id;
+
+    if (gap && result.length > 0) {
+      result.push({ type: "separator", label: formatSepLabel(msg.created_at) });
+      current = null;
+    }
+
+    if (!current || senderChanged) {
+      current = { type: "group", messages: [], authorId: msg.author_id, authorName: msg.author_name };
+      result.push(current);
+    }
+
+    current.messages.push(msg);
+    lastTs = ts;
+  }
+
+  return result.reverse();
+}
+
+// ---------------------------------------------------------------------------
+// Hardcoded Signoff color palette — never use theme variables here (Change 12)
+// ---------------------------------------------------------------------------
 const C = {
   bg:          "#0f0e0c",
-  card:        "#191714",
-  amber:       "#f5c842",
-  amberTint:   "rgba(245,200,66,0.08)",
-  amberBorder: "rgba(245,200,66,0.25)",
+  headerBg:    "#0d0d0b",
+  amber:       "#c8860a",   // hardcoded — immune to profile theme
   text:        "#e8e4d9",
-  muted:       "#7a7060",
-  border:      "#2c2820",
-  placeholder: "#4a4438",
-  inputBg:     "#110e0a",
+  muted:       "#6a6860",
+  border:      "#1e1e1a",
+  placeholder: "#3a3a34",
+  inputBg:     "#161614",
+  pillBorder:  "#2a2a28",
 };
 
 const API = process.env.EXPO_PUBLIC_API_URL ?? "";
@@ -56,18 +112,12 @@ interface ChannelMeta {
   type: ChannelType;
   memberCount: number;
   slowModeMinutes: number;
+  isDM?: boolean;
 }
 
-function typeBadge(type: ChannelType): string {
-  if (type === "PRIVATE") return "🔒";
-  if (type === "SECRET")  return "👁";
-  return "#";
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
+// ---------------------------------------------------------------------------
 // Slow mode countdown hook
-// Returns seconds remaining (0 = can send)
-// ─────────────────────────────────────────────────────────────────────────────
+// ---------------------------------------------------------------------------
 function useSlowMode(slowModeMinutes: number, lastSentAt: Date | null): number {
   const [secsLeft, setSecsLeft] = useState(0);
 
@@ -93,34 +143,53 @@ function formatCountdown(secs: number): string {
   return m > 0 ? `${m}m ${s}s` : `${s}s`;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// ---------------------------------------------------------------------------
 // Main screen
-// ─────────────────────────────────────────────────────────────────────────────
+// ---------------------------------------------------------------------------
 export default function ChannelScreen() {
   const { channelName } = useLocalSearchParams<{ channelName: string }>();
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const [currentUserId,   setCurrentUserId]   = useState<string>("");
+  const [currentUserName, setCurrentUserName] = useState<string>("");
 
-  const inviteSheetRef = useRef<BottomSheet>(null);
-  const threadSheetRef = useRef<BottomSheet>(null);
-  const listRef        = useRef<FlashList<CachedMessage>>(null);
-  const inputRef       = useRef<TextInput>(null);
+  const inviteSheetRef  = useRef<BottomSheet>(null);
+  const threadSheetRef  = useRef<BottomSheet>(null);
+  const giphySheetRef   = useRef<BottomSheet>(null);
+  const listRef         = useRef<FlashList<GroupedItem>>(null);
+  const inputRef        = useRef<TextInput>(null);
 
-  const [messages,     setMessages]     = useState<CachedMessage[]>([]);
-  const [meta,         setMeta]         = useState<ChannelMeta | null>(null);
-  const [draft,        setDraft]        = useState("");
-  const [sending,      setSending]      = useState(false);
-  const [loadingMore,  setLoadingMore]  = useState(false);
-  const [hasEarlier,   setHasEarlier]   = useState(false);
-  const [serverExpired,setServerExpired]= useState(false);
-  const [mediaUri,     setMediaUri]     = useState<string | null>(null);
-  const [threadTarget, setThreadTarget] = useState<CachedMessage | null>(null);
-  const [lastSentAt,   setLastSentAt]   = useState<Date | null>(null);
+  const [messages,      setMessages]      = useState<CachedMessage[]>([]);
+  const [meta,          setMeta]          = useState<ChannelMeta | null>(null);
+  const [draft,         setDraft]         = useState("");
+  const [sending,       setSending]       = useState(false);
+  const [loadingMore,   setLoadingMore]   = useState(false);
+  const [hasEarlier,    setHasEarlier]    = useState(false);
+  const [serverExpired, setServerExpired] = useState(false);
+  const [mediaUri,      setMediaUri]      = useState<string | null>(null);
+  const [pendingGif,    setPendingGif]    = useState<GifResult | null>(null);
+  const [threadTarget,  setThreadTarget]  = useState<CachedMessage | null>(null);
+  const [lastSentAt,    setLastSentAt]    = useState<Date | null>(null);
 
   const slowSecs = useSlowMode(meta?.slowModeMinutes ?? 0, lastSentAt);
-  const canSend  = !!draft.trim() && !sending && slowSecs === 0;
+  const canSend  = (!!draft.trim() || !!pendingGif) && !sending && slowSecs === 0;
 
-  // ── Load channel meta ─────────────────────────────────────────────────────
+  // User initials for pill avatar
+  const userInitials = currentUserName
+    ? currentUserName.slice(0, 2).toUpperCase()
+    : "ME";
+
+  // ── Session ────────────────────────────────────────────────────────────────
+  useEffect(() => {
+    getSession().then((s) => {
+      if (s?.userId)     setCurrentUserId(s.userId);
+      if ((s as Record<string, unknown>)?.screenname) {
+        setCurrentUserName(String((s as Record<string, unknown>).screenname));
+      }
+    });
+  }, []);
+
+  // ── Channel meta ───────────────────────────────────────────────────────────
   useEffect(() => {
     if (!channelName) return;
     fetch(`${API}/api/channels/${channelName}`)
@@ -129,18 +198,14 @@ export default function ChannelScreen() {
       .catch(() => {});
   }, [channelName]);
 
-  // ── Load messages: SQLite first, then server ──────────────────────────────
+  // ── Load messages: SQLite first, then server ───────────────────────────────
   useEffect(() => {
     if (!channelName) return;
 
-    // Immediate: show from device cache
     getMessages(channelName, 80).then((cached) => {
-      if (cached.length > 0) {
-        setMessages(cached);
-      }
+      if (cached.length > 0) setMessages(cached);
     });
 
-    // Then sync from server (newest 80)
     fetch(`${API}/api/channels/${channelName}/messages?limit=80`)
       .then((r) => r.ok ? r.json() : null)
       .then(async (data) => {
@@ -148,22 +213,18 @@ export default function ChannelScreen() {
         const msgs = mapServerMessages(channelName, data.messages ?? []);
         setMessages(msgs);
         setHasEarlier(data.hasMore ?? false);
-        // Persist each to SQLite — device archive
-        for (const msg of msgs) {
-          await insertMessage(msgToInsert(msg));
-        }
+        for (const msg of msgs) await insertMessage(msgToInsert(msg));
       })
       .catch(() => {});
   }, [channelName]);
 
-  // ── Soketi live messages ──────────────────────────────────────────────────
+  // ── Soketi live messages ───────────────────────────────────────────────────
   useEffect(() => {
     if (!channelName) return;
     const ch = soketiClient.subscribe(`channel.${channelName}`);
 
     ch.bind("message", async (data: Record<string, unknown>) => {
       const msg = mapSoketiMessage(channelName, data);
-      // Save to SQLite immediately — device is the archive
       await insertMessage(msgToInsert(msg));
       setMessages((prev) => [msg, ...prev]);
     });
@@ -171,7 +232,7 @@ export default function ChannelScreen() {
     return () => { soketiClient.unsubscribe(`channel.${channelName}`); };
   }, [channelName]);
 
-  // ── Load earlier messages ─────────────────────────────────────────────────
+  // ── Load earlier messages ──────────────────────────────────────────────────
   const handleLoadEarlier = useCallback(async () => {
     if (loadingMore || !channelName || messages.length === 0) return;
     setLoadingMore(true);
@@ -196,7 +257,7 @@ export default function ChannelScreen() {
     }
   }, [loadingMore, channelName, messages]);
 
-  // ── Send message ──────────────────────────────────────────────────────────
+  // ── Send message ───────────────────────────────────────────────────────────
   const handleSend = useCallback(async () => {
     if (!canSend || !channelName) return;
     const content = draft.trim();
@@ -205,7 +266,8 @@ export default function ChannelScreen() {
     await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     try {
       const body: Record<string, unknown> = { content };
-      if (mediaUri) body.mediaUrl = mediaUri; // attachment URI passed to server
+      if (mediaUri)   body.mediaUrl  = mediaUri;
+      if (pendingGif) { body.gifId = pendingGif.id; body.gifUrl = pendingGif.url; body.gifTitle = pendingGif.title; }
       await fetch(`${API}/api/channels/${channelName}/messages`, {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
@@ -213,12 +275,13 @@ export default function ChannelScreen() {
       });
       setLastSentAt(new Date());
       setMediaUri(null);
+      setPendingGif(null);
     } finally {
       setSending(false);
     }
-  }, [canSend, draft, channelName, mediaUri]);
+  }, [canSend, draft, channelName, mediaUri, pendingGif]);
 
-  // ── Photo picker ──────────────────────────────────────────────────────────
+  // ── Photo picker ───────────────────────────────────────────────────────────
   const handlePickPhoto = useCallback(async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== "granted") {
@@ -234,7 +297,7 @@ export default function ChannelScreen() {
     }
   }, []);
 
-  // ── Thread ────────────────────────────────────────────────────────────────
+  // ── Thread ─────────────────────────────────────────────────────────────────
   const handleThreadPress = useCallback((msg: CachedMessage) => {
     setThreadTarget(msg);
     threadSheetRef.current?.expand();
@@ -244,191 +307,267 @@ export default function ChannelScreen() {
     router.push(`/u/${screenname}`);
   }, [router]);
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // Render
-  // ─────────────────────────────────────────────────────────────────────────
+  // ── Render ─────────────────────────────────────────────────────────────────
   return (
-    <View style={[styles.root, { paddingTop: insets.top }]}>
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} hitSlop={8}>
-          <Ionicons name="arrow-back" size={20} color={C.text} />
-        </TouchableOpacity>
+    <>
+      {/* Change 1: explicit header suppression */}
+      <Stack.Screen options={{ headerShown: false }} />
 
-        <View style={styles.headerCenter}>
-          <Text style={styles.headerName}>
-            {meta ? typeBadge(meta.type) : "#"}{channelName}
-          </Text>
-          {meta && (
-            <Text style={styles.headerMeta}>
-              {meta.memberCount.toLocaleString()} members
-            </Text>
-          )}
-        </View>
+      <View style={[styles.root, { paddingTop: insets.top }]}>
+        {/* ── Channel Header (Change 2) ── */}
+        <View style={styles.header}>
+          {/* Back arrow */}
+          <TouchableOpacity onPress={() => router.back()} hitSlop={8} style={styles.backBtn}>
+            <Text style={styles.backArrow}>‹</Text>
+          </TouchableOpacity>
 
-        <TouchableOpacity
-          style={styles.inviteBtn}
-          onPress={() => inviteSheetRef.current?.expand()}
-          activeOpacity={0.8}
-        >
-          <Text style={styles.inviteBtnText}>Invite</Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* Message list — inverted, newest at bottom */}
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-        keyboardVerticalOffset={0}
-      >
-        <FlashList
-          ref={listRef}
-          data={messages}
-          estimatedItemSize={64}
-          keyExtractor={(item) => item.id}
-          inverted
-          renderItem={({ item }) => (
-            <ChannelMessage
-              message={item}
-              onThreadPress={handleThreadPress}
-              onAuthorPress={handleAuthorPress}
-            />
-          )}
-          ListFooterComponent={
-            <>
-              {/* "Load earlier" or expiry note at top of inverted list */}
-              {serverExpired ? (
-                <View style={styles.expiryNote}>
-                  <Text style={styles.expiryText}>
-                    earlier messages expired from our servers.
-                  </Text>
-                  <Text style={styles.expiryHint}>
-                    your device archive goes back further — scroll up.
-                  </Text>
-                </View>
-              ) : hasEarlier ? (
-                <TouchableOpacity
-                  style={styles.loadEarlierBtn}
-                  onPress={handleLoadEarlier}
-                  disabled={loadingMore}
-                  activeOpacity={0.7}
-                >
-                  {loadingMore
-                    ? <ActivityIndicator size="small" color={C.muted} />
-                    : <Text style={styles.loadEarlierText}>load earlier</Text>}
-                </TouchableOpacity>
-              ) : null}
-            </>
-          }
-          contentContainerStyle={{ paddingTop: 8 }}
-        />
-
-        {/* Composer */}
-        <View style={[styles.composerWrap, { paddingBottom: Math.max(insets.bottom, 10) }]}>
-          {/* Media preview */}
-          {mediaUri && (
-            <View style={styles.mediaPreviewRow}>
-              <Text style={styles.mediaPreviewLabel} numberOfLines={1}>
-                📎 {mediaUri.split("/").pop()}
+          {/* Center: two rows */}
+          <View style={styles.headerCenter}>
+            {/* Row 1: lock + name + badge + spacer + invite */}
+            <View style={styles.headerRow1}>
+              {meta && meta.type !== "PUBLIC" && (
+                <Text style={styles.lockIcon}>
+                  {meta.type === "SECRET" ? "👁" : "🔒"}
+                </Text>
+              )}
+              <Text style={styles.headerName} numberOfLines={1}>
+                {channelName}
               </Text>
-              <TouchableOpacity onPress={() => setMediaUri(null)} hitSlop={6}>
-                <Ionicons name="close-circle" size={18} color={C.muted} />
+              {meta?.type === "PRIVATE" && (
+                <View style={styles.inviteOnlyBadge}>
+                  <Text style={styles.inviteOnlyText}>invite only</Text>
+                </View>
+              )}
+              <View style={{ flex: 1 }} />
+              <TouchableOpacity
+                style={styles.inviteBtn}
+                onPress={() => inviteSheetRef.current?.expand()}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.inviteBtnText}>Invite</Text>
               </TouchableOpacity>
             </View>
-          )}
 
-          {/* Slow mode indicator */}
-          {slowSecs > 0 && (
-            <View style={styles.slowModeBar}>
-              <Text style={styles.slowModeText}>
-                🕐 {formatCountdown(slowSecs)} — slow mode
+            {/* Row 2: subtitle */}
+            {meta && (
+              <Text style={styles.headerSubtitle}>
+                {meta.memberCount.toLocaleString()} members
+                {meta.slowModeMinutes > 0 ? ` · ${meta.slowModeMinutes} min slow mode` : ""}
               </Text>
-            </View>
-          )}
-
-          <View style={styles.composer}>
-            {/* Photo button */}
-            <TouchableOpacity onPress={handlePickPhoto} hitSlop={8} style={styles.photoBtn}>
-              <Ionicons name="camera-outline" size={22} color={C.muted} />
-            </TouchableOpacity>
-
-            {/* Text input */}
-            <TextInput
-              ref={inputRef}
-              style={[styles.input, slowSecs > 0 && { opacity: 0.4 }]}
-              placeholder={slowSecs > 0 ? `slow mode — ${formatCountdown(slowSecs)}` : "message…"}
-              placeholderTextColor={C.placeholder}
-              multiline
-              maxLength={512}
-              value={draft}
-              onChangeText={setDraft}
-              editable={slowSecs === 0}
-            />
-
-            {/* Send button */}
-            <TouchableOpacity
-              style={[styles.sendBtn, !canSend && { opacity: 0.35 }]}
-              onPress={handleSend}
-              disabled={!canSend}
-              activeOpacity={0.8}
-            >
-              {sending
-                ? <ActivityIndicator size="small" color="#0f0e0c" />
-                : <Text style={styles.sendBtnText}>↑</Text>}
-            </TouchableOpacity>
+            )}
           </View>
-
-          {/* Expiry disclaimer */}
-          <Text style={styles.expiryDisclaimer}>
-            messages expire from our servers in 30 days · your device keeps them
-          </Text>
         </View>
-      </KeyboardAvoidingView>
 
-      {/* Invite bottom sheet */}
-      <InvitePanel ref={inviteSheetRef} channelName={channelName ?? ""} />
+        {/* ── Message list — inverted, newest at bottom ── */}
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+          keyboardVerticalOffset={0}
+        >
+          <FlashList
+            ref={listRef}
+            data={groupMessages(messages)}
+            estimatedItemSize={80}
+            keyExtractor={(item, i) =>
+              item.type === "group" ? item.messages[0].id : `sep-${i}`
+            }
+            inverted
+            renderItem={({ item }) => {
+              if (item.type === "separator") {
+                return <TimeSeparator label={item.label} />;
+              }
+              if (meta?.isDM) {
+                return (
+                  <FlatMessageItem
+                    messages={item.messages}
+                    currentUserId={currentUserId}
+                  />
+                );
+              }
+              return (
+                <MessageGroupBubble
+                  messages={item.messages}
+                  currentUserId={currentUserId}
+                  onAuthorPress={handleAuthorPress}
+                  onLongPress={handleThreadPress}
+                  onThreadPress={handleThreadPress}
+                />
+              );
+            }}
+            ListFooterComponent={
+              <>
+                {serverExpired ? (
+                  <View style={styles.expiryNote}>
+                    <Text style={styles.expiryText}>
+                      earlier messages expired from our servers.
+                    </Text>
+                    <Text style={styles.expiryHint}>
+                      your device archive goes back further — scroll up.
+                    </Text>
+                  </View>
+                ) : hasEarlier ? (
+                  <TouchableOpacity
+                    style={styles.loadEarlierBtn}
+                    onPress={handleLoadEarlier}
+                    disabled={loadingMore}
+                    activeOpacity={0.7}
+                  >
+                    {loadingMore
+                      ? <ActivityIndicator size="small" color={C.muted} />
+                      : <Text style={styles.loadEarlierText}>load earlier</Text>}
+                  </TouchableOpacity>
+                ) : null}
+              </>
+            }
+            contentContainerStyle={{ paddingTop: 8 }}
+          />
 
-      {/* Thread bottom sheet */}
-      <ThreadSheet
-        ref={threadSheetRef}
-        parentMessage={threadTarget}
-        channelName={channelName ?? ""}
-        onAuthorPress={handleAuthorPress}
-      />
-    </View>
+          {/* ── Composer (Change 8: pill input) ── */}
+          <View style={[styles.composerWrap, { paddingBottom: Math.max(insets.bottom, 10) }]}>
+            {/* Media preview */}
+            {mediaUri && (
+              <View style={styles.mediaPreviewRow}>
+                <Text style={styles.mediaPreviewLabel} numberOfLines={1}>
+                  📎 {mediaUri.split("/").pop()}
+                </Text>
+                <TouchableOpacity onPress={() => setMediaUri(null)} hitSlop={6}>
+                  <Ionicons name="close-circle" size={18} color={C.muted} />
+                </TouchableOpacity>
+              </View>
+            )}
+            {pendingGif && (
+              <View style={styles.mediaPreviewRow}>
+                <Text style={styles.mediaPreviewLabel} numberOfLines={1}>
+                  🎞 {pendingGif.title || "GIF"}
+                </Text>
+                <TouchableOpacity onPress={() => setPendingGif(null)} hitSlop={6}>
+                  <Ionicons name="close-circle" size={18} color={C.muted} />
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {/* Pill row */}
+            <View style={styles.pill}>
+              {/* Amber avatar — hardcoded, never themed (Change 12) */}
+              <View style={styles.pillAvatar}>
+                <Text style={styles.pillAvatarText}>{userInitials}</Text>
+              </View>
+
+              {/* Text input */}
+              <TextInput
+                ref={inputRef}
+                style={[styles.pillInput, slowSecs > 0 && { opacity: 0.4 }]}
+                placeholder={`Message #${channelName}...`}
+                placeholderTextColor={C.placeholder}
+                value={draft}
+                onChangeText={setDraft}
+                editable={slowSecs === 0}
+                fontSize={16}          // Change 8: prevent iOS zoom
+                multiline={false}
+                returnKeyType="send"
+                onSubmitEditing={handleSend}
+              />
+
+              {/* Camera button */}
+              <TouchableOpacity
+                onPress={handlePickPhoto}
+                hitSlop={6}
+                style={styles.pillCameraBtn}
+              >
+                <Ionicons name="camera-outline" size={18} color={C.muted} />
+              </TouchableOpacity>
+
+              {/* Send button — hardcoded amber (Change 12) */}
+              <TouchableOpacity
+                style={[styles.pillSendBtn, !canSend && { opacity: 0.4 }]}
+                onPress={handleSend}
+                disabled={!canSend}
+                activeOpacity={0.8}
+              >
+                {sending
+                  ? <ActivityIndicator size="small" color="#ffffff" />
+                  : <Text style={styles.pillSendText}>↑</Text>}
+              </TouchableOpacity>
+            </View>
+
+            {/* Slow mode text (Change 8) */}
+            {slowSecs > 0 && (
+              <Text style={styles.slowModeText}>
+                🕐 slow mode · {formatCountdown(slowSecs)} between messages
+              </Text>
+            )}
+
+            {/* Expiry disclaimer */}
+            <Text style={styles.expiryDisclaimer}>
+              messages expire from our servers in 30 days · your device keeps them
+            </Text>
+          </View>
+        </KeyboardAvoidingView>
+
+        {/* Bottom sheets */}
+        <InvitePanel ref={inviteSheetRef} channelName={channelName ?? ""} />
+        <ThreadSheet
+          ref={threadSheetRef}
+          parentMessage={threadTarget}
+          channelName={channelName ?? ""}
+          onAuthorPress={handleAuthorPress}
+        />
+        <GiphyPickerSheet
+          ref={giphySheetRef}
+          onSelect={(gif) => setPendingGif(gif)}
+        />
+      </View>
+    </>
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// ---------------------------------------------------------------------------
 // Helpers
-// ─────────────────────────────────────────────────────────────────────────────
+// ---------------------------------------------------------------------------
+
 function mapServerMessages(channelId: string, raw: Record<string, unknown>[]): CachedMessage[] {
-  return raw.map((m) => ({
-    id:          String(m.id),
-    channel_id:  channelId,
-    author_id:   String((m.author as Record<string, unknown>)?.id   ?? ""),
-    author_name: String((m.author as Record<string, unknown>)?.screenname ?? ""),
-    content:     String(m.content),
-    media_url:   m.mediaUrl  ? String(m.mediaUrl)  : null,
-    media_type:  m.mediaType ? String(m.mediaType) : null,
-    created_at:  String(m.createdAt),
-    expires_at:  String(m.expiresAt ?? new Date(Date.now() + 30 * 86400_000).toISOString()),
-    synced_at:   new Date().toISOString(),
-  }));
+  return raw.map((m) => {
+    const author = m.author as Record<string, unknown> | null | undefined;
+    const thread = m.thread as Record<string, unknown> | null | undefined;
+    return {
+      id:           String(m.id),
+      channel_id:   channelId,
+      author_id:    String(author?.id   ?? ""),
+      author_name:  String(author?.screenname ?? ""),
+      content:      String(m.content ?? ""),
+      media_url:    m.mediaUrl  ? String(m.mediaUrl)  : null,
+      media_type:   m.mediaType ? String(m.mediaType) : null,
+      gif_url:      m.gifUrl    ? String(m.gifUrl)    : null,
+      gif_title:    m.gifTitle  ? String(m.gifTitle)  : null,
+      created_at:   String(m.createdAt),
+      expires_at:   String(m.expiresAt ?? new Date(Date.now() + 30 * 86400_000).toISOString()),
+      synced_at:    new Date().toISOString(),
+      // Runtime fields (not persisted in SQLite)
+      author_is_gold: author?.isGoldMember === true,
+      reply_count:    typeof thread?.messageCount === "number" ? thread.messageCount : 0,
+      last_reply_by:  thread?.lastReplyBy ? String(thread.lastReplyBy) : null,
+    };
+  });
 }
 
 function mapSoketiMessage(channelId: string, data: Record<string, unknown>): CachedMessage {
+  const author = data.author as Record<string, unknown> | null | undefined;
   return {
-    id:          String(data.id),
-    channel_id:  channelId,
-    author_id:   String((data.author as Record<string, unknown>)?.id   ?? ""),
-    author_name: String((data.author as Record<string, unknown>)?.screenname ?? ""),
-    content:     String(data.content),
-    media_url:   data.mediaUrl  ? String(data.mediaUrl)  : null,
-    media_type:  data.mediaType ? String(data.mediaType) : null,
-    created_at:  String(data.createdAt),
-    expires_at:  String(data.expiresAt ?? new Date(Date.now() + 30 * 86400_000).toISOString()),
-    synced_at:   new Date().toISOString(),
+    id:           String(data.id),
+    channel_id:   channelId,
+    author_id:    String(author?.id   ?? ""),
+    author_name:  String(author?.screenname ?? ""),
+    content:      String(data.content ?? ""),
+    media_url:    data.mediaUrl  ? String(data.mediaUrl)  : null,
+    media_type:   data.mediaType ? String(data.mediaType) : null,
+    gif_url:      data.gifUrl    ? String(data.gifUrl)    : null,
+    gif_title:    data.gifTitle  ? String(data.gifTitle)  : null,
+    created_at:   String(data.createdAt),
+    expires_at:   String(data.expiresAt ?? new Date(Date.now() + 30 * 86400_000).toISOString()),
+    synced_at:    new Date().toISOString(),
+    author_is_gold: author?.isGoldMember === true,
+    reply_count: 0,
+    last_reply_by: null,
   };
 }
 
@@ -441,51 +580,89 @@ function msgToInsert(msg: CachedMessage) {
     content:    msg.content,
     mediaUrl:   msg.media_url,
     mediaType:  msg.media_type,
+    gifUrl:     msg.gif_url,
+    gifTitle:   msg.gif_title,
     createdAt:  msg.created_at,
     expiresAt:  msg.expires_at,
   };
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// ---------------------------------------------------------------------------
 // Styles
-// ─────────────────────────────────────────────────────────────────────────────
+// ---------------------------------------------------------------------------
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: C.bg },
 
+  // ── Header (Change 2) ──────────────────────────────────────────────────────
   header: {
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 14,
-    paddingVertical: 12,
+    paddingVertical: 10,
     borderBottomWidth: 1,
     borderBottomColor: C.border,
-    gap: 10,
+    backgroundColor: C.headerBg,
+    gap: 0,
+  },
+  backBtn: {
+    paddingRight: 8,
+  },
+  backArrow: {
+    fontSize: 24,
+    color: C.amber,   // hardcoded amber — Change 12
+    lineHeight: 30,
   },
   headerCenter: { flex: 1, gap: 2 },
+  headerRow1: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  lockIcon: {
+    fontSize: 14,
+    color: "#6a6860",
+  },
   headerName: {
     fontFamily: "DMSans_700Bold",
     fontSize: 16,
-    color: C.text,
+    color: "#e4e0cc",
+    // No numberOfLines truncation — show full name
   },
-  headerMeta: {
-    fontFamily: "DMSans_400Regular",
+  inviteOnlyBadge: {
+    backgroundColor: C.amber,   // hardcoded amber — Change 12
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+  },
+  inviteOnlyText: {
+    fontFamily: "DMSans_700Bold",
     fontSize: 11,
-    color: C.muted,
+    color: "#1a0800",
   },
   inviteBtn: {
-    borderWidth: 1,
-    borderColor: C.amber,
+    height: 30,
+    paddingHorizontal: 14,
     borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+    borderWidth: 1,
+    borderColor: "#2a2a28",
+    backgroundColor: "transparent",
+    alignItems: "center",
+    justifyContent: "center",
   },
   inviteBtnText: {
-    fontFamily: "DMSans_700Bold",
+    fontFamily: "DMSans_400Regular",
     fontSize: 12,
-    color: C.amber,
+    color: "#c8c4b0",
+  },
+  headerSubtitle: {
+    fontFamily: "DMSans_400Regular",
+    fontSize: 11,
+    color: "#4a4840",
+    marginTop: 2,
+    paddingLeft: 32,
   },
 
-  // Load earlier / expiry note (rendered at list footer, inverted = top)
+  // ── Load earlier / expiry note ─────────────────────────────────────────────
   loadEarlierBtn: {
     alignItems: "center",
     paddingVertical: 14,
@@ -521,19 +698,20 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
 
-  // Composer
+  // ── Composer wrapper (Change 8) ────────────────────────────────────────────
   composerWrap: {
     borderTopWidth: 1,
     borderTopColor: C.border,
-    backgroundColor: C.bg,
+    backgroundColor: "#0f0f0d",
     paddingTop: 8,
-    paddingHorizontal: 0,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    gap: 0,
   },
   mediaPreviewRow: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 14,
-    paddingBottom: 6,
+    marginBottom: 8,
     gap: 8,
   },
   mediaPreviewLabel: {
@@ -542,50 +720,70 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: C.muted,
   },
-  slowModeBar: {
-    alignItems: "center",
-    paddingBottom: 6,
-  },
-  slowModeText: {
-    fontFamily: "DMSans_400Regular",
-    fontSize: 12,
-    color: C.muted,
-  },
-  composer: {
+
+  // Pill container (Change 8)
+  pill: {
     flexDirection: "row",
-    alignItems: "flex-end",
-    paddingHorizontal: 12,
-    paddingBottom: 2,
+    alignItems: "center",
     gap: 8,
-  },
-  photoBtn: {
-    paddingBottom: 9,
-  },
-  input: {
-    flex: 1,
-    fontFamily: "DMSans_400Regular",
-    fontSize: 14,
-    color: C.text,
-    backgroundColor: C.inputBg,
+    backgroundColor: C.inputBg,   // #161614
     borderWidth: 1,
-    borderColor: C.border,
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 9,
-    maxHeight: 80,
+    borderColor: C.pillBorder,     // #2a2a28
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
   },
-  sendBtn: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    backgroundColor: C.amber,
+  pillAvatar: {
+    width: 36,
+    height: 36,
+    borderRadius: 9,
+    backgroundColor: C.amber,  // hardcoded amber (Change 12)
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+  },
+  pillAvatarText: {
+    fontFamily: "DMSans_700Bold",
+    fontSize: 12,
+    color: "#ffffff",
+  },
+  pillInput: {
+    flex: 1,
+    backgroundColor: "transparent",
+    borderWidth: 0,
+    color: "#e4e0cc",
+    // fontSize set inline as prop (16 prevents iOS zoom)
+    paddingVertical: 0,
+    paddingHorizontal: 4,
+  },
+  pillCameraBtn: {
+    width: 32,
+    height: 32,
     alignItems: "center",
     justifyContent: "center",
   },
-  sendBtnText: {
+  pillSendBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: C.amber,  // hardcoded amber (Change 12)
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+  },
+  pillSendText: {
     fontFamily: "DMSans_700Bold",
-    fontSize: 16,
-    color: "#0f0e0c",
+    fontSize: 18,
+    color: "#ffffff",
+  },
+
+  // Slow mode + expiry text
+  slowModeText: {
+    fontFamily: "DMSans_400Regular",
+    fontSize: 11,
+    color: "#3a3a34",
+    textAlign: "center",
+    marginTop: 5,
   },
   expiryDisclaimer: {
     fontFamily: "DMSans_400Regular",
@@ -593,7 +791,6 @@ const styles = StyleSheet.create({
     color: C.muted,
     opacity: 0.55,
     textAlign: "center",
-    paddingVertical: 6,
-    paddingHorizontal: 12,
+    paddingVertical: 4,
   },
 });

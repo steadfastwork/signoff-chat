@@ -4,6 +4,7 @@ import {
   Text,
   StyleSheet,
   RefreshControl,
+  TouchableOpacity,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { FlashList } from "@shopify/flash-list";
@@ -16,6 +17,8 @@ import SkeletonPost from "@/components/feed/SkeletonPost";
 import Composer from "@/components/feed/Composer";
 import StatusSheet from "@/components/feed/StatusSheet";
 import NudgeBanner from "@/components/feed/NudgeBanner";
+import AwayCard, { type AwayEntry } from "@/components/away/AwayCard";
+import AwayComposerSheet from "@/components/away/AwayComposerSheet";
 import { soketiClient } from "@/lib/soketi";
 import { getSession } from "@/lib/session";
 import {
@@ -95,8 +98,19 @@ export default function FeedScreen() {
   const [newPostCount, setNewPostCount] = useState(0);
   const listRef = useRef<FlashList<CachedPost>>(null);
 
+  // Tab state
+  const [tab, setTab] = useState<"away" | "posts">("away");
+
+  // Away feed state
+  const [awayEntries, setAwayEntries]         = useState<AwayEntry[]>([]);
+  const [awayLoading, setAwayLoading]         = useState(false);
+  const [awayCursor,  setAwayCursor]          = useState<string | null>(null);
+  const [awayHasMore, setAwayHasMore]         = useState(true);
+  const [awayRefreshing, setAwayRefreshing]   = useState(false);
+
   // Bottom sheets
-  const statusSheetRef = useRef<BottomSheet>(null);
+  const statusSheetRef      = useRef<BottomSheet>(null);
+  const awayComposerRef     = useRef<BottomSheet>(null);
 
   // ---------------------------------------------------------------------------
   // Init
@@ -236,6 +250,80 @@ export default function FeedScreen() {
   }, []);
 
   // ---------------------------------------------------------------------------
+  // Away feed fetch
+  // ---------------------------------------------------------------------------
+
+  const fetchAwayFeed = useCallback(async (reset = false) => {
+    if (awayLoading && !reset) return;
+    setAwayLoading(true);
+    try {
+      const params = new URLSearchParams({ limit: "20" });
+      if (!reset && awayCursor) params.set("cursor", awayCursor);
+      const res = await fetch(`${API}/api/away-feed?${params}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      const entries: AwayEntry[] = (data.entries ?? []).map((e: Record<string, unknown>) => ({
+        id:          String(e.id),
+        userId:      String(e.userId),
+        screenname:  String(e.screenname),
+        isGold:      Boolean(e.isGold),
+        awayMessage: String(e.awayMessage),
+        setAt:       String(e.setAt),
+        nudgeCount:  Number(e.nudgeCount ?? 0),
+        hasNudged:   Boolean(e.hasNudged),
+      }));
+      if (reset) {
+        setAwayEntries(entries);
+      } else {
+        setAwayEntries((prev) => [...prev, ...entries]);
+      }
+      setAwayCursor(data.cursor ?? null);
+      setAwayHasMore(!!data.cursor);
+    } catch {
+      // network error — fail silently
+    } finally {
+      setAwayLoading(false);
+    }
+  }, [awayLoading, awayCursor]);
+
+  useEffect(() => {
+    if (tab === "away" && awayEntries.length === 0) {
+      fetchAwayFeed(true);
+    }
+  }, [tab]);
+
+  const handleAwayRefresh = useCallback(async () => {
+    setAwayRefreshing(true);
+    setAwayCursor(null);
+    setAwayHasMore(true);
+    await fetchAwayFeed(true);
+    setAwayRefreshing(false);
+  }, [fetchAwayFeed]);
+
+  const handleNudge = useCallback(async (awayId: string, hasNudged: boolean) => {
+    // Optimistic update
+    setAwayEntries((prev) =>
+      prev.map((e) =>
+        e.id === awayId
+          ? { ...e, hasNudged: !hasNudged, nudgeCount: e.nudgeCount + (hasNudged ? -1 : 1) }
+          : e
+      )
+    );
+    try {
+      await fetch(`${API}/api/away/${awayId}/nudge`, { method: "POST" });
+    } catch {
+      // Revert on failure
+      setAwayEntries((prev) =>
+        prev.map((e) =>
+          e.id === awayId
+            ? { ...e, hasNudged, nudgeCount: e.nudgeCount + (hasNudged ? 1 : -1) }
+            : e
+        )
+      );
+    }
+  }, []);
+
+  // ---------------------------------------------------------------------------
   // Expiry note dismiss
   // ---------------------------------------------------------------------------
 
@@ -289,65 +377,127 @@ export default function FeedScreen() {
           {onlineCount !== null ? `${onlineCount} online` : "connecting..."}
           {"  ·  "}
           <Text style={styles.onlineFeature}>no algorithm</Text>
-          {"  ·  "}
-          <Text style={styles.onlineFeature}>no timestamps</Text>
         </Text>
       </View>
 
-      {/* ── Composer ── */}
-      {session && (
-        <Composer
-          screenname={session.screenname}
-          avatarColor={session.avatarColor}
-          onPost={handlePost}
-        />
-      )}
-
-      {/* ── Expiry note ── */}
-      {showExpiryNote && (
-        <View style={styles.expiryNote}>
-          <Text style={styles.expiryText}>if it matters, screenshot it.</Text>
-          <Text style={styles.expiryDismiss} onPress={dismissExpiryNote}>
-            got it ✕
+      {/* ── Tab switcher ── */}
+      <View style={styles.tabRow}>
+        <TouchableOpacity
+          style={[styles.tabBtn, tab === "away" && styles.tabBtnActive]}
+          onPress={() => setTab("away")}
+          activeOpacity={0.75}
+        >
+          <Text style={[styles.tabBtnText, tab === "away" && styles.tabBtnTextActive]}>
+            away
           </Text>
-        </View>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.tabBtn, tab === "posts" && styles.tabBtnActive]}
+          onPress={() => setTab("posts")}
+          activeOpacity={0.75}
+        >
+          <Text style={[styles.tabBtnText, tab === "posts" && styles.tabBtnTextActive]}>
+            posts
+          </Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* ── Away tab ── */}
+      {tab === "away" && (
+        <>
+          {/* Set away button */}
+          <TouchableOpacity
+            style={styles.setAwayBtn}
+            onPress={() => awayComposerRef.current?.expand()}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.setAwayBtnText}>✦ set your away message…</Text>
+          </TouchableOpacity>
+
+          <FlashList
+            data={awayEntries}
+            estimatedItemSize={120}
+            keyExtractor={(item) => item.id}
+            renderItem={({ item }) => (
+              <AwayCard entry={item} onNudge={handleNudge} />
+            )}
+            refreshControl={
+              <RefreshControl
+                refreshing={awayRefreshing}
+                onRefresh={handleAwayRefresh}
+                tintColor={C.amber}
+                colors={[C.amber]}
+              />
+            }
+            onEndReached={() => { if (awayHasMore && !awayLoading) fetchAwayFeed(false); }}
+            onEndReachedThreshold={0.4}
+            ListEmptyComponent={
+              awayLoading ? null : (
+                <View style={styles.empty}>
+                  <Text style={styles.emptyText}>no away messages yet.</Text>
+                  <Text style={styles.emptyHint}>set yours and your buddies will see it here.</Text>
+                </View>
+              )
+            }
+          />
+        </>
       )}
 
-      {/* ── Feed ── */}
-      {firstLoad ? (
-        // Skeleton shimmer
-        <View style={{ flex: 1 }}>
-          {skeletons.map((i) => <SkeletonPost key={i} />)}
-        </View>
-      ) : (
-        <FlashList
-          ref={listRef}
-          data={posts}
-          estimatedItemSize={110}
-          keyExtractor={(item) => item.id}
-          renderItem={({ item }) => <PostCard post={item} />}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={onRefresh}
-              tintColor={C.amber}
-              colors={[C.amber]}
+      {/* ── Posts tab ── */}
+      {tab === "posts" && (
+        <>
+          {/* Composer */}
+          {session && (
+            <Composer
+              screenname={session.screenname}
+              avatarColor={session.avatarColor}
+              onPost={handlePost}
             />
-          }
-          onEndReached={onEndReached}
-          onEndReachedThreshold={0.4}
-          ListFooterComponent={
-            loadingMore
-              ? <View style={styles.loadingMore}><SkeletonPost /></View>
-              : null
-          }
-          ListEmptyComponent={
-            <View style={styles.empty}>
-              <Text style={styles.emptyText}>your buddies haven't posted yet.</Text>
-              <Text style={styles.emptyHint}>be the first.</Text>
+          )}
+
+          {/* Expiry note */}
+          {showExpiryNote && (
+            <View style={styles.expiryNote}>
+              <Text style={styles.expiryText}>if it matters, screenshot it.</Text>
+              <Text style={styles.expiryDismiss} onPress={dismissExpiryNote}>
+                got it ✕
+              </Text>
             </View>
-          }
-        />
+          )}
+
+          {firstLoad ? (
+            <View style={{ flex: 1 }}>
+              {skeletons.map((i) => <SkeletonPost key={i} />)}
+            </View>
+          ) : (
+            <FlashList
+              ref={listRef}
+              data={posts}
+              estimatedItemSize={110}
+              keyExtractor={(item) => item.id}
+              renderItem={({ item }) => <PostCard post={item} />}
+              refreshControl={
+                <RefreshControl
+                  refreshing={refreshing}
+                  onRefresh={onRefresh}
+                  tintColor={C.amber}
+                  colors={[C.amber]}
+                />
+              }
+              onEndReached={onEndReached}
+              onEndReachedThreshold={0.4}
+              ListFooterComponent={
+                loadingMore ? <View style={styles.loadingMore}><SkeletonPost /></View> : null
+              }
+              ListEmptyComponent={
+                <View style={styles.empty}>
+                  <Text style={styles.emptyText}>your buddies haven't posted yet.</Text>
+                  <Text style={styles.emptyHint}>be the first.</Text>
+                </View>
+              }
+            />
+          )}
+        </>
       )}
 
       {/* ── Status bottom sheet ── */}
@@ -358,6 +508,12 @@ export default function FeedScreen() {
           onChange={handleStatusChange}
         />
       )}
+
+      {/* ── Away composer sheet ── */}
+      <AwayComposerSheet
+        ref={awayComposerRef}
+        onSaved={() => fetchAwayFeed(true)}
+      />
     </SafeAreaView>
   );
 }
@@ -367,6 +523,53 @@ const styles = StyleSheet.create({
   root: {
     flex: 1,
     backgroundColor: C.bg,
+  },
+
+  // Tabs
+  tabRow: {
+    flexDirection: "row",
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    gap: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: C.border,
+  },
+  tabBtn: {
+    paddingHorizontal: 16,
+    paddingVertical: 6,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: "transparent",
+  },
+  tabBtnActive: {
+    borderColor: "rgba(245,200,66,0.3)",
+    backgroundColor: "rgba(245,200,66,0.08)",
+  },
+  tabBtnText: {
+    fontFamily: "DMSans_400Regular",
+    fontSize: 13,
+    color: C.muted,
+  },
+  tabBtnTextActive: {
+    fontFamily: "DMSans_700Bold",
+    color: C.amber,
+  },
+
+  // Set away
+  setAwayBtn: {
+    margin: 12,
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "rgba(245,200,66,0.2)",
+    backgroundColor: "rgba(245,200,66,0.05)",
+    alignItems: "center",
+  },
+  setAwayBtnText: {
+    fontFamily: "DMSans_400Regular",
+    fontStyle: "italic",
+    fontSize: 13,
+    color: "#a07820",
   },
 
   // Header

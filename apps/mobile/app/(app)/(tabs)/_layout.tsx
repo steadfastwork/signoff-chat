@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { View } from "react-native";
 import { Tabs } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 
@@ -19,6 +20,10 @@ const ALL_TABS: Array<{
 
 const API = process.env.EXPO_PUBLIC_API_URL ?? "";
 
+// Hardcoded Signoff colors — immune to profile theme (Change 12)
+const AMBER_ACTIVE   = "#c8860a";
+const MUTED_INACTIVE = "#6a6860";
+
 export default function TabsLayout() {
   const [boardsEnabled, setBoardsEnabled] = useState(false);
 
@@ -38,12 +43,13 @@ export default function TabsLayout() {
       screenOptions={{
         headerShown: false,
         tabBarStyle: {
-          backgroundColor: "#0d0d0b",
-          borderTopColor: "#1e1e16",
-          borderTopWidth: 1,
+          backgroundColor: "#0a0a08",      // Change 9
+          borderTopColor: "#1e1e1a",
+          borderTopWidth: 0.5,
+          height: 60,
         },
-        tabBarActiveTintColor: "#f5c842",
-        tabBarInactiveTintColor: "#3a3a32",
+        tabBarActiveTintColor: AMBER_ACTIVE,
+        tabBarInactiveTintColor: MUTED_INACTIVE,
         tabBarLabelStyle: {
           fontFamily: "DMSans_400Regular",
           fontSize: 10,
@@ -57,11 +63,25 @@ export default function TabsLayout() {
           options={{
             title: tab.label,
             tabBarIcon: ({ focused, color, size }) => (
-              <Ionicons
-                name={focused ? tab.iconFocused : tab.icon}
-                size={size}
-                color={color}
-              />
+              <View style={{ alignItems: "center" }}>
+                <Ionicons
+                  name={focused ? tab.iconFocused : tab.icon}
+                  size={size}
+                  color={color}
+                />
+                {/* Active amber dot indicator (Change 9) */}
+                {focused && (
+                  <View
+                    style={{
+                      width: 4,
+                      height: 4,
+                      borderRadius: 2,
+                      backgroundColor: AMBER_ACTIVE,
+                      marginTop: 2,
+                    }}
+                  />
+                )}
+              </View>
             ),
           }}
         />

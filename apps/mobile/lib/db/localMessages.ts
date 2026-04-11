@@ -30,6 +30,8 @@ export async function createTables(
       content        TEXT NOT NULL,
       media_url      TEXT,
       media_type     TEXT,
+      gif_url        TEXT,
+      gif_title      TEXT,
       created_at     TEXT NOT NULL,
       expires_at     TEXT NOT NULL,
       synced_at      TEXT NOT NULL DEFAULT (datetime('now'))
@@ -77,6 +79,8 @@ export async function saveMessage(
     content: string;
     mediaUrl?: string | null;
     mediaType?: string | null;
+    gifUrl?: string | null;
+    gifTitle?: string | null;
     createdAt: string;
     expiresAt: string;
   }
@@ -84,8 +88,8 @@ export async function saveMessage(
   await db.runAsync(
     `INSERT OR REPLACE INTO channel_messages
        (id, channel_id, author_id, author_name, content,
-        media_url, media_type, created_at, expires_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        media_url, media_type, gif_url, gif_title, created_at, expires_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       msg.id,
       msg.channelId,
@@ -94,6 +98,8 @@ export async function saveMessage(
       msg.content,
       msg.mediaUrl ?? null,
       msg.mediaType ?? null,
+      msg.gifUrl ?? null,
+      msg.gifTitle ?? null,
       msg.createdAt,
       msg.expiresAt,
     ]
@@ -109,6 +115,8 @@ export async function insertMessage(msg: {
   content: string;
   mediaUrl?: string | null;
   mediaType?: string | null;
+  gifUrl?: string | null;
+  gifTitle?: string | null;
   createdAt: string;
   expiresAt: string;
 }): Promise<void> {
@@ -167,7 +175,15 @@ export interface CachedMessage {
   content: string;
   media_url: string | null;
   media_type: string | null;
+  gif_url: string | null;
+  gif_title: string | null;
   created_at: string;
   expires_at: string;
   synced_at: string;
+  // Runtime fields — populated from server response, NOT persisted in SQLite
+  author_is_gold?: boolean;
+  reply_count?: number;
+  last_reply_by?: string | null;
+  text_color?: string | null;
+  font_size?: string | null;
 }
