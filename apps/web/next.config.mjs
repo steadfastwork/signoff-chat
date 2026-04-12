@@ -64,7 +64,7 @@ const securityHeaders = [
   // Restrict browser feature access
   {
     key: "Permissions-Policy",
-    value: "camera=(), microphone=(), geolocation=(), browsing-topics=()",
+    value: "camera=(), microphone=(), geolocation=(), browsing-topics=(), xr-spatial-tracking=()",
   },
   // Enable DNS prefetching for faster page loads
   { key: "X-DNS-Prefetch-Control", value: "on" },
