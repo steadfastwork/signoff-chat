@@ -162,7 +162,7 @@ export async function GET(_req: NextRequest, { params }: Params) {
       });
       mutualChannels = memberships
         .map((m) => m.channel)
-        .filter((c) => c.type !== "SECRET");
+        .filter((c) => c.type !== "SECRET" && !c.name.includes("__dm__"));
     } else {
       const [viewerMemberships, targetMemberships] = await Promise.all([
         prisma.channelMember.findMany({
@@ -178,7 +178,7 @@ export async function GET(_req: NextRequest, { params }: Params) {
       const viewerChannelIds = new Set(viewerMemberships.map((m) => m.channelId));
       mutualChannels = targetMemberships
         .filter(
-          (m) => viewerChannelIds.has(m.channel.id) && m.channel.type !== "SECRET"
+          (m) => viewerChannelIds.has(m.channel.id) && m.channel.type !== "SECRET" && !m.channel.name.includes("__dm__")
         )
         .map((m) => ({ name: m.channel.name, type: m.channel.type }));
     }
