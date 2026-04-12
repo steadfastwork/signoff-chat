@@ -259,7 +259,15 @@ export function DirectMessagePanel({
   // Pusher subscription
   useEffect(() => {
     if (!session?.user?.id) return;
+    console.log("[DM] pusherClient:", pusherClient ? "exists" : "null");
+    if (pusherClient) {
+      console.log("[DM] connection state:", pusherClient.connection.state);
+      pusherClient.connection.bind("state_change", ({ current }: { current: string }) => {
+        console.log("[DM] pusher state →", current);
+      });
+    }
     const ch = pusherClient.subscribe(CHANNELS.dm(session.user.id, otherUser.id));
+    console.log("[DM] subscribed to channel:", CHANNELS.dm(session.user.id, otherUser.id));
     ch.bind("new-dm", (msg: DMMessage) => {
       setMessages((prev) => {
         if (prev.some((m) => m.id === msg.id)) return prev;
