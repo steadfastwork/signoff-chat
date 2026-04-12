@@ -35,7 +35,7 @@ const dmSerifDisplay = DM_Serif_Display({
 
 export const metadata: Metadata = {
   title: "Signoff Chat",
-  description: "A retro-styled social chat app",
+  description: "A retro-styled social chat app.", // trigger redeploy
   manifest: "/manifest.json",
   icons: {
     icon: "/favicon.ico",
