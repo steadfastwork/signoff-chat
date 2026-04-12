@@ -127,6 +127,11 @@ model User {
   emailEncrypted     String?  // AES-256-GCM encrypted email (base64)
   emailNonce         String?  // 12-byte IV (base64)
 
+  // Email verification
+  emailVerified                   DateTime?
+  emailVerificationToken          String?   @unique
+  emailVerificationTokenExpiresAt DateTime?
+
   // Digest settings
   digestEnabled      Boolean  @default(false)
   digestTime         String   @default("09:00")   // "HH:MM" 24h local time

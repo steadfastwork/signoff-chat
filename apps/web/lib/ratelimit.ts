@@ -67,6 +67,9 @@ export const limiters = {
   /** Auth routes: 5 req/min per IP */
   auth: make(5, "1 m"),
 
+  /** Resend verification email: 3 per 15 min per IP */
+  resendVerification: make(3, "15 m"),
+
   /** Admin routes: 60 req/min per IP */
   admin: make(60, "1 m"),
 

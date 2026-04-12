@@ -44,7 +44,11 @@ export default function KeysPage() {
   const [quizError, setQuizError] = useState<string | null>(null);
 
   useEffect(() => {
-    const stored = sessionStorage.getItem("signoff_pending_mnemonic");
+    // Check sessionStorage first; fall back to localStorage for users who
+    // verified their email in a separate tab/device after registration.
+    const stored =
+      sessionStorage.getItem("signoff_pending_mnemonic") ??
+      localStorage.getItem("signoff_pending_mnemonic");
     if (!stored) {
       setNoMnemonic(true);
       return;
@@ -99,8 +103,9 @@ export default function KeysPage() {
         body: JSON.stringify({ hasConfirmedBackup: true }),
       });
 
-      // Clear mnemonic from sessionStorage
+      // Clear mnemonic from both storage locations
       sessionStorage.removeItem("signoff_pending_mnemonic");
+      localStorage.removeItem("signoff_pending_mnemonic");
 
       // Advance step
       await fetch("/api/onboarding/step", {

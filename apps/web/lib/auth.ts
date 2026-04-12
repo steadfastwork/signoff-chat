@@ -3,6 +3,7 @@ import CredentialsProvider from "next-auth/providers/credentials";
 import { prisma } from "@/lib/prisma";
 import bcrypt from "bcryptjs";
 import { hashEmail } from "@/lib/crypto/email";
+import { verifyTurnstile } from "@/lib/turnstile";
 
 // ---------------------------------------------------------------------------
 // Validation helpers — shared between API route and client-side forms
@@ -48,11 +49,15 @@ export const authOptions: NextAuthOptions = {
       credentials: {
         screenname: { label: "Screenname", type: "text" },
         password: { label: "Password", type: "password" },
+        turnstileToken: { label: "Turnstile", type: "text" },
       },
       async authorize(credentials) {
         if (!credentials?.screenname || !credentials?.password) {
           throw new Error("screenname and password are required.");
         }
+
+        const captchaOk = await verifyTurnstile(credentials.turnstileToken ?? "");
+        if (!captchaOk) throw new Error("CAPTCHA_FAILED");
 
         // Case-insensitive lookup — store original casing, match any casing
         const user = await prisma.user.findFirst({
@@ -69,6 +74,7 @@ export const authOptions: NextAuthOptions = {
             suspendedUntil: true,
             onboardingComplete: true,
             onboardingStep: true,
+            emailVerified: true,
           },
         });
 
@@ -76,6 +82,8 @@ export const authOptions: NextAuthOptions = {
 
         const valid = await bcrypt.compare(credentials.password, user.passwordHash);
         if (!valid) throw new Error("invalid credentials. try again.");
+
+        if (!user.emailVerified) throw new Error("EMAIL_NOT_VERIFIED");
 
         // Auto-lift expired temporary suspensions at login time
         let isSuspended = user.isSuspended;

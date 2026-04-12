@@ -77,6 +77,15 @@ const schema = z.object({
   // ---------------------------------------------------------------------------
   UPLOADTHING_SECRET: z.string().optional(),
   UPLOADTHING_APP_ID: z.string().optional(),
+
+  // ---------------------------------------------------------------------------
+  // Cloudflare Turnstile (CAPTCHA)
+  // Server secret — keep private. Client site key is NEXT_PUBLIC_.
+  // For local dev without Turnstile: leave both unset; verification is skipped.
+  // Test keys: site=1x00000000000000000000AA  secret=1x0000000000000000000000000000000AA
+  // ---------------------------------------------------------------------------
+  CLOUDFLARE_TURNSTILE_SECRET_KEY: z.string().optional(),
+  NEXT_PUBLIC_CLOUDFLARE_TURNSTILE_SITE_KEY: z.string().optional(),
 });
 
 export type Env = z.infer<typeof schema>;

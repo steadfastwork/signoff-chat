@@ -4,7 +4,11 @@ import { useState, useRef, Suspense } from "react";
 import { signIn, getSession } from "next-auth/react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
+import { Turnstile } from "@marsidev/react-turnstile";
+import type { TurnstileInstance } from "@marsidev/react-turnstile";
 import { hasEncryptedKey, loadAndDecryptKey, cacheDecryptedKey } from "@/lib/crypto/localKey";
+
+const TURNSTILE_SITE_KEY = process.env.NEXT_PUBLIC_CLOUDFLARE_TURNSTILE_SITE_KEY ?? "";
 
 // ---------------------------------------------------------------------------
 // Sub-components
@@ -43,31 +47,50 @@ function EyeToggle({ show, onToggle }: { show: boolean; onToggle: () => void }) 
 function LoginForm() {
   const router = useRouter();
   const params = useSearchParams();
-  const justRegistered = params.get("registered") === "1";
+  const justVerified = params.get("verified") === "1";
+  const tokenError = params.get("error");
 
   const [screenname, setScreenname] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [unverifiedScreenname, setUnverifiedScreenname] = useState<string>("");
   const [loading, setLoading] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  const [turnstileToken, setTurnstileToken] = useState<string>("");
+  const turnstileRef = useRef<TurnstileInstance>(null);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!screenname.trim() || !password || loading) return;
 
+    if (TURNSTILE_SITE_KEY && !turnstileToken) {
+      setError("please complete the CAPTCHA.");
+      return;
+    }
+
     setLoading(true);
     setError(null);
+    setUnverifiedScreenname("");
 
     const result = await signIn("credentials", {
       screenname: screenname.trim(),
       password,
+      turnstileToken,
       redirect: false,
     });
 
     setLoading(false);
+    turnstileRef.current?.reset();
+    setTurnstileToken("");
 
-    if (result?.error) {
+    if (result?.error === "EMAIL_NOT_VERIFIED") {
+      setUnverifiedScreenname(screenname.trim());
+      setError("email not verified. check your inbox or resend the link.");
+    } else if (result?.error === "CAPTCHA_FAILED") {
+      setError("CAPTCHA verification failed. please try again.");
+    } else if (result?.error) {
       setError("wrong screenname or password. try again.");
     } else {
       // Try to unlock stored encryption key for this session
@@ -113,9 +136,20 @@ function LoginForm() {
           className="rounded-2xl border p-8 flex flex-col gap-5"
           style={{ background: "#1a1916", borderColor: "#2a2620" }}
         >
-          {justRegistered && !error && (
+          {justVerified && !error && (
             <p className="text-sm rounded-lg px-3 py-2.5" style={{ background: "#0d1f0d", color: "#4ade80" }}>
-              account created — sign in below.
+              email verified — sign in below.
+            </p>
+          )}
+          {tokenError === "expired-token" && !error && (
+            <p className="text-sm rounded-lg px-3 py-2.5" style={{ background: "#1f1000", color: "#c8860a" }}>
+              verification link expired. register again or resend from{" "}
+              <Link href="/verify-email" style={{ color: "#c8860a", textDecoration: "underline" }}>here</Link>.
+            </p>
+          )}
+          {tokenError === "invalid-token" && !error && (
+            <p className="text-sm rounded-lg px-3 py-2.5" style={{ background: "#1f1000", color: "#c8860a" }}>
+              invalid verification link.
             </p>
           )}
 
@@ -171,10 +205,23 @@ function LoginForm() {
               </div>
             </div>
 
+            {/* Turnstile CAPTCHA */}
+            {TURNSTILE_SITE_KEY && (
+              <div className="flex justify-center">
+                <Turnstile
+                  ref={turnstileRef}
+                  siteKey={TURNSTILE_SITE_KEY}
+                  onSuccess={(token) => setTurnstileToken(token)}
+                  onExpire={() => setTurnstileToken("")}
+                  options={{ theme: "dark", size: "normal" }}
+                />
+              </div>
+            )}
+
             {/* Submit */}
             <button
               type="submit"
-              disabled={loading || !screenname.trim() || !password}
+              disabled={loading || !screenname.trim() || !password || (!!TURNSTILE_SITE_KEY && !turnstileToken)}
               className="flex items-center justify-center gap-2 h-[42px] rounded-lg text-sm font-semibold mt-1 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
               style={{ background: "#c8860a", color: "#fff" }}
             >
@@ -188,11 +235,22 @@ function LoginForm() {
               )}
             </button>
 
-            {/* Error */}
+            {/* Error + resend link for unverified accounts */}
             {error && (
-              <p className="text-sm text-center" style={{ color: "#c8860a" }}>
-                {error}
-              </p>
+              <div className="flex flex-col gap-1.5 items-center">
+                <p className="text-sm text-center" style={{ color: "#c8860a" }}>
+                  {error}
+                </p>
+                {unverifiedScreenname && (
+                  <Link
+                    href={`/verify-email?screenname=${encodeURIComponent(unverifiedScreenname)}`}
+                    className="text-xs transition-opacity hover:opacity-80"
+                    style={{ color: "#6b6055", textDecoration: "underline" }}
+                  >
+                    resend verification email →
+                  </Link>
+                )}
+              </div>
             )}
           </form>
         </div>

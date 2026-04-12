@@ -13,7 +13,7 @@ const csp = [
   "default-src 'self'",
   // Next.js App Router requires unsafe-inline for its hydration scripts.
   // unsafe-eval is only needed in development (fast refresh).
-  `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""} https://js.stripe.com`,
+  `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""} https://js.stripe.com https://challenges.cloudflare.com`,
   // Tailwind and Next.js inject inline styles; Google Fonts stylesheet
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "font-src 'self' data: https://fonts.gstatic.com",
@@ -34,11 +34,12 @@ const csp = [
     "https://*.ufs.sh",
     "https://*.ingest.uploadthing.com",
     "https://api.giphy.com",
+    "https://challenges.cloudflare.com",
   ].join(" "),
   // Audio files served from public/sounds/
   "media-src 'self'",
-  // Stripe Elements iframe
-  "frame-src https://js.stripe.com https://hooks.stripe.com",
+  // Stripe Elements iframe + Cloudflare Turnstile
+  "frame-src https://js.stripe.com https://hooks.stripe.com https://challenges.cloudflare.com",
   // Prevent this page being embedded in iframes anywhere
   "frame-ancestors 'none'",
   // Restrict base tag hijacking

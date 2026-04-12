@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
+import { randomBytes } from "crypto";
 import { prisma } from "@/lib/prisma";
 import { validateScreenname, validatePassword, hashPassword } from "@/lib/auth";
 import { hashEmail } from "@/lib/crypto/email";
 import { encryptEmail } from "@/lib/emailEncryption";
 import { getHashedIp } from "@/lib/crypto/ip";
 import { rateLimit, limiters } from "@/lib/ratelimit";
+import { verifyTurnstile } from "@/lib/turnstile";
+import { sendVerificationEmail } from "@/lib/verificationEmail";
 
 export async function POST(req: NextRequest) {
   // Rate limit — hash IP immediately, never store the raw value
@@ -14,12 +17,19 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const { screenname, email, password, mlkemPublicKey } = body as {
+    const { screenname, email, password, mlkemPublicKey, turnstileToken } = body as {
       screenname?: string;
       email?: string;
       password?: string;
       mlkemPublicKey?: string;
+      turnstileToken?: string;
     };
+
+    // Verify CAPTCHA before doing any DB work
+    const captchaOk = await verifyTurnstile(turnstileToken ?? "");
+    if (!captchaOk) {
+      return NextResponse.json({ error: "CAPTCHA verification failed. Please try again." }, { status: 400 });
+    }
 
     // --- Validate screenname ---
     const screennameError = validateScreenname(screenname ?? "");
@@ -65,6 +75,9 @@ export async function POST(req: NextRequest) {
 
     const passwordHash = await hashPassword(password!);
 
+    const verificationToken = randomBytes(32).toString("hex");
+    const verificationExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 h
+
     const user = await prisma.user.create({
       data: {
         screenname: screenname!,
@@ -72,10 +85,19 @@ export async function POST(req: NextRequest) {
         passwordHash,
         emailEncrypted: encryptedEmail.encrypted,
         emailNonce: encryptedEmail.nonce,
+        emailVerificationToken: verificationToken,
+        emailVerificationTokenExpiresAt: verificationExpiry,
         ...(mlkemPublicKey ? { mlkemPublicKey } : {}),
       },
       select: { id: true, screenname: true },
     });
+
+    // Send verification email — fire-and-forget; don't fail registration if it errors
+    sendVerificationEmail({
+      to: email!.trim().toLowerCase(),
+      screenname: user.screenname,
+      verificationToken,
+    }).catch((err) => console.error("[register] Failed to send verification email:", err));
 
     return NextResponse.json(user, { status: 201 });
   } catch (err) {

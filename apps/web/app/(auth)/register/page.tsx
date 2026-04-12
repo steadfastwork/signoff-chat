@@ -1,13 +1,16 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
-import { signIn } from "next-auth/react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { Turnstile } from "@marsidev/react-turnstile";
+import type { TurnstileInstance } from "@marsidev/react-turnstile";
 import { validateScreenname } from "@/lib/auth";
 import { generateBackupMnemonic, mnemonicToKeypair } from "@/lib/crypto/keyBackup";
 import { toBase64 } from "@/lib/crypto/index";
 import { encryptAndStoreKey, cacheDecryptedKey } from "@/lib/crypto/localKey";
+
+const TURNSTILE_SITE_KEY = process.env.NEXT_PUBLIC_CLOUDFLARE_TURNSTILE_SITE_KEY ?? "";
 
 // ---------------------------------------------------------------------------
 // Password strength
@@ -96,6 +99,9 @@ export default function RegisterPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
+  const [turnstileToken, setTurnstileToken] = useState<string>("");
+  const turnstileRef = useRef<TurnstileInstance>(null);
+
   const strength = getStrength(password);
 
   // Debounced screenname availability check
@@ -150,6 +156,11 @@ export default function RegisterPage() {
       return;
     }
 
+    if (TURNSTILE_SITE_KEY && !turnstileToken) {
+      setError("please complete the CAPTCHA.");
+      return;
+    }
+
     setLoading(true);
     setError(null);
 
@@ -169,11 +180,15 @@ export default function RegisterPage() {
           email: email.trim(),
           password,
           mlkemPublicKey,
+          turnstileToken,
         }),
       });
       const data = await res.json();
 
       if (!res.ok) {
+        // Reset CAPTCHA so user can try again
+        turnstileRef.current?.reset();
+        setTurnstileToken("");
         setError(data.error ?? "something went wrong. try again.");
         return;
       }
@@ -184,25 +199,18 @@ export default function RegisterPage() {
       // Cache decrypted key for this session so the app can use it immediately
       cacheDecryptedKey(data.id, secretKey);
 
-      // Store mnemonic in sessionStorage for the backup confirmation screen
+      // Store mnemonic in sessionStorage for the backup confirmation screen.
+      // Also write to localStorage as a fallback in case the session ends
+      // before onboarding (e.g. user opens verification link on another device).
       sessionStorage.setItem("signoff_pending_mnemonic", mnemonic);
+      localStorage.setItem("signoff_pending_mnemonic", mnemonic);
 
-      // Auto sign-in after successful registration
-      const result = await signIn("credentials", {
-        screenname: screenname.trim(),
-        password,
-        redirect: false,
-      });
-
-      if (result?.error) {
-        // Registration succeeded but auto-login failed — send to login
-        router.push("/login?registered=1");
-      } else {
-        router.push("/onboarding/welcome");
-        router.refresh();
-      }
+      // Redirect to "check your inbox" — email verification required before login
+      router.push(`/verify-email?screenname=${encodeURIComponent(screenname.trim())}`);
     } catch {
       setError("something went wrong. try again.");
+      turnstileRef.current?.reset();
+      setTurnstileToken("");
     } finally {
       setLoading(false);
     }
@@ -360,10 +368,23 @@ export default function RegisterPage() {
               </div>
             </div>
 
+            {/* Turnstile CAPTCHA */}
+            {TURNSTILE_SITE_KEY && (
+              <div className="flex justify-center">
+                <Turnstile
+                  ref={turnstileRef}
+                  siteKey={TURNSTILE_SITE_KEY}
+                  onSuccess={(token) => setTurnstileToken(token)}
+                  onExpire={() => setTurnstileToken("")}
+                  options={{ theme: "dark", size: "normal" }}
+                />
+              </div>
+            )}
+
             {/* Submit */}
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || (!!TURNSTILE_SITE_KEY && !turnstileToken)}
               className="flex items-center justify-center gap-2 h-[42px] rounded-lg text-sm font-semibold mt-1 transition-opacity disabled:opacity-60 disabled:cursor-not-allowed"
               style={{ background: "#c8860a", color: "#fff" }}
             >
