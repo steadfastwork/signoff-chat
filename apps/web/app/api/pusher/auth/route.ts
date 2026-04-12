@@ -28,6 +28,6 @@ export async function POST(req: NextRequest) {
   };
 
   const authResponse = pusherServer.authorizeChannel(socketId, channelName, userData);
-  console.log("[pusher/auth] authorized", channelName, "for", session.user.screenname, "| auth key:", authResponse.auth?.split(":")[0]);
+  console.log("[pusher/auth] response:", JSON.stringify(authResponse));
   return NextResponse.json(authResponse);
 }
