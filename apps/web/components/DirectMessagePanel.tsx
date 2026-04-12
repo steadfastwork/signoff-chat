@@ -113,6 +113,9 @@ export function DirectMessagePanel({
   >([]);
   const [loading, setLoading] = useState(true);
   const [input, setInput] = useState(initialDraft ?? "");
+  // Ref mirrors input so handleSend always reads the latest value even if
+  // React hasn't flushed the state update yet (Safari mobile / IME quirk).
+  const inputRef = useRef(initialDraft ?? "");
   const [sending, setSending] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -291,12 +294,13 @@ export function DirectMessagePanel({
 
   const handleSend = useCallback(
     async () => {
+      const content = inputRef.current;
       const hasMedia = pendingMedia.length > 0 || pendingGifs.length > 0;
-      if ((!input && !hasMedia) || sending || !session) return;
+      if ((!content && !hasMedia) || sending || !session) return;
       unlockSounds();
-      const content = input;
       setSending(true);
       setInput("");
+      inputRef.current = "";
 
       const userId = session.user.id;
       const sk = getCachedSecretKey(userId);
@@ -422,7 +426,7 @@ export function DirectMessagePanel({
         // focus is handled by RichTextEditor autoFocus on next render
       }
     },
-    [input, sending, session, otherUser.id, pendingMedia, pendingGifs]
+    [sending, session, otherUser.id, pendingMedia, pendingGifs]
   );
 
   // ---------------------------------------------------------------------------
@@ -605,7 +609,7 @@ export function DirectMessagePanel({
               )}
               <RichTextEditor
                 value={input}
-                onChange={setInput}
+                onChange={(html) => { setInput(html); inputRef.current = html; }}
                 placeholder={`message ${otherUser.screenname}…`}
                 variant="compact"
                 onSubmit={handleSend}
@@ -630,7 +634,7 @@ export function DirectMessagePanel({
             <button
               type="button"
               onClick={handleSend}
-              disabled={(!input && pendingMedia.length === 0 && pendingGifs.length === 0) || sending || isDMUploading}
+              disabled={sending || isDMUploading}
               className="text-xs font-mono px-3 py-1.5 rounded-lg transition-colors disabled:opacity-30 flex-shrink-0"
               style={{
                 background: "var(--teal)",
