@@ -162,15 +162,21 @@ export async function POST(
     select: messageSelect,
   });
 
+  // Pusher triggers are best-effort — a failure must not block the response.
+  // The message is already saved; real-time delivery is a bonus, not a guarantee.
   const pusherChannel = CHANNELS.dm(session.user.id, params.userId);
-  await pusherServer.trigger(pusherChannel, EVENTS.NEW_DM, message);
-
-  // Notify recipient's private channel for sidebar badge
-  await pusherServer.trigger(
-    CHANNELS.privateUser(params.userId),
-    EVENTS.NEW_DM,
-    { senderId: session.user.id, senderScreenname: session.user.screenname }
-  );
+  await Promise.all([
+    pusherServer.trigger(pusherChannel, EVENTS.NEW_DM, message).catch((err) =>
+      console.error("[pusher] dm trigger failed:", err)
+    ),
+    pusherServer.trigger(
+      CHANNELS.privateUser(params.userId),
+      EVENTS.NEW_DM,
+      { senderId: session.user.id, senderScreenname: session.user.screenname }
+    ).catch((err) =>
+      console.error("[pusher] badge trigger failed:", err)
+    ),
+  ]);
 
   return NextResponse.json(message, { status: 201 });
 }
