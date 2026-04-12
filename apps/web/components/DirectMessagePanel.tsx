@@ -269,6 +269,7 @@ export function DirectMessagePanel({
     const ch = pusherClient.subscribe(CHANNELS.dm(session.user.id, otherUser.id));
     console.log("[DM] subscribed to channel:", CHANNELS.dm(session.user.id, otherUser.id));
     ch.bind("new-dm", (msg: DMMessage) => {
+      console.log("[DM] new-dm event received via Pusher:", msg.id);
       setMessages((prev) => {
         if (prev.some((m) => m.id === msg.id)) return prev;
         if (msg.author.id !== session?.user?.id) {
