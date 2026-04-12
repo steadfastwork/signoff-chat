@@ -117,6 +117,7 @@ export function DirectMessagePanel({
   // React hasn't flushed the state update yet (Safari mobile / IME quirk).
   const inputRef = useRef(initialDraft ?? "");
   const [sending, setSending] = useState(false);
+  const [sendError, setSendError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   // DM font color feature
@@ -305,6 +306,8 @@ export function DirectMessagePanel({
       const userId = session.user.id;
       const sk = getCachedSecretKey(userId);
 
+      setSendError(null);
+
       // Optimistic update (always show plaintext locally while sending)
       const tempId = `temp-${Date.now()}`;
       const optimistic: DMMessage = {
@@ -330,51 +333,57 @@ export function DirectMessagePanel({
           peerPublicKeyRef.current &&
           encryptionReadyRef.current
         ) {
-          // Ensure we have an active session key
-          let channelId = channelIdRef.current;
-          let activeKey = activeKeyRef.current;
+          // Wrap crypto in its own try/catch so any failure falls back to plaintext
+          // rather than propagating to the outer catch and silently removing the message.
+          try {
+            let channelId = channelIdRef.current;
+            let activeKey = activeKeyRef.current;
 
-          if (!activeKey || !channelId) {
-            // Create new session key for this DM
-            const sessionKey = generateSessionKey();
-            const encryptedKeys: Record<string, string> = {
-              [userId]: encryptSessionKeyForMember(sessionKey, fromBase64(myPublicKeyRef.current!)),
-              [otherUser.id]: encryptSessionKeyForMember(sessionKey, fromBase64(peerPublicKeyRef.current!)),
-            };
-            const res = await fetch(`/api/messages/${otherUser.id}/key`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ encryptedKeys }),
-            });
-            if (res.ok) {
-              const data = await res.json();
-              channelId = data.channelId;
-              const kv = data.keyVersion as number;
-              channelIdRef.current = channelId;
-              activeKey = {
-                channelId: channelId!,
-                keyVersion: kv,
-                myEncryptedKey: encryptedKeys[userId],
+            if (!activeKey || !channelId) {
+              // Create new session key for this DM
+              const sessionKey = generateSessionKey();
+              const encryptedKeys: Record<string, string> = {
+                [userId]: encryptSessionKeyForMember(sessionKey, fromBase64(myPublicKeyRef.current!)),
+                [otherUser.id]: encryptSessionKeyForMember(sessionKey, fromBase64(peerPublicKeyRef.current!)),
               };
-              activeKeyRef.current = activeKey;
-              cacheSessionKey(channelId!, kv, sessionKey);
+              const keyRes = await fetch(`/api/messages/${otherUser.id}/key`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ encryptedKeys }),
+              });
+              if (keyRes.ok) {
+                const data = await keyRes.json();
+                channelId = data.channelId;
+                const kv = data.keyVersion as number;
+                channelIdRef.current = channelId;
+                activeKey = {
+                  channelId: channelId!,
+                  keyVersion: kv,
+                  myEncryptedKey: encryptedKeys[userId],
+                };
+                activeKeyRef.current = activeKey;
+                cacheSessionKey(channelId!, kv, sessionKey);
+              }
             }
-          }
 
-          if (channelId && activeKey) {
-            const sessionKey = getCachedSessionKey(channelId, activeKey.keyVersion);
-            if (sessionKey) {
-              const { ciphertext, iv } = encryptWithSessionKey(content, sessionKey);
-              body = {
-                isEncrypted: true,
-                encryptedContent: toBase64(ciphertext),
-                iv: toBase64(iv),
-                keyVersion: activeKey.keyVersion,
-              };
+            if (channelId && activeKey) {
+              const sessionKey = getCachedSessionKey(channelId, activeKey.keyVersion);
+              if (sessionKey) {
+                const { ciphertext, iv } = encryptWithSessionKey(content, sessionKey);
+                body = {
+                  isEncrypted: true,
+                  encryptedContent: toBase64(ciphertext),
+                  iv: toBase64(iv),
+                  keyVersion: activeKey.keyVersion,
+                };
+              } else {
+                body = { content };
+              }
             } else {
               body = { content };
             }
-          } else {
+          } catch (cryptoErr) {
+            console.error("[DM] crypto error, falling back to plaintext:", cryptoErr);
             body = { content };
           }
         } else {
@@ -399,7 +408,10 @@ export function DirectMessagePanel({
           );
           playSound("message_sent");
         } else {
+          const errText = await res.text().catch(() => "");
+          console.error("[DM] send failed:", res.status, errText);
           setMessages((prev) => prev.filter((m) => m.id !== tempId));
+          setSendError("failed to send — tap to retry");
         }
 
         // Send media as separate messages (DM API supports mediaUrl via ChannelMessage)
@@ -419,8 +431,10 @@ export function DirectMessagePanel({
         }
         setPendingMedia([]);
         setPendingGifs([]);
-      } catch {
+      } catch (err) {
+        console.error("[DM] handleSend error:", err);
         setMessages((prev) => prev.filter((m) => m.id !== tempId));
+        setSendError("failed to send — tap to retry");
       } finally {
         setSending(false);
         // focus is handled by RichTextEditor autoFocus on next render
@@ -530,6 +544,13 @@ export function DirectMessagePanel({
           className="border-t px-3 py-2 flex-shrink-0"
           style={{ borderColor: "var(--border)", background: "var(--surface)" }}
         >
+          {/* Send error */}
+          {sendError && (
+            <p className="text-xs mb-1.5 font-mono" style={{ color: "#f87171" }}>
+              {sendError}
+            </p>
+          )}
+
           {/* Media preview */}
           {(pendingMedia.length > 0 || pendingGifs.length > 0) && (
             <div className="mb-2">
@@ -609,7 +630,7 @@ export function DirectMessagePanel({
               )}
               <RichTextEditor
                 value={input}
-                onChange={(html) => { setInput(html); inputRef.current = html; }}
+                onChange={(html) => { setInput(html); inputRef.current = html; if (sendError) setSendError(null); }}
                 placeholder={`message ${otherUser.screenname}…`}
                 variant="compact"
                 onSubmit={handleSend}
