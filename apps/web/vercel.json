@@ -1,7 +1,6 @@
 {
   "framework": "nextjs",
   "buildCommand": "prisma generate && prisma migrate deploy && next build",
-  "nodeVersion": "20.x",
   "crons": [
     { "path": "/api/cron/rotate-rate-limit-salt",   "schedule": "0 0 * * *" },
     { "path": "/api/cron/purge-messages",           "schedule": "0 3 * * *" },
