@@ -37,6 +37,9 @@ export const metadata: Metadata = {
   title: "Signoff Chat",
   description: "A retro-styled social chat app",
   manifest: "/manifest.json",
+  icons: {
+    icon: "/favicon.ico",
+  },
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
