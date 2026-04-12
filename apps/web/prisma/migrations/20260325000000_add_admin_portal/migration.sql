@@ -1,15 +1,16 @@
--- CreateEnum
-CREATE TYPE "AdminRole" AS ENUM ('ADMIN', 'SUPER_ADMIN');
+-- CreateEnum (idempotent — may already exist if previous deploy partially ran)
+DO $$ BEGIN
+    CREATE TYPE "AdminRole" AS ENUM ('ADMIN', 'SUPER_ADMIN');
+EXCEPTION
+    WHEN duplicate_object THEN null;
+END $$;
 
--- AlterTable: replace isAdmin with adminRole
-ALTER TABLE "users" ADD COLUMN "adminRole" "AdminRole";
-ALTER TABLE "users" ADD COLUMN "adminNotes" TEXT;
--- Copy existing isAdmin=true users to ADMIN role (safety)
-UPDATE "users" SET "adminRole" = 'ADMIN' WHERE "isAdmin" = true;
-ALTER TABLE "users" DROP COLUMN "isAdmin";
+-- AlterTable: add adminRole and adminNotes (idempotent)
+ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "adminRole" "AdminRole";
+ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "adminNotes" TEXT;
 
 -- CreateTable admin_audit_logs
-CREATE TABLE "admin_audit_logs" (
+CREATE TABLE IF NOT EXISTS "admin_audit_logs" (
     "id" TEXT NOT NULL,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "adminId" TEXT NOT NULL,
@@ -23,7 +24,7 @@ CREATE TABLE "admin_audit_logs" (
 );
 
 -- CreateTable admin_grants
-CREATE TABLE "admin_grants" (
+CREATE TABLE IF NOT EXISTS "admin_grants" (
     "id" TEXT NOT NULL,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "grantedById" TEXT NOT NULL,
@@ -36,18 +37,18 @@ CREATE TABLE "admin_grants" (
 );
 
 -- CreateTable admin_sessions
-CREATE TABLE "admin_sessions" (
+CREATE TABLE IF NOT EXISTS "admin_sessions" (
     "id" TEXT NOT NULL,
     "adminId" TEXT NOT NULL,
     "accessedAt" TIMESTAMP(3) NOT NULL,
     CONSTRAINT "admin_sessions_pkey" PRIMARY KEY ("id")
 );
 
--- CreateIndex
-CREATE UNIQUE INDEX "admin_sessions_adminId_key" ON "admin_sessions"("adminId");
+-- CreateIndex (idempotent)
+CREATE UNIQUE INDEX IF NOT EXISTS "admin_sessions_adminId_key" ON "admin_sessions"("adminId");
 
 -- CreateTable cron_logs
-CREATE TABLE "cron_logs" (
+CREATE TABLE IF NOT EXISTS "cron_logs" (
     "id" TEXT NOT NULL,
     "jobName" TEXT NOT NULL,
     "ranAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
