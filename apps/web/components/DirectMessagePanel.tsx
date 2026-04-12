@@ -229,6 +229,33 @@ export function DirectMessagePanel({
     );
   }, [messages, session?.user?.id]);
 
+  // Polling fallback — runs every 5 s alongside Pusher.
+  // If Pusher triggers are failing on the server, messages still appear within 5 s
+  // without a full page refresh.
+  useEffect(() => {
+    if (!session?.user?.id) return;
+    const myId = session.user.id;
+    const poll = setInterval(async () => {
+      try {
+        const r = await fetch(`/api/messages/${otherUser.id}`);
+        if (!r.ok) return;
+        const data = await r.json();
+        const polled: DMMessage[] = Array.isArray(data.messages) ? data.messages : [];
+        setMessages((prev) => {
+          const existingIds = new Set(prev.map((m) => m.id));
+          const newMsgs = polled.filter((m) => !existingIds.has(m.id));
+          if (newMsgs.length === 0) return prev;
+          const hasIncoming = newMsgs.some((m) => m.author.id !== myId);
+          if (hasIncoming) playSound("message_received");
+          return [...prev, ...newMsgs];
+        });
+      } catch {
+        // ignore poll errors
+      }
+    }, 5000);
+    return () => clearInterval(poll);
+  }, [otherUser.id, session?.user?.id]);
+
   // Pusher subscription
   useEffect(() => {
     if (!session?.user?.id) return;
@@ -403,9 +430,13 @@ export function DirectMessagePanel({
 
         if (res.ok) {
           const saved: DMMessage = await res.json();
-          setMessages((prev) =>
-            prev.map((m) => (m.id === tempId ? saved : m))
-          );
+          setMessages((prev) => {
+            // If polling already added the real message, just drop the temp entry
+            if (prev.some((m) => m.id === saved.id)) {
+              return prev.filter((m) => m.id !== tempId);
+            }
+            return prev.map((m) => (m.id === tempId ? saved : m));
+          });
           playSound("message_sent");
         } else {
           const errText = await res.text().catch(() => "");
