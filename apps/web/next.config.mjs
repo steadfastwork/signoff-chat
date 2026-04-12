@@ -1,6 +1,9 @@
 /** @type {import('next').NextConfig} */
 
 const isDev = process.env.NODE_ENV === "development";
+const soketiWsHost = process.env.NEXT_PUBLIC_SOKETI_HOST
+  ? `wss://${process.env.NEXT_PUBLIC_SOKETI_HOST}`
+  : null;
 
 // ---------------------------------------------------------------------------
 // Content Security Policy
@@ -20,6 +23,7 @@ const csp = [
   [
     "connect-src 'self'",
     ...(isDev ? ["ws://localhost:6001", "wss://localhost:6001"] : []),
+    ...(soketiWsHost ? [soketiWsHost] : []),
     "wss://*.pusher.com",
     "https://*.pusher.com",
     "https://sockjs-mt1.pusher.com",
