@@ -267,7 +267,14 @@ export function DirectMessagePanel({
       });
     }
     const ch = pusherClient.subscribe(CHANNELS.dm(session.user.id, otherUser.id));
-    console.log("[DM] subscribed to channel:", CHANNELS.dm(session.user.id, otherUser.id));
+    const dmChannelName = CHANNELS.dm(session.user.id, otherUser.id);
+    console.log("[DM] subscribed to channel:", dmChannelName);
+    ch.bind("pusher:subscription_succeeded", () => {
+      console.log("[DM] channel subscription confirmed ✓");
+    });
+    ch.bind("pusher:subscription_error", (err: unknown) => {
+      console.error("[DM] channel subscription failed:", err);
+    });
     ch.bind("new-dm", (msg: DMMessage) => {
       console.log("[DM] new-dm event received via Pusher:", msg.id);
       setMessages((prev) => {
