@@ -19,15 +19,20 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "missing parameters." }, { status: 400 });
   }
 
-  const userData = {
-    user_id: session.user.id,
-    user_info: {
-      screenname: session.user.screenname,
-      isGoldMember: session.user.isGoldMember,
-    },
-  };
+  // userData (channel_data) must only be passed for presence channels.
+  // For private channels the HMAC is signed over "socketId:channelName" only —
+  // passing userData causes the SDK to sign over "socketId:channelName:channelData"
+  // which Soketi rejects with 401.
+  const isPresence = channelName.startsWith("presence-");
+  const authResponse = isPresence
+    ? pusherServer.authorizeChannel(socketId, channelName, {
+        user_id: session.user.id,
+        user_info: {
+          screenname: session.user.screenname,
+          isGoldMember: session.user.isGoldMember,
+        },
+      })
+    : pusherServer.authorizeChannel(socketId, channelName);
 
-  const authResponse = pusherServer.authorizeChannel(socketId, channelName, userData);
-  console.log("[pusher/auth] response:", JSON.stringify(authResponse));
   return NextResponse.json(authResponse);
 }
