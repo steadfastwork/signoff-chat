@@ -61,6 +61,23 @@ function LoginForm() {
   const [turnstileToken, setTurnstileToken] = useState<string>("");
   const turnstileRef = useRef<TurnstileInstance>(null);
 
+  const [resendState, setResendState] = useState<"idle" | "loading" | "sent" | "error">("idle");
+
+  async function handleResend() {
+    if (!unverifiedScreenname || resendState === "loading" || resendState === "sent") return;
+    setResendState("loading");
+    try {
+      const res = await fetch("/api/auth/resend-verification", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ screenname: unverifiedScreenname }),
+      });
+      setResendState(res.ok ? "sent" : "error");
+    } catch {
+      setResendState("error");
+    }
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!screenname.trim() || !password || loading) return;
@@ -73,6 +90,7 @@ function LoginForm() {
     setLoading(true);
     setError(null);
     setUnverifiedScreenname("");
+    setResendState("idle");
 
     const result = await signIn("credentials", {
       screenname: screenname.trim(),
@@ -235,20 +253,32 @@ function LoginForm() {
               )}
             </button>
 
-            {/* Error + resend link for unverified accounts */}
+            {/* Error + inline resend for unverified accounts */}
             {error && (
-              <div className="flex flex-col gap-1.5 items-center">
+              <div className="flex flex-col gap-2 items-center">
                 <p className="text-sm text-center" style={{ color: "#c8860a" }}>
                   {error}
                 </p>
                 {unverifiedScreenname && (
-                  <Link
-                    href={`/verify-email?screenname=${encodeURIComponent(unverifiedScreenname)}`}
-                    className="text-xs transition-opacity hover:opacity-80"
-                    style={{ color: "#6b6055", textDecoration: "underline" }}
-                  >
-                    resend verification email →
-                  </Link>
+                  resendState === "sent" ? (
+                    <p className="text-xs" style={{ color: "#4ade80" }}>
+                      verification email sent — check your inbox.
+                    </p>
+                  ) : resendState === "error" ? (
+                    <p className="text-xs" style={{ color: "#c8860a" }}>
+                      couldn&apos;t send — try again in a moment.
+                    </p>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={handleResend}
+                      disabled={resendState === "loading"}
+                      className="text-xs transition-opacity hover:opacity-80 disabled:opacity-50"
+                      style={{ color: "#6b6055", textDecoration: "underline" }}
+                    >
+                      {resendState === "loading" ? "sending..." : "resend verification email →"}
+                    </button>
+                  )
                 )}
               </div>
             )}
