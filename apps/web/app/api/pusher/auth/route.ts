@@ -6,6 +6,7 @@ import { pusherServer } from "@/lib/pusher";
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions);
   if (!session?.user?.id) {
+    console.error("[pusher/auth] no session — returning 401");
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
@@ -27,5 +28,6 @@ export async function POST(req: NextRequest) {
   };
 
   const authResponse = pusherServer.authorizeChannel(socketId, channelName, userData);
+  console.log("[pusher/auth] authorized", channelName, "for", session.user.screenname);
   return NextResponse.json(authResponse);
 }
