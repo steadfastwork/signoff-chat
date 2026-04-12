@@ -2,6 +2,7 @@ import { cache } from "react";
 import { prisma } from "@/lib/prisma";
 
 export const BOARDS_ENABLED = "boards";
+export const TIPS_ENABLED = "tips";
 
 /**
  * Look up a feature flag by key.

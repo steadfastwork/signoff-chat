@@ -149,7 +149,15 @@ function DotMenu({
 
 export function ProfileCard({ profile, onRelationshipChange, currentlyEditorOpen, onOpenCurrentlyEditor }: ProfileCardProps) {
   const [loading, setLoading] = useState(false);
+  const [tipsEnabled, setTipsEnabled] = useState(false);
   const colors = AVATAR_COLORS[profile.avatarColor] ?? AVATAR_COLORS.amber;
+
+  useEffect(() => {
+    fetch("/api/feature-flags/tips")
+      .then((r) => r.ok ? r.json() : { enabled: false })
+      .then((d) => setTipsEnabled(d.enabled ?? false))
+      .catch(() => {});
+  }, []);
 
   const sendBuddyRequest = async () => {
     setLoading(true);
@@ -427,8 +435,8 @@ export function ProfileCard({ profile, onRelationshipChange, currentlyEditorOpen
           </>
         )}
 
-        {/* Leave a tip */}
-        {profile.relationship !== "self" && profile.relationship !== "blocked" && (
+        {/* Leave a tip — hidden until tips feature flag is enabled */}
+        {tipsEnabled && profile.relationship !== "self" && profile.relationship !== "blocked" && (
           <TipButton screenname={profile.screenname} />
         )}
 
