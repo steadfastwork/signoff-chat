@@ -44,6 +44,31 @@ export async function getOrCreateCustomer(
   return customer.id;
 }
 
+/**
+ * Cancel all active Stripe subscriptions for a user.
+ * Queries Stripe by userId metadata because the user row may already be
+ * deleted from the database when this is called (e.g. during account deletion).
+ */
+export async function cancelStripeSubscription(userId: string): Promise<void> {
+  const customers = await stripe.customers.search({
+    query: `metadata['userId']:'${userId}'`,
+    limit: 1,
+  });
+
+  const customer = customers.data[0];
+  if (!customer) return;
+
+  const subscriptions = await stripe.subscriptions.list({
+    customer: customer.id,
+    status: "active",
+    limit: 10,
+  });
+
+  await Promise.all(
+    subscriptions.data.map((sub) => stripe.subscriptions.cancel(sub.id))
+  );
+}
+
 // The env var name for the webhook secret
 export const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET ?? "";
 // The env var name for the Gold price ID
