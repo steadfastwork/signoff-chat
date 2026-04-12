@@ -1,0 +1,8 @@
+{
+  "buildCommand": "cd apps/web && npx prisma generate && npx prisma migrate deploy && npx next build",
+  "outputDirectory": "apps/web/.next",
+  "installCommand": "npm install",
+  "devCommand": "cd apps/web && npx next dev --port $PORT",
+  "framework": "nextjs",
+  "crons": []
+}
