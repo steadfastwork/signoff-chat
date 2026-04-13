@@ -41,9 +41,12 @@ export function TopBar({ onlineCount = 0 }: { onlineCount?: number }) {
     >
       {/* Left — brand (matches sidebar width) */}
       <div style={{ width: 252, flexShrink: 0, display: "flex", alignItems: "center", gap: 10 }}>
-        <span style={{ fontFamily: "var(--serif)", fontStyle: "italic", fontSize: 20, color: "var(--amber)" }}>
-          Signoff
-        </span>
+        <a href="/" style={{ textDecoration: "none" }}>
+          <span style={{ fontFamily: "var(--font-vt323), monospace", fontSize: 24, color: "var(--amber)", letterSpacing: "0.04em", lineHeight: 1 }}>
+            SIGNOFF.CHAT
+          </span>
+        </a>
+
         {onlineCount > 0 && (
           <span style={{
             display: "inline-flex", alignItems: "center", gap: 4,

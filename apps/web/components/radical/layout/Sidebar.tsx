@@ -574,20 +574,20 @@ export function Sidebar() {
       {/* Navigation */}
       <div style={{ padding: 8, borderBottom: "1px solid var(--edge1)" }}>
         {([
-          { label: "Feed",     icon: "⊞", screen: "feed"     as ActiveScreen },
-          { label: "Talk",     icon: "💬", screen: "talk"     as ActiveScreen },
-          { label: "Channels", icon: "#",  screen: "channels" as ActiveScreen },
-          { label: "Discover", icon: "✦",  screen: "discover" as ActiveScreen },
-          { label: "You",      icon: "◎",  screen: "you"      as ActiveScreen },
+          { label: "Feed",     icon: "⊞", screen: "feed"     as ActiveScreen, href: null },
+          { label: "Talk",     icon: "💬", screen: "talk"     as ActiveScreen, href: null },
+          { label: "Channels", icon: "#",  screen: "feed"     as ActiveScreen, href: "/channels" },
+          { label: "Discover", icon: "✦",  screen: "discover" as ActiveScreen, href: null },
+          { label: "You",      icon: "◎",  screen: "you"      as ActiveScreen, href: null },
         ] as const).map((item) => {
-          const isActive = activeScreen === item.screen;
+          const isActive = !item.href && activeScreen === item.screen;
           return (
             <div
               key={item.label}
               role="button"
               tabIndex={0}
-              onClick={() => setActiveScreen(item.screen)}
-              onKeyDown={(e) => e.key === "Enter" && setActiveScreen(item.screen)}
+              onClick={() => item.href ? (window.location.href = item.href) : setActiveScreen(item.screen)}
+              onKeyDown={(e) => e.key === "Enter" && (item.href ? (window.location.href = item.href) : setActiveScreen(item.screen))}
               style={{
                 display: "flex", alignItems: "center", gap: 9,
                 padding: "8px 10px", borderRadius: 10, cursor: "pointer",

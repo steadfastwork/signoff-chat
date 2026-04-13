@@ -408,7 +408,6 @@ function RadicalShell() {
             {/* Main content — switches based on activeScreen */}
             {activeScreen === "feed"     && <MainFeed />}
             {activeScreen === "talk"     && <TalkScreen />}
-            {activeScreen === "channels" && <ChannelsScreen />}
             {activeScreen === "discover" && <DiscoverScreen />}
             {activeScreen === "you"      && <YouScreen />}
 

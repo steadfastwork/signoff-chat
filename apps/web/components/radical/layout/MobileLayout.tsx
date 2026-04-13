@@ -631,11 +631,11 @@ export function MobileLayout() {
   const avatarColor = session?.user?.avatarColor ?? "amber";
   const { bg, fg } = AVATAR_PALETTE[avatarColor] ?? AVATAR_PALETTE.amber;
 
-  const NAV_ITEMS = [
-    { key: "feed"     as const, label: "Feed",     icon: "⊞" },
-    { key: "talk"     as const, label: "Talk",     icon: "💬" },
-    { key: "channels" as const, label: "Channels", icon: "#"  },
-    { key: "you"      as const, label: "You",      icon: "◎"  },
+  const NAV_ITEMS: { key: "feed" | "talk" | "you"; label: string; icon: string; href?: string }[] = [
+    { key: "feed", label: "Feed",     icon: "⊞" },
+    { key: "talk", label: "Talk",     icon: "💬" },
+    { key: "feed", label: "Channels", icon: "#", href: "/channels" },
+    { key: "you",  label: "You",      icon: "◎" },
   ];
 
   return (
@@ -646,9 +646,11 @@ export function MobileLayout() {
         display: "flex", alignItems: "center", justifyContent: "space-between",
         flexShrink: 0, borderBottom: "1px solid var(--edge1)",
       }}>
-        <span style={{ fontFamily: "var(--serif)", fontStyle: "italic", fontSize: 22, color: "var(--amber)" }}>
-          Signoff
-        </span>
+        <a href="/" style={{ textDecoration: "none" }}>
+          <span style={{ fontFamily: "var(--font-vt323), monospace", fontSize: 24, color: "var(--amber)", letterSpacing: "0.04em", lineHeight: 1 }}>
+            SIGNOFF.CHAT
+          </span>
+        </a>
         <div style={{ width: 34, height: 34, borderRadius: 10, background: bg, color: fg,
           display: "flex", alignItems: "center", justifyContent: "center",
           fontSize: 12, fontWeight: 700, fontFamily: "var(--sans)", userSelect: "none", cursor: "pointer",
@@ -677,14 +679,6 @@ export function MobileLayout() {
         </div>
         <div style={{
           position: "absolute", inset: 0,
-          opacity: mobileScreen === "channels" ? 1 : 0,
-          pointerEvents: mobileScreen === "channels" ? "auto" : "none",
-          transition: "opacity 0.2s",
-        }}>
-          <MobileChannelsScreen />
-        </div>
-        <div style={{
-          position: "absolute", inset: 0,
           opacity: mobileScreen === "you" ? 1 : 0,
           pointerEvents: mobileScreen === "you" ? "auto" : "none",
           transition: "opacity 0.2s",
@@ -709,7 +703,7 @@ export function MobileLayout() {
         zIndex: 50,
       }}>
         {NAV_ITEMS.map((item, idx) => {
-          const isActive = mobileScreen === item.key;
+          const isActive = !item.href && mobileScreen === item.key;
           // Insert compose button before "You"
           const nodes = [];
           if (idx === 3) {
@@ -734,8 +728,8 @@ export function MobileLayout() {
           }
           nodes.push(
             <button
-              key={item.key}
-              onClick={() => setMobileScreen(item.key)}
+              key={item.label}
+              onClick={() => item.href ? (window.location.href = item.href) : setMobileScreen(item.key)}
               style={{
                 minWidth: 70, padding: "8px 22px", borderRadius: 22,
                 background: isActive ? "var(--ambg)" : "transparent",
