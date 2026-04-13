@@ -15,7 +15,7 @@ import { signOut } from "next-auth/react";
 import { TopBar } from "./layout/TopBar";
 import { Sidebar } from "./layout/Sidebar";
 import { MainFeed } from "./layout/MainFeed";
-import { RightPanel } from "./layout/RightPanel";
+import { ChatOverlay } from "./layout/RightPanel";
 import { MobileLayout } from "./layout/MobileLayout";
 import { PostComposer } from "./PostComposer";
 import { RadicalLayoutProvider, useRadicalLayout } from "./layout/RadicalLayoutContext";
@@ -315,7 +315,8 @@ function RadicalShell() {
             {activeScreen === "discover" && <DiscoverScreen />}
             {activeScreen === "you"      && <YouScreen />}
 
-            <RightPanel />
+            {/* Full-screen chat overlay — slides over the content area */}
+            <ChatOverlay />
           </div>
         </div>
       ) : (

@@ -11,7 +11,7 @@ import { getInitials } from "@/lib/utils";
 
 export function TopBar({ onlineCount = 0 }: { onlineCount?: number }) {
   const { data: session } = useSession();
-  const { setComposerOpen, setComposerType } = useRadicalLayout();
+  const { setComposerOpen, setComposerType, setActiveScreen } = useRadicalLayout();
 
   const openAway = () => { setComposerType("AWAY"); setComposerOpen(true); };
   const openNew  = () => { setComposerType("THOUGHT"); setComposerOpen(true); };
@@ -101,14 +101,21 @@ export function TopBar({ onlineCount = 0 }: { onlineCount?: number }) {
           + New post
         </button>
 
-        {/* User avatar */}
-        <div style={{
-          width: 30, height: 30, borderRadius: 9,
-          background: bg, color: fg,
-          display: "flex", alignItems: "center", justifyContent: "center",
-          fontSize: 11, fontWeight: 700, fontFamily: "var(--sans)",
-          userSelect: "none", cursor: "pointer", flexShrink: 0,
-        }}>
+        {/* User avatar — click to go to You screen */}
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={() => setActiveScreen("you")}
+          onKeyDown={(e) => e.key === "Enter" && setActiveScreen("you")}
+          title="Your profile"
+          style={{
+            width: 30, height: 30, borderRadius: 9,
+            background: bg, color: fg,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            fontSize: 11, fontWeight: 700, fontFamily: "var(--sans)",
+            userSelect: "none", cursor: "pointer", flexShrink: 0,
+          }}
+        >
           {getInitials(screenname)}
         </div>
       </div>

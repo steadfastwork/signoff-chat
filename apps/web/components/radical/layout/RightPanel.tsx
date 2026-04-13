@@ -6,11 +6,10 @@ import { PostCard, type PostCardPost } from "@/components/radical/PostCard";
 import { useRadicalLayout, type BuddyData } from "./RadicalLayoutContext";
 import { AVATAR_PALETTE } from "./avatarPalette";
 import { getInitials, formatTimestamp } from "@/lib/utils";
-import { deriveAvatarColor } from "@/lib/auth";
 import { parseCurrently, filledFields, CURRENTLY_META } from "@/lib/currently";
 
 // ---------------------------------------------------------------------------
-// RightPanel — slides in from the right when a buddy is selected
+// Types
 // ---------------------------------------------------------------------------
 
 interface Message {
@@ -20,23 +19,23 @@ interface Message {
   author:    { id: string; screenname: string };
 }
 
-type Tab = "chat" | "posts";
+// ---------------------------------------------------------------------------
+// ChatView — used inside the full-screen overlay
+// ---------------------------------------------------------------------------
 
 function ChatView({ buddy }: { buddy: BuddyData }) {
-  const { data: session }  = useSession();
-  const [messages,  setMessages]  = useState<Message[]>([]);
-  const [input,     setInput]     = useState("");
-  const [sending,   setSending]   = useState(false);
-  const [loading,   setLoading]   = useState(true);
+  const { data: session } = useSession();
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [input,    setInput]    = useState("");
+  const [sending,  setSending]  = useState(false);
+  const [loading,  setLoading]  = useState(true);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setLoading(true);
     fetch(`/api/messages/${buddy.userId}`)
       .then((r) => r.ok ? r.json() : null)
-      .then((data) => {
-        if (data?.messages) setMessages(data.messages);
-      })
+      .then((data) => { if (data?.messages) setMessages(data.messages); })
       .finally(() => setLoading(false));
   }, [buddy.userId]);
 
@@ -57,7 +56,6 @@ function ChatView({ buddy }: { buddy: BuddyData }) {
       body: JSON.stringify({ content: text }),
     });
     setSending(false);
-    // Re-fetch messages
     fetch(`/api/messages/${buddy.userId}`)
       .then((r) => r.ok ? r.json() : null)
       .then((data) => { if (data?.messages) setMessages(data.messages); });
@@ -65,31 +63,30 @@ function ChatView({ buddy }: { buddy: BuddyData }) {
 
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minHeight: 0 }}>
-      {/* Message list */}
-      <div ref={scrollRef} style={{ flex: 1, overflowY: "auto", padding: "12px 14px" }}>
+      <div ref={scrollRef} style={{ flex: 1, overflowY: "auto", padding: "16px 24px" }}>
         {loading ? (
-          <div style={{ fontSize: 11, color: "var(--snow5)", fontFamily: "var(--sans)" }}>Loading…</div>
+          <div style={{ fontSize: 12, color: "var(--snow5)", fontFamily: "var(--sans)" }}>Loading…</div>
         ) : messages.length === 0 ? (
-          <div style={{ fontSize: 11, color: "var(--snow5)", fontFamily: "var(--sans)", fontStyle: "italic", padding: "24px 0" }}>
+          <div style={{ fontSize: 13, color: "var(--snow5)", fontFamily: "var(--sans)", fontStyle: "italic", padding: "48px 0", textAlign: "center" }}>
             No messages yet. Say hi!
           </div>
         ) : (
           messages.map((m) => {
             const isOwn = m.author.id === session?.user?.id;
             return (
-              <div key={m.id} style={{ marginBottom: 8 }}>
+              <div key={m.id} style={{ marginBottom: 10 }}>
                 <span style={{
-                  fontFamily: "var(--sans)", fontSize: 12, fontWeight: 600,
+                  fontFamily: "var(--sans)", fontSize: 13, fontWeight: 600,
                   color: isOwn ? "var(--amber)" : "var(--snow2)",
                 }}>
                   {m.author.screenname}
                 </span>
-                <span style={{ fontSize: 11, color: "var(--snow5)", fontFamily: "var(--sans)", marginLeft: 6 }}>
+                <span style={{ fontSize: 11, color: "var(--snow5)", fontFamily: "var(--sans)", marginLeft: 8 }}>
                   {formatTimestamp(m.createdAt)}
                 </span>
                 <p style={{
-                  margin: "2px 0 0",
-                  fontFamily: "var(--sans)", fontSize: 13, color: "var(--snow)",
+                  margin: "3px 0 0",
+                  fontFamily: "var(--sans)", fontSize: 14, color: "var(--snow)",
                   lineHeight: 1.5, wordBreak: "break-word",
                 }}>
                   {m.content}
@@ -100,12 +97,10 @@ function ChatView({ buddy }: { buddy: BuddyData }) {
         )}
       </div>
 
-      {/* Input */}
       <div style={{
         borderTop: "1px solid var(--edge1)",
-        padding: "8px 12px",
-        display: "flex", alignItems: "center", gap: 8,
-        flexShrink: 0,
+        padding: "10px 20px",
+        display: "flex", alignItems: "center", gap: 10, flexShrink: 0,
       }}>
         <input
           value={input}
@@ -115,8 +110,8 @@ function ChatView({ buddy }: { buddy: BuddyData }) {
           style={{
             flex: 1,
             background: "var(--fog1)", border: "1px solid var(--edge1)",
-            borderRadius: "var(--rp)", padding: "7px 12px",
-            fontFamily: "var(--sans)", fontSize: 12, color: "var(--snow)",
+            borderRadius: "var(--rp)", padding: "9px 14px",
+            fontFamily: "var(--sans)", fontSize: 14, color: "var(--snow)",
             outline: "none",
           }}
         />
@@ -124,11 +119,11 @@ function ChatView({ buddy }: { buddy: BuddyData }) {
           onClick={sendMessage}
           disabled={!input.trim() || sending}
           style={{
-            padding: "7px 12px", borderRadius: "var(--rp)",
+            padding: "9px 16px", borderRadius: "var(--rp)",
             background: input.trim() ? "var(--ambg)" : "transparent",
             border: "1px solid var(--edge1)",
             color: input.trim() ? "var(--amber)" : "var(--snow5)",
-            fontSize: 11, fontWeight: 700, fontFamily: "var(--sans)",
+            fontSize: 14, fontWeight: 700, fontFamily: "var(--sans)",
             cursor: input.trim() ? "pointer" : "default",
           }}
         >
@@ -139,14 +134,25 @@ function ChatView({ buddy }: { buddy: BuddyData }) {
   );
 }
 
-function PostsView({ buddy }: { buddy: BuddyData }) {
-  const [posts,   setPosts]   = useState<PostCardPost[]>([]);
-  const [loading, setLoading] = useState(true);
+// ---------------------------------------------------------------------------
+// ChatOverlay — full-screen overlay covering the content area (not sidebar)
+// Desktop: left = 252px (sidebar width). Mobile: handled by MobileLayout.
+// ---------------------------------------------------------------------------
+
+export function ChatOverlay() {
+  const { activeBuddy, setActiveBuddy } = useRadicalLayout();
+  const [tab, setTab] = useState<"chat" | "posts">("chat");
+  const [posts, setPosts] = useState<PostCardPost[]>([]);
+  const [postsLoading, setPostsLoading] = useState(false);
   const { setActiveTag } = useRadicalLayout();
 
+  const isOpen = activeBuddy !== null;
+
+  // Load posts when tab switches
   useEffect(() => {
-    setLoading(true);
-    fetch(`/api/posts?userId=${buddy.userId}&limit=20`)
+    if (tab !== "posts" || !activeBuddy) return;
+    setPostsLoading(true);
+    fetch(`/api/posts?userId=${activeBuddy.userId}&limit=20`)
       .then((r) => r.ok ? r.json() : null)
       .then((data) => {
         if (!data?.posts) return;
@@ -175,36 +181,11 @@ function PostsView({ buddy }: { buddy: BuddyData }) {
           };
         }));
       })
-      .finally(() => setLoading(false));
-  }, [buddy.userId]);
+      .finally(() => setPostsLoading(false));
+  }, [tab, activeBuddy?.userId]);
 
-  if (loading) return (
-    <div style={{ padding: 14, fontSize: 11, color: "var(--snow5)", fontFamily: "var(--sans)" }}>Loading…</div>
-  );
-
-  return (
-    <div style={{ flex: 1, overflowY: "auto", padding: "12px 12px 20px", display: "flex", flexDirection: "column", gap: 10 }}>
-      {posts.length === 0
-        ? <div style={{ fontSize: 11, color: "var(--snow5)", fontFamily: "var(--sans)", fontStyle: "italic", padding: "24px 0" }}>No posts yet.</div>
-        : posts.map((p) => (
-            <PostCard
-              key={p.id}
-              post={p}
-              onNudge={() => {}}
-              onEcho={() => {}}
-              onReply={() => {}}
-              onTagClick={setActiveTag}
-              onUserClick={() => {}}
-            />
-          ))
-      }
-    </div>
-  );
-}
-
-export function RightPanel() {
-  const { activeBuddy, setActiveBuddy } = useRadicalLayout();
-  const [tab, setTab] = useState<Tab>("chat");
+  // Reset tab when buddy changes
+  useEffect(() => { setTab("chat"); }, [activeBuddy?.userId]);
 
   const close = () => setActiveBuddy(null);
 
@@ -212,57 +193,69 @@ export function RightPanel() {
 
   return (
     <div style={{
-      width: activeBuddy ? 340 : 0,
-      flexShrink: 0,
-      overflow: "hidden",
-      transition: "width 0.28s cubic-bezier(0.32, 0.72, 0, 1)",
-      background: "var(--ink2)",
-      borderLeft: activeBuddy ? "1px solid var(--edge1)" : "none",
+      position: "fixed",
+      top: 0,
+      bottom: 0,
+      // On desktop: don't cover the sidebar (252px). JS-driven media check not
+      // available here, so we use a CSS variable fallback with a sensible default.
+      left: "var(--sidebar-width, 252px)",
+      right: 0,
+      zIndex: 200,
+      background: "var(--ink)",
       display: "flex",
       flexDirection: "column",
+      // Slide in from right
+      transform: isOpen ? "translateX(0)" : "translateX(100%)",
+      transition: "transform 0.3s cubic-bezier(0.32, 0.72, 0, 1)",
+      // When closed, make non-interactive to prevent invisible click traps
+      pointerEvents: isOpen ? "auto" : "none",
     }}>
       {activeBuddy && (
         <>
           {/* Header */}
           <div style={{
-            height: 52, flexShrink: 0,
-            borderBottom: "1px solid var(--edge1)",
-            display: "flex", alignItems: "center", gap: 10,
-            padding: "0 14px",
+            height: 58, flexShrink: 0,
+            background: "var(--ink2)", borderBottom: "1px solid var(--edge1)",
+            display: "flex", alignItems: "center", gap: 14,
+            padding: "0 20px",
           }}>
-            {/* Close */}
+            {/* Back button */}
             <button
               onClick={close}
               style={{
-                width: 24, height: 24, borderRadius: "50%",
+                width: 36, height: 36, borderRadius: "50%",
                 background: "var(--fog1)", border: "1px solid var(--edge1)",
-                color: "var(--snow3)", fontSize: 12, cursor: "pointer",
+                color: "var(--snow3)", fontSize: 18, cursor: "pointer",
                 display: "flex", alignItems: "center", justifyContent: "center",
                 flexShrink: 0,
               }}
+              title="Back"
             >
-              ✕
+              ‹
             </button>
 
-            {/* Buddy info */}
+            {/* Buddy avatar */}
             <div style={{
-              width: 32, height: 32, borderRadius: 9,
+              width: 36, height: 36, borderRadius: 11,
               background: bg, color: fg,
               display: "flex", alignItems: "center", justifyContent: "center",
-              fontSize: 11, fontWeight: 700, fontFamily: "var(--sans)",
+              fontSize: 12, fontWeight: 700, fontFamily: "var(--sans)",
               userSelect: "none", flexShrink: 0,
             }}>
               {getInitials(activeBuddy.screenname)}
             </div>
+
+            {/* Name + away */}
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 12, fontWeight: 600, color: "var(--snow)", fontFamily: "var(--sans)" }}>
+              <div style={{ fontSize: 14, fontWeight: 700, color: "var(--snow)", fontFamily: "var(--sans)" }}>
                 {activeBuddy.screenname}
+                {activeBuddy.isGold && <span style={{ fontSize: 10, color: "var(--amber)", marginLeft: 6 }}>★</span>}
               </div>
               {activeBuddy.awayMessage && (
                 <div style={{
-                  fontSize: 10, fontStyle: "italic", color: "var(--amber)",
-                  fontFamily: "var(--serif)", overflow: "hidden",
-                  textOverflow: "ellipsis", whiteSpace: "nowrap",
+                  fontSize: 11, fontStyle: "italic", color: "var(--amber)",
+                  fontFamily: "var(--serif)",
+                  overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
                 }}>
                   {activeBuddy.awayMessage}
                 </div>
@@ -271,23 +264,18 @@ export function RightPanel() {
           </div>
 
           {/* Tabs */}
-          <div style={{
-            display: "flex", borderBottom: "1px solid var(--edge1)",
-            flexShrink: 0,
-          }}>
+          <div style={{ display: "flex", borderBottom: "1px solid var(--edge1)", flexShrink: 0, background: "var(--ink2)" }}>
             {(["chat", "posts"] as const).map((t) => (
               <button
                 key={t}
                 onClick={() => setTab(t)}
                 style={{
-                  flex: 1, padding: "10px 0",
-                  background: "transparent",
-                  border: "none",
+                  padding: "10px 24px",
+                  background: "transparent", border: "none",
                   borderBottom: tab === t ? "2px solid var(--amber)" : "2px solid transparent",
                   color: tab === t ? "var(--amber)" : "var(--snow4)",
-                  fontSize: 11, fontWeight: 600, fontFamily: "var(--sans)",
-                  cursor: "pointer",
-                  textTransform: "capitalize",
+                  fontSize: 12, fontWeight: 600, fontFamily: "var(--sans)",
+                  cursor: "pointer", textTransform: "capitalize",
                 }}
               >
                 {t}
@@ -296,10 +284,36 @@ export function RightPanel() {
           </div>
 
           {/* Content */}
-          {tab === "chat"  && <ChatView  buddy={activeBuddy} />}
-          {tab === "posts" && <PostsView buddy={activeBuddy} />}
+          {tab === "chat" && <ChatView buddy={activeBuddy} />}
+
+          {tab === "posts" && (
+            <div style={{ flex: 1, overflowY: "auto", padding: "16px 24px 40px", display: "flex", flexDirection: "column", gap: 12 }}>
+              {postsLoading ? (
+                <div style={{ fontSize: 12, color: "var(--snow5)", fontFamily: "var(--sans)" }}>Loading…</div>
+              ) : posts.length === 0 ? (
+                <div style={{ fontSize: 13, color: "var(--snow5)", fontFamily: "var(--sans)", fontStyle: "italic", padding: "48px 0", textAlign: "center" }}>No posts yet.</div>
+              ) : (
+                posts.map((p) => (
+                  <PostCard
+                    key={p.id} post={p}
+                    onNudge={() => {}} onEcho={() => {}} onReply={() => {}}
+                    onTagClick={setActiveTag} onUserClick={() => {}}
+                  />
+                ))
+              )}
+            </div>
+          )}
         </>
       )}
     </div>
   );
+}
+
+// ---------------------------------------------------------------------------
+// RightPanel — kept for backwards compat (now just exports ChatOverlay alias)
+// This is no longer rendered in RadicalLayout; ChatOverlay is used instead.
+// ---------------------------------------------------------------------------
+
+export function RightPanel() {
+  return <ChatOverlay />;
 }

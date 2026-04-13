@@ -103,7 +103,7 @@ function PostSkeleton() {
 
 export function MainFeed({ onOpenChat }: { onOpenChat?: (screenname: string) => void }) {
   const { data: session } = useSession();
-  const { activeTag, setActiveTag, setComposerOpen, setComposerType } = useRadicalLayout();
+  const { activeTag, setActiveTag, setComposerOpen, setComposerType, setActiveBuddy } = useRadicalLayout();
 
   const [posts,      setPosts]      = useState<PostCardPost[]>([]);
   const [cursor,     setCursor]     = useState<string | null>(null);
@@ -314,7 +314,7 @@ export function MainFeed({ onOpenChat }: { onOpenChat?: (screenname: string) => 
                     initials:    getInitials(b.screenname),
                   }}
                   awayStatus={!b.isOnline ? "OFFLINE" : b.isAway ? "AWAY" : "ONLINE"}
-                  onClick={() => onOpenChat?.(b.screenname)}
+                  onClick={() => setActiveBuddy(b)}
                 />
               );
             })}
