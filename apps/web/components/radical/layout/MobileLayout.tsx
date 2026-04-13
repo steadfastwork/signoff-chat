@@ -1,6 +1,7 @@
 "use client";
 
 import { useSession } from "next-auth/react";
+import { useRouter } from "next/navigation";
 import { useEffect, useState, useRef } from "react";
 import { PostCard, type PostCardPost } from "@/components/radical/PostCard";
 import { TagFilterBar } from "@/components/radical/TagFilterBar";
@@ -66,7 +67,7 @@ function mapPost(p: ApiPost): PostCardPost {
 
 function MobileFeedScreen() {
   const { data: session }  = useSession();
-  const { activeTag, setActiveTag, setComposerOpen, setComposerType } = useRadicalLayout();
+  const { activeTag, setActiveTag, setComposerOpen, setComposerType, activeScreen } = useRadicalLayout();
   const [posts,     setPosts]     = useState<PostCardPost[]>([]);
   const [cursor,    setCursor]    = useState<string | null>(null);
   const [hasMore,   setHasMore]   = useState(true);
@@ -75,6 +76,14 @@ function MobileFeedScreen() {
   const [buddies,   setBuddies]   = useState<BuddyData[]>([]);
   const [awayMsg,   setAwayMsg]   = useState("");
   const sentinelRef = useRef<HTMLDivElement>(null);
+  const scrollRef   = useRef<HTMLDivElement>(null);
+
+  // Scroll to top when feed becomes active
+  useEffect(() => {
+    if (activeScreen === "feed" && scrollRef.current) {
+      scrollRef.current.scrollTop = 0;
+    }
+  }, [activeScreen]);
 
   useEffect(() => {
     setLoading(true);
@@ -160,7 +169,7 @@ function MobileFeedScreen() {
   const { bg, fg } = AVATAR_PALETTE[avatarColor] ?? AVATAR_PALETTE.amber;
 
   return (
-    <div style={{ height: "100%", overflowY: "auto", padding: "0 0 80px" }}>
+    <div ref={scrollRef} style={{ height: "100%", overflowY: "auto", padding: "0 0 80px" }}>
       {/* Status card */}
       <div
         role="button"
@@ -297,7 +306,7 @@ function MobileTalkScreen() {
     const { bg, fg } = AVATAR_PALETTE[deriveAvatarColor(chatUserId)] ?? AVATAR_PALETTE.amber;
 
     return (
-      <div style={{ height: "100%", display: "flex", flexDirection: "column" }}>
+      <div style={{ height: "calc(100% - 90px)", display: "flex", flexDirection: "column" }}>
         {/* Chat header */}
         <div style={{
           height: 52, borderBottom: "1px solid var(--edge1)",
@@ -337,9 +346,10 @@ function MobileTalkScreen() {
                 <span style={{ fontSize: 10, color: "var(--snow5)", fontFamily: "var(--sans)", marginLeft: 5 }}>
                   {formatTimestamp(m.createdAt)}
                 </span>
-                <p style={{ margin: "2px 0 0", fontSize: 13, color: "var(--snow)", fontFamily: "var(--sans)", lineHeight: 1.5 }}>
-                  {m.content}
-                </p>
+                <div
+                  style={{ margin: "2px 0 0", fontSize: 13, color: "var(--snow)", fontFamily: "var(--sans)", lineHeight: 1.5, wordBreak: "break-word" }}
+                  dangerouslySetInnerHTML={{ __html: m.content }}
+                />
               </div>
             );
           })}
@@ -442,6 +452,104 @@ function MobileTalkScreen() {
 }
 
 // ---------------------------------------------------------------------------
+// Mobile Channels screen
+// ---------------------------------------------------------------------------
+
+function MobileChannelsScreen() {
+  const router = useRouter();
+  const [channels, setChannels] = useState<any[]>([]);
+  const [loading, setLoading]   = useState(true);
+
+  useEffect(() => {
+    fetch("/api/channels?mine=true")
+      .then((r) => r.ok ? r.json() : [])
+      .then((data) => setChannels(Array.isArray(data) ? data : []))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  return (
+    <div style={{ height: "100%", overflowY: "auto", paddingBottom: 90 }}>
+      <div style={{ padding: "14px 16px 8px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <span style={{ fontSize: 10, fontWeight: 700, color: "var(--snow5)", fontFamily: "var(--sans)", textTransform: "uppercase", letterSpacing: "0.08em" }}>
+          Your channels
+        </span>
+        <button
+          onClick={() => router.push("/channels")}
+          style={{ fontSize: 11, color: "var(--amber)", fontFamily: "var(--sans)", background: "none", border: "none", cursor: "pointer" }}
+        >
+          + Explore
+        </button>
+      </div>
+
+      {loading ? (
+        <div style={{ padding: "32px 16px", textAlign: "center", fontSize: 12, color: "var(--snow5)", fontFamily: "var(--sans)" }}>
+          Loading…
+        </div>
+      ) : channels.length === 0 ? (
+        <div style={{ padding: "48px 16px", textAlign: "center" }}>
+          <p style={{ fontSize: 14, fontStyle: "italic", color: "var(--snow5)", fontFamily: "var(--serif)", marginBottom: 16 }}>
+            You haven't joined any channels yet.
+          </p>
+          <button
+            onClick={() => router.push("/channels")}
+            style={{
+              padding: "9px 20px", borderRadius: "var(--rp)",
+              background: "var(--ambg)", border: "1px solid rgba(232,150,26,.35)",
+              color: "var(--amber)", fontSize: 12, fontWeight: 700,
+              fontFamily: "var(--sans)", cursor: "pointer",
+            }}
+          >
+            Explore channels
+          </button>
+        </div>
+      ) : (
+        channels.map((ch) => (
+          <div
+            key={ch.id}
+            role="button"
+            tabIndex={0}
+            onClick={() => router.push(`/channels/${ch.name}`)}
+            onKeyDown={(e) => e.key === "Enter" && router.push(`/channels/${ch.name}`)}
+            style={{
+              display: "flex", alignItems: "center", gap: 12,
+              padding: "11px 16px", cursor: "pointer",
+              borderBottom: "1px solid var(--edge1)",
+            }}
+          >
+            <div style={{
+              width: 36, height: 36, borderRadius: 10,
+              background: "var(--fog2)", color: "var(--snow3)",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              fontSize: 16, fontWeight: 700, fontFamily: "var(--sans)", flexShrink: 0,
+            }}>
+              #
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: "var(--snow)", fontFamily: "var(--sans)" }}>
+                #{ch.name}
+                {ch.favoriteByMe && <span style={{ fontSize: 10, color: "var(--amber)", marginLeft: 5 }}>★</span>}
+              </div>
+              {ch.description && (
+                <p style={{
+                  margin: 0, fontSize: 11, color: "var(--snow5)", fontFamily: "var(--sans)",
+                  overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                }}>
+                  {ch.description}
+                </p>
+              )}
+            </div>
+            <span style={{ fontSize: 11, color: "var(--snow5)", fontFamily: "var(--sans)", flexShrink: 0 }}>
+              {ch.memberCount} ›
+            </span>
+          </div>
+        ))
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Mobile You screen
 // ---------------------------------------------------------------------------
 
@@ -524,9 +632,10 @@ export function MobileLayout() {
   const { bg, fg } = AVATAR_PALETTE[avatarColor] ?? AVATAR_PALETTE.amber;
 
   const NAV_ITEMS = [
-    { key: "feed" as const, label: "Feed",  icon: "⊞" },
-    { key: "talk" as const, label: "Talk",  icon: "💬" },
-    { key: "you"  as const, label: "You",   icon: "◎" },
+    { key: "feed"     as const, label: "Feed",     icon: "⊞" },
+    { key: "talk"     as const, label: "Talk",     icon: "💬" },
+    { key: "channels" as const, label: "Channels", icon: "#"  },
+    { key: "you"      as const, label: "You",      icon: "◎"  },
   ];
 
   return (
@@ -568,6 +677,14 @@ export function MobileLayout() {
         </div>
         <div style={{
           position: "absolute", inset: 0,
+          opacity: mobileScreen === "channels" ? 1 : 0,
+          pointerEvents: mobileScreen === "channels" ? "auto" : "none",
+          transition: "opacity 0.2s",
+        }}>
+          <MobileChannelsScreen />
+        </div>
+        <div style={{
+          position: "absolute", inset: 0,
           opacity: mobileScreen === "you" ? 1 : 0,
           pointerEvents: mobileScreen === "you" ? "auto" : "none",
           transition: "opacity 0.2s",
@@ -595,7 +712,7 @@ export function MobileLayout() {
           const isActive = mobileScreen === item.key;
           // Insert compose button before "You"
           const nodes = [];
-          if (idx === 2) {
+          if (idx === 3) {
             nodes.push(
               <button
                 key="compose"

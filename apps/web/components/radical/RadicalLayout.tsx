@@ -133,6 +133,102 @@ function TalkScreen() {
   );
 }
 
+function ChannelsScreen() {
+  const [channels, setChannels] = useState<any[]>([]);
+  const [loading,  setLoading]  = useState(true);
+
+  useEffect(() => {
+    fetch("/api/channels?mine=true")
+      .then((r) => r.ok ? r.json() : [])
+      .then((data) => setChannels(Array.isArray(data) ? data : []))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  return (
+    <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", background: "var(--ink)", overflowY: "auto" }}>
+      <div style={{ padding: "20px 24px 12px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <div>
+          <h2 style={{ fontFamily: "var(--sans)", fontSize: 16, fontWeight: 700, color: "var(--snow)", margin: 0 }}>Channels</h2>
+          <p style={{ fontFamily: "var(--sans)", fontSize: 11, color: "var(--snow5)", margin: "2px 0 0" }}>real-time chatrooms</p>
+        </div>
+        <a
+          href="/channels"
+          style={{
+            padding: "6px 14px", borderRadius: "var(--rp)",
+            background: "var(--ambg)", border: "1px solid rgba(232,150,26,.35)",
+            color: "var(--amber)", fontSize: 11, fontWeight: 700,
+            fontFamily: "var(--sans)", cursor: "pointer", textDecoration: "none",
+          }}
+        >
+          + Explore
+        </a>
+      </div>
+
+      {loading ? (
+        <div style={{ padding: "32px 24px", fontSize: 12, color: "var(--snow5)", fontFamily: "var(--sans)" }}>Loading…</div>
+      ) : channels.length === 0 ? (
+        <div style={{ padding: "60px 24px", textAlign: "center" }}>
+          <p style={{ fontSize: 15, fontStyle: "italic", color: "var(--snow5)", fontFamily: "var(--serif)", marginBottom: 20 }}>
+            You haven't joined any channels yet.
+          </p>
+          <a
+            href="/channels"
+            style={{
+              padding: "9px 20px", borderRadius: "var(--rp)",
+              background: "var(--ambg)", border: "1px solid rgba(232,150,26,.35)",
+              color: "var(--amber)", fontSize: 12, fontWeight: 700,
+              fontFamily: "var(--sans)", textDecoration: "none",
+            }}
+          >
+            Explore channels →
+          </a>
+        </div>
+      ) : (
+        <div style={{ flex: 1 }}>
+          {channels.map((ch) => (
+            <a
+              key={ch.id}
+              href={`/channels/${ch.name}`}
+              style={{
+                display: "flex", alignItems: "center", gap: 14,
+                padding: "12px 24px", cursor: "pointer",
+                borderBottom: "1px solid var(--edge1)", textDecoration: "none",
+              }}
+            >
+              <div style={{
+                width: 38, height: 38, borderRadius: 11,
+                background: "var(--fog2)", color: "var(--snow3)",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                fontSize: 18, fontWeight: 700, fontFamily: "var(--sans)", flexShrink: 0,
+              }}>
+                #
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: "var(--snow)", fontFamily: "var(--sans)" }}>
+                  #{ch.name}
+                  {ch.favoriteByMe && <span style={{ fontSize: 10, color: "var(--amber)", marginLeft: 6 }}>★</span>}
+                </div>
+                {ch.description && (
+                  <p style={{
+                    margin: "2px 0 0", fontSize: 11, color: "var(--snow5)", fontFamily: "var(--sans)",
+                    overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                  }}>
+                    {ch.description}
+                  </p>
+                )}
+              </div>
+              <span style={{ fontSize: 11, color: "var(--snow5)", fontFamily: "var(--sans)", flexShrink: 0 }}>
+                {ch.memberCount.toLocaleString()} ›
+              </span>
+            </a>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function DiscoverScreen() {
   return (
     <div style={{
@@ -312,6 +408,7 @@ function RadicalShell() {
             {/* Main content — switches based on activeScreen */}
             {activeScreen === "feed"     && <MainFeed />}
             {activeScreen === "talk"     && <TalkScreen />}
+            {activeScreen === "channels" && <ChannelsScreen />}
             {activeScreen === "discover" && <DiscoverScreen />}
             {activeScreen === "you"      && <YouScreen />}
 

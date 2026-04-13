@@ -115,6 +115,7 @@ export function MainFeed({ onOpenChat }: { onOpenChat?: (screenname: string) => 
   const [awayMsg,    setAwayMsg]    = useState("");
 
   const sentinelRef = useRef<HTMLDivElement>(null);
+  const scrollRef   = useRef<HTMLDivElement>(null);
 
   // Fetch posts
   const fetchPosts = useCallback(async (tag: string | null, fromCursor: string | null) => {
@@ -229,7 +230,7 @@ export function MainFeed({ onOpenChat }: { onOpenChat?: (screenname: string) => 
   const screenname = session?.user?.screenname ?? "";
 
   return (
-    <div style={{
+    <div ref={scrollRef} style={{
       flex: 1, minWidth: 0,
       display: "flex", flexDirection: "column",
       background: "var(--ink)",

@@ -576,6 +576,7 @@ export function Sidebar() {
         {([
           { label: "Feed",     icon: "⊞", screen: "feed"     as ActiveScreen },
           { label: "Talk",     icon: "💬", screen: "talk"     as ActiveScreen },
+          { label: "Channels", icon: "#",  screen: "channels" as ActiveScreen },
           { label: "Discover", icon: "✦",  screen: "discover" as ActiveScreen },
           { label: "You",      icon: "◎",  screen: "you"      as ActiveScreen },
         ] as const).map((item) => {

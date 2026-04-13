@@ -84,13 +84,10 @@ function ChatView({ buddy }: { buddy: BuddyData }) {
                 <span style={{ fontSize: 11, color: "var(--snow5)", fontFamily: "var(--sans)", marginLeft: 8 }}>
                   {formatTimestamp(m.createdAt)}
                 </span>
-                <p style={{
-                  margin: "3px 0 0",
-                  fontFamily: "var(--sans)", fontSize: 14, color: "var(--snow)",
-                  lineHeight: 1.5, wordBreak: "break-word",
-                }}>
-                  {m.content}
-                </p>
+                <div
+                  style={{ margin: "3px 0 0", fontFamily: "var(--sans)", fontSize: 14, color: "var(--snow)", lineHeight: 1.5, wordBreak: "break-word" }}
+                  dangerouslySetInnerHTML={{ __html: m.content }}
+                />
               </div>
             );
           })
