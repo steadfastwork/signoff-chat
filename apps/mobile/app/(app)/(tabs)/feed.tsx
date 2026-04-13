@@ -26,6 +26,7 @@ import {
   upsertPosts,
   type CachedPost,
 } from "@/lib/db/localPosts";
+import RadicalFeed from "@/components/radical/RadicalFeed";
 
 // ---------------------------------------------------------------------------
 const C = {
@@ -38,6 +39,7 @@ const C = {
 };
 
 const API               = process.env.EXPO_PUBLIC_API_URL ?? "";
+const RADICAL_FLAG_KEY  = "RADICAL_UX";
 const EXPIRY_NOTE_KEY   = "signoff_expiry_note_dismissed";
 const STATUS_COLORS: Record<string, string> = {
   ONLINE:    "#4caf50",
@@ -70,10 +72,25 @@ function apiPostToCached(p: Record<string, unknown>): CachedPost {
 }
 
 // ---------------------------------------------------------------------------
-// Component
+// FeedScreen — checks RADICAL_UX flag and delegates to the right feed
 // ---------------------------------------------------------------------------
 
 export default function FeedScreen() {
+  const [isRadical, setIsRadical] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    fetch(`${API}/api/feature-flags/${RADICAL_FLAG_KEY}`)
+      .then((r) => r.ok ? r.json() : { enabled: false })
+      .then((d) => setIsRadical(Boolean((d as Record<string, unknown>).enabled)))
+      .catch(() => setIsRadical(false));
+  }, []);
+
+  if (isRadical === null) return null;
+  if (isRadical) return <RadicalFeed />;
+  return <ClassicFeedScreen />;
+}
+
+function ClassicFeedScreen() {
   // Session
   const [session, setSession] = useState<{ screenname: string; userId: string; avatarColor: string; isGoldMember: boolean } | null>(null);
 
