@@ -10,6 +10,7 @@ interface FeatureFlag {
   enabledAt: string | null;
   enabledBy: string | null;
   updatedAt: string;
+  rolloutPercent: number;
 }
 
 const CARD_STYLES = {
@@ -226,6 +227,180 @@ function ConfirmDialog({
   );
 }
 
+// ---------------------------------------------------------------------------
+// RadicalUXCard — special card for the RADICAL_UX flag with rollout slider
+// ---------------------------------------------------------------------------
+
+function RadicalUXCard({
+  flag,
+  isSuperAdmin,
+  onToggle,
+  onRollout,
+}: {
+  flag: FeatureFlag;
+  isSuperAdmin: boolean;
+  onToggle: (key: string, enabled: boolean) => void;
+  onRollout: (pct: number) => void;
+}) {
+  const [sliderValue, setSliderValue] = useState(flag.rolloutPercent ?? 0);
+  const [saveTimeout, setSaveTimeout] = useState<ReturnType<typeof setTimeout> | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  const handleSliderChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const pct = parseInt(e.target.value, 10);
+    setSliderValue(pct);
+    if (saveTimeout) clearTimeout(saveTimeout);
+    const t = setTimeout(async () => {
+      setSaving(true);
+      await onRollout(pct);
+      setSaving(false);
+    }, 600);
+    setSaveTimeout(t);
+  };
+
+  const relativeTime = (iso: string | null) => {
+    if (!iso) return "never";
+    const diff = Date.now() - new Date(iso).getTime();
+    const days = Math.floor(diff / 86400000);
+    const hours = Math.floor(diff / 3600000);
+    const mins = Math.floor(diff / 60000);
+    if (mins < 2) return "just now";
+    if (mins < 60) return `${mins}m ago`;
+    if (hours < 24) return `${hours}h ago`;
+    return `${days}d ago`;
+  };
+
+  return (
+    <div
+      style={{
+        background: "#0a0a09",
+        border: "1px solid rgba(200,134,10,0.25)",
+        borderRadius: 8,
+        padding: "20px 24px",
+        maxWidth: 560,
+      }}
+    >
+      {/* Header */}
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, marginBottom: 16 }}>
+        <div>
+          <div style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 15, fontWeight: 600, color: "#e8ddd0", marginBottom: 4 }}>
+            🧪 {flag.key}
+          </div>
+          {flag.description && (
+            <div style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 12, color: "#6b6456", lineHeight: 1.5 }}>
+              {flag.description}
+            </div>
+          )}
+          <div style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 11, color: "#4a4030", marginTop: 4 }}>
+            Kill switch: set{" "}
+            <code style={{ color: "#8a6a20", background: "rgba(200,134,10,0.08)", padding: "1px 5px", borderRadius: 3 }}>
+              DISABLE_RADICAL_UX=true
+            </code>{" "}
+            env var to override.
+          </div>
+        </div>
+        <StatusBadge enabled={flag.enabled} />
+      </div>
+
+      {/* Rollout slider */}
+      <div style={{ marginBottom: 16 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+          <label style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 11, color: "#6b6456" }}>
+            Gradual rollout
+          </label>
+          <span style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 12, fontWeight: 700, color: flag.enabled ? "#c8860a" : "#4a4030" }}>
+            {sliderValue}%{saving && <span style={{ color: "#6b6456", fontWeight: 400, marginLeft: 6 }}>saving…</span>}
+          </span>
+        </div>
+        <input
+          type="range"
+          min={0}
+          max={100}
+          step={5}
+          value={sliderValue}
+          disabled={!isSuperAdmin || !flag.enabled}
+          onChange={handleSliderChange}
+          style={{
+            width: "100%",
+            accentColor: "#c8860a",
+            opacity: !isSuperAdmin || !flag.enabled ? 0.35 : 1,
+            cursor: !isSuperAdmin || !flag.enabled ? "not-allowed" : "pointer",
+          }}
+        />
+        <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4 }}>
+          <span style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 10, color: "#3a3530" }}>0 — no users</span>
+          <span style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 10, color: "#3a3530" }}>100 — everyone</span>
+        </div>
+        {!flag.enabled && (
+          <p style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 11, color: "#4a4030", marginTop: 6 }}>
+            Enable the flag first to activate rollout.
+          </p>
+        )}
+      </div>
+
+      {/* Footer */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, paddingTop: 12, borderTop: "1px solid #1a1916" }}>
+        <div>
+          {flag.enabled && flag.enabledBy ? (
+            <span style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 11, color: "#6b6456" }}>
+              Enabled by {flag.enabledBy} · {relativeTime(flag.enabledAt)}
+            </span>
+          ) : (
+            <span style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 11, color: "#3a3530" }}>
+              {flag.enabledAt ? `Disabled · last enabled ${relativeTime(flag.enabledAt)}` : "Never enabled"}
+            </span>
+          )}
+        </div>
+
+        {isSuperAdmin ? (
+          flag.enabled ? (
+            <button
+              onClick={() => onToggle(flag.key, false)}
+              style={{
+                background: "transparent",
+                border: "1px solid #2a2620",
+                borderRadius: 6,
+                padding: "6px 14px",
+                fontFamily: "IBM Plex Mono, monospace",
+                fontSize: 12,
+                color: "#ef4444",
+                cursor: "pointer",
+              }}
+            >
+              Disable →
+            </button>
+          ) : (
+            <button
+              onClick={() => onToggle(flag.key, true)}
+              style={{
+                background: "rgba(200,134,10,0.12)",
+                border: "1px solid rgba(200,134,10,0.4)",
+                borderRadius: 6,
+                padding: "6px 14px",
+                fontFamily: "IBM Plex Mono, monospace",
+                fontSize: 12,
+                color: "#c8860a",
+                cursor: "pointer",
+              }}
+            >
+              Enable →
+            </button>
+          )
+        ) : (
+          <span
+            title="Only super admins can toggle features"
+            style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 11, color: "#3a3530", cursor: "not-allowed" }}
+          >
+            {flag.enabled ? "Disable →" : "Enable →"} (super admin only)
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+
 function FlagCard({
   flag,
   isSuperAdmin,
@@ -383,6 +558,22 @@ export default function FlagsPage() {
     setFlags((prev) => prev.map((f) => (f.key === flag.key ? flag : f)));
   };
 
+  const handleRollout = async (key: string, rolloutPercent: number) => {
+    setError(null);
+    const res = await fetch("/api/admin/flags", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ key, rolloutPercent }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      setError(data.error ?? "Failed to update rollout percent.");
+      return;
+    }
+    const { flag } = await res.json();
+    setFlags((prev) => prev.map((f) => (f.key === flag.key ? flag : f)));
+  };
+
   return (
     <div style={{ padding: "32px 28px", maxWidth: 640 }}>
       <div style={{ marginBottom: 28 }}>
@@ -419,14 +610,24 @@ export default function FlagsPage() {
         </p>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-          {flags.map((flag) => (
-            <FlagCard
-              key={flag.key}
-              flag={flag}
-              isSuperAdmin={isSuperAdmin}
-              onToggle={handleToggle}
-            />
-          ))}
+          {flags.map((flag) =>
+            flag.key === "RADICAL_UX" ? (
+              <RadicalUXCard
+                key={flag.key}
+                flag={flag}
+                isSuperAdmin={isSuperAdmin}
+                onToggle={handleToggle}
+                onRollout={(pct) => handleRollout(flag.key, pct)}
+              />
+            ) : (
+              <FlagCard
+                key={flag.key}
+                flag={flag}
+                isSuperAdmin={isSuperAdmin}
+                onToggle={handleToggle}
+              />
+            )
+          )}
         </div>
       )}
     </div>

@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import bcrypt from "bcryptjs";
 import { hashEmail } from "@/lib/crypto/email";
 import { verifyTurnstile } from "@/lib/turnstile";
+import { isRadicalUXEnabled } from "@/lib/featureFlags";
 
 // ---------------------------------------------------------------------------
 // Validation helpers — shared between API route and client-side forms
@@ -190,11 +191,15 @@ export const authOptions: NextAuthOptions = {
       return token;
     },
     async session({ session, token }) {
-      session.user.id = token.id;
-      session.user.screenname = token.screenname;
+      session.user.id           = token.id;
+      session.user.screenname   = token.screenname;
       session.user.isGoldMember = token.isGoldMember;
-      session.user.adminRole = token.adminRole;
-      session.user.avatarColor = token.avatarColor;
+      session.user.adminRole    = token.adminRole;
+      session.user.avatarColor  = token.avatarColor;
+      // Embed flag state so client components can read it via useSession()
+      // without a separate API call. getFeatureFlag() uses React.cache() so
+      // this is at most one DB query per request even if called from multiple places.
+      session.radicalUXEnabled  = await isRadicalUXEnabled(token.id);
       return session;
     },
   },

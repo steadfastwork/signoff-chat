@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
-import { IBM_Plex_Mono, VT323, DM_Sans, DM_Serif_Display } from "next/font/google";
+import { IBM_Plex_Mono, VT323, DM_Sans, DM_Serif_Display, Plus_Jakarta_Sans } from "next/font/google";
 import "./globals.css";
+import "@/components/radical/tokens.css";
 import { SessionProvider } from "@/components/SessionProvider";
 import { PresenceProvider } from "@/components/PresenceProvider";
 import { ThemeProvider, ThemeScript } from "@/components/ThemeProvider";
@@ -31,6 +32,12 @@ const dmSerifDisplay = DM_Serif_Display({
   variable: "--font-dm-serif",
   subsets: ["latin"],
   weight: "400",
+});
+
+const plusJakartaSans = Plus_Jakarta_Sans({
+  variable: "--font-jakarta",
+  subsets: ["latin"],
+  weight: ["300", "400", "500", "600", "700"],
 });
 
 export const metadata: Metadata = {
@@ -71,7 +78,7 @@ export default async function RootLayout({
       lang="en"
       data-theme="dark"
       suppressHydrationWarning
-      className={`${ibmPlexMono.variable} ${vt323.variable} ${dmSans.variable} ${dmSerifDisplay.variable}`}
+      className={`${ibmPlexMono.variable} ${vt323.variable} ${dmSans.variable} ${dmSerifDisplay.variable} ${plusJakartaSans.variable}`}
     >
       <head>
         <ThemeScript />

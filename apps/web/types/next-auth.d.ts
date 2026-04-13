@@ -21,6 +21,8 @@ declare module "next-auth" {
       adminRole: string | null;
       avatarColor: string;
     };
+    /** True when the RADICAL_UX feature flag is active for this user. */
+    radicalUXEnabled: boolean;
   }
 }
 

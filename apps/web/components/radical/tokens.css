@@ -1,0 +1,70 @@
+/**
+ * RADICAL_UX design tokens — scoped to .radical-ux
+ *
+ * Using a class selector rather than :root to avoid overriding the existing
+ * globals.css tokens (--amber, --teal, --green, --away) on old-UX pages.
+ *
+ * Add class="radical-ux" to the top-level layout wrapper when RADICAL_UX is
+ * active. CSS custom properties cascade through descendants automatically.
+ */
+
+.radical-ux {
+  /* ── Backgrounds ────────────────────────────────────────────── */
+  --ink:  #0B0906;
+  --ink2: #100E0B;
+  --ink3: #181410;
+  --ink4: #0A0806;
+  --fog1: rgba(255,248,235,.04);
+  --fog2: rgba(255,248,235,.07);
+
+  /* ── Borders ────────────────────────────────────────────────── */
+  --edge1: rgba(255,248,235,.07);
+  --edge2: rgba(255,248,235,.13);
+
+  /* ── Text ───────────────────────────────────────────────────── */
+  --snow:  #F2EDE0;
+  --snow2: #C8C2B0;
+  --snow3: #8C8678;
+  --snow4: #504A3E;
+  --snow5: #2E2820;
+
+  /* ── Accent ─────────────────────────────────────────────────── */
+  --amber:  #E8961A;
+  --amber2: #F5A828;
+  --ambg:   rgba(232,150,26,.13);
+  --ambg2:  rgba(232,150,26,.07);
+  --teal:   #2DD4A8;
+  --tealg:  rgba(45,212,168,.10);
+  --lav:    #A78BFA;
+  --lavg:   rgba(167,139,250,.10);
+  --coral:  #FB7185;
+  --coralg: rgba(251,113,133,.10);
+  --green:  #34D17A;
+  --away:   #FBBF24;
+
+  /* ── Typography ─────────────────────────────────────────────── */
+  --sans:  'Plus Jakarta Sans', system-ui, sans-serif;
+  --serif: 'DM Serif Display', Georgia, serif;
+
+  /* ── Radius ─────────────────────────────────────────────────── */
+  --r:  14px;
+  --r2: 20px;
+  --r3: 28px;
+  --rp: 999px;
+
+  /* ── Responsive component sizes (desktop defaults) ──────────── */
+  --away-text-size:    20px;
+  --thought-text-size: 16px;
+  --tag-pill-h:        28px;
+  --tag-pill-text:     11px;
+}
+
+/* Mobile overrides */
+@media (max-width: 767px) {
+  .radical-ux {
+    --away-text-size:    22px;
+    --thought-text-size: 17px;
+    --tag-pill-h:        32px;
+    --tag-pill-text:     12px;
+  }
+}

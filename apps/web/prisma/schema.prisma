@@ -80,6 +80,13 @@ enum BadgeType {
   FOUNDING_DONOR
 }
 
+enum PostType {
+  AWAY    // The existing away message (away message feed)
+  THOUGHT // Long-form text post (like a Tumblr text post)
+  QUOTE   // A quote with optional attribution
+  PHOTO   // An image with optional caption
+}
+
 enum ChannelCategory {
   GAMING
   MUSIC
@@ -231,7 +238,21 @@ model AwayMessageHistory {
   nudgeCount Int            @default(0)
   replyCount Int            @default(0)
 
-  nudges     AwayNudge[]
+  // New post-type fields (RADICAL_UX)
+  postType     PostType @default(AWAY)
+  bodyText     String?  // For THOUGHT posts (no char limit)
+  quoteText    String?  // For QUOTE posts — the actual quote
+  quoteAttrib  String?  // For QUOTE posts — "— Author Name"
+  imageUrl     String?  // For PHOTO posts — uploaded image URL
+  imageCaption String?  // For PHOTO posts — optional caption
+  tags         String[] // Hashtags without the # symbol
+  echoOfId     String?  // If this is an echo of another post
+  echoOf       AwayMessageHistory?  @relation("PostEchoes", fields: [echoOfId], references: [id], onDelete: SetNull)
+  echoes       AwayMessageHistory[] @relation("PostEchoes")
+  echoCount    Int      @default(0)
+
+  nudges   AwayNudge[]
+  postTags PostTag[]
 
   @@index([userId, setAt(sort: Desc)])
   @@map("away_message_history")
@@ -251,6 +272,22 @@ model AwayNudge {
 
   @@unique([userId, awayId])
   @@map("away_nudges")
+}
+
+// ---------------------------------------------------------------------------
+// PostTag  (denormalized tag index for discovery — one row per tag per post)
+// ---------------------------------------------------------------------------
+
+model PostTag {
+  id        String             @id @default(cuid())
+  tag       String             // e.g. "slowliving" (no # prefix stored)
+  postId    String
+  post      AwayMessageHistory @relation(fields: [postId], references: [id], onDelete: Cascade)
+  createdAt DateTime           @default(now())
+
+  @@index([tag])
+  @@index([postId])
+  @@map("post_tags")
 }
 
 // ---------------------------------------------------------------------------
@@ -927,13 +964,14 @@ model CronLog {
 // ---------------------------------------------------------------------------
 
 model FeatureFlag {
-  id          String    @id @default(cuid())
-  key         String    @unique
-  enabled     Boolean   @default(false)
-  description String?
-  enabledAt   DateTime?
-  enabledBy   String?   // admin screenname
-  updatedAt   DateTime  @updatedAt
+  id             String    @id @default(cuid())
+  key            String    @unique
+  enabled        Boolean   @default(false)
+  description    String?
+  enabledAt      DateTime?
+  enabledBy      String?   // admin screenname
+  updatedAt      DateTime  @updatedAt
+  rolloutPercent Int       @default(0)  // 0-100; 100 = all users
 
   @@map("feature_flags")
 }

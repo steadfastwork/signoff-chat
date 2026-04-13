@@ -33,11 +33,27 @@ export async function PATCH(req: NextRequest) {
   const session = await getServerSession(authOptions);
   try { requireSuperAdmin(session); } catch { return notFound(); }
 
-  const body = (await req.json()) as { key: string; enabled: boolean };
-  const { key, enabled } = body;
+  const body = (await req.json()) as {
+    key: string;
+    enabled?: boolean;
+    rolloutPercent?: number;
+  };
+  const { key, enabled, rolloutPercent } = body;
 
-  if (!key || typeof enabled !== "boolean") {
-    return NextResponse.json({ error: "key and enabled are required." }, { status: 400 });
+  if (!key) {
+    return NextResponse.json({ error: "key is required." }, { status: 400 });
+  }
+  if (enabled === undefined && rolloutPercent === undefined) {
+    return NextResponse.json(
+      { error: "enabled or rolloutPercent is required." },
+      { status: 400 }
+    );
+  }
+  if (rolloutPercent !== undefined && (rolloutPercent < 0 || rolloutPercent > 100)) {
+    return NextResponse.json(
+      { error: "rolloutPercent must be between 0 and 100." },
+      { status: 400 }
+    );
   }
 
   const flag = await prisma.featureFlag.findUnique({ where: { key } });
@@ -46,25 +62,38 @@ export async function PATCH(req: NextRequest) {
   }
 
   const now = new Date();
-  const updated = await prisma.featureFlag.update({
-    where: { key },
-    data: {
-      enabled,
-      enabledAt: enabled ? now : null,
-      enabledBy: enabled ? session!.user!.screenname : null,
-    },
-  });
+  const data: Record<string, unknown> = {};
+
+  if (enabled !== undefined) {
+    data.enabled = enabled;
+    data.enabledAt = enabled ? now : null;
+    data.enabledBy = enabled ? session!.user!.screenname : null;
+  }
+  if (rolloutPercent !== undefined) {
+    data.rolloutPercent = rolloutPercent;
+  }
+
+  const updated = await prisma.featureFlag.update({ where: { key }, data });
 
   // Invalidate cache (no-op currently, placeholder for future Redis layer)
   await invalidateFlagCache(key);
 
   // Audit log
-  await auditLog({
-    adminId: session!.user!.id,
-    adminRole: session!.user!.adminRole as "ADMIN" | "SUPER_ADMIN",
-    action: enabled ? "feature_enabled" : "feature_disabled",
-    metadata: { key },
-  });
+  if (enabled !== undefined) {
+    await auditLog({
+      adminId: session!.user!.id,
+      adminRole: session!.user!.adminRole as "ADMIN" | "SUPER_ADMIN",
+      action: enabled ? "feature_enabled" : "feature_disabled",
+      metadata: { key },
+    });
+  } else {
+    await auditLog({
+      adminId: session!.user!.id,
+      adminRole: session!.user!.adminRole as "ADMIN" | "SUPER_ADMIN",
+      action: "feature_rollout_updated",
+      metadata: { key, rolloutPercent },
+    });
+  }
 
   return NextResponse.json({ flag: updated });
 }
