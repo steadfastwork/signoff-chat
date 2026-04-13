@@ -117,6 +117,11 @@ export function MainFeed({ onOpenChat }: { onOpenChat?: (screenname: string) => 
   const sentinelRef = useRef<HTMLDivElement>(null);
   const scrollRef   = useRef<HTMLDivElement>(null);
 
+  // Ensure feed always starts at the top (Safari restores scroll position)
+  useEffect(() => {
+    if (scrollRef.current) scrollRef.current.scrollTop = 0;
+  }, []);
+
   // Fetch posts
   const fetchPosts = useCallback(async (tag: string | null, fromCursor: string | null) => {
     const params = new URLSearchParams();

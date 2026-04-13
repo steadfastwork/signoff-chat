@@ -522,6 +522,18 @@ function RadicalShell() {
 // ---------------------------------------------------------------------------
 
 export function RadicalLayout() {
+  // Hide the global Navbar (root layout) while radical UX is active —
+  // we render our own TopBar / MobileLayout header. Without this the
+  // fixed Navbar overlaps the top of the layout on mobile and shows a
+  // non-functional hamburger button on all screen sizes.
+  useEffect(() => {
+    const style = document.createElement("style");
+    style.id = "radical-hide-navbar";
+    style.textContent = "nav.fixed.top-0.left-0.right-0 { display: none !important; }";
+    document.head.appendChild(style);
+    return () => document.getElementById("radical-hide-navbar")?.remove();
+  }, []);
+
   return (
     <div className="radical-ux" style={{ height: "100vh", overflow: "hidden" }}>
       <RadicalLayoutProvider>
