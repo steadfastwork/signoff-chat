@@ -229,6 +229,179 @@ function ChannelsScreen() {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Channels screen
+// ---------------------------------------------------------------------------
+
+function ChannelsScreen() {
+  const [tab,         setTab]         = useState<"mine" | "discover">("mine");
+  const [myChannels,  setMyChannels]  = useState<any[]>([]);
+  const [discovered,  setDiscovered]  = useState<any[]>([]);
+  const [loadingMine, setLoadingMine] = useState(true);
+  const [loadingDisc, setLoadingDisc] = useState(false);
+  const [query,       setQuery]       = useState("");
+  const [discMode,    setDiscMode]    = useState<"featured" | "new" | "active">("featured");
+
+  useEffect(() => {
+    fetch("/api/channels?mine=true")
+      .then((r) => r.ok ? r.json() : [])
+      .then((d) => setMyChannels(Array.isArray(d) ? d : []))
+      .catch(() => {})
+      .finally(() => setLoadingMine(false));
+  }, []);
+
+  useEffect(() => {
+    if (tab !== "discover") return;
+    setLoadingDisc(true);
+    fetch(`/api/channels?mode=${discMode}`)
+      .then((r) => r.ok ? r.json() : [])
+      .then((d) => setDiscovered(Array.isArray(d) ? d : []))
+      .catch(() => {})
+      .finally(() => setLoadingDisc(false));
+  }, [tab, discMode]);
+
+  const filtered = myChannels.filter((c) =>
+    !query || c.name.toLowerCase().includes(query.toLowerCase()) ||
+    c.description?.toLowerCase().includes(query.toLowerCase())
+  );
+
+  const Card = ({ ch }: { ch: any }) => (
+    <a
+      href={`/channels/${ch.name}`}
+      style={{
+        display: "flex", alignItems: "center", gap: 14,
+        padding: "12px 16px", cursor: "pointer",
+        border: "1px solid var(--edge1)", borderRadius: "var(--r)",
+        background: "var(--fog1)", textDecoration: "none",
+        marginBottom: 8,
+      }}
+      onMouseEnter={(e) => (e.currentTarget.style.borderColor = "rgba(232,150,26,.35)")}
+      onMouseLeave={(e) => (e.currentTarget.style.borderColor = "var(--edge1)")}
+    >
+      <div style={{
+        width: 38, height: 38, borderRadius: 11, flexShrink: 0,
+        background: "var(--fog2)", color: "var(--snow3)",
+        display: "flex", alignItems: "center", justifyContent: "center",
+        fontSize: 18, fontWeight: 700, fontFamily: "var(--sans)",
+      }}>#</div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: "var(--snow)", fontFamily: "var(--sans)", display: "flex", alignItems: "center", gap: 6 }}>
+          #{ch.name}
+          {ch.favoriteByMe && <span style={{ fontSize: 10, color: "var(--amber)" }}>★</span>}
+          {ch.type !== "PUBLIC" && (
+            <span style={{ fontSize: 9, color: "var(--snow4)", fontFamily: "var(--sans)", border: "1px solid var(--edge2)", borderRadius: 4, padding: "1px 5px" }}>
+              {ch.type === "INVITE_ONLY" ? "invite only" : "secret"}
+            </span>
+          )}
+        </div>
+        {ch.description && (
+          <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--snow4)", fontFamily: "var(--sans)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {ch.description}
+          </p>
+        )}
+        <p style={{ margin: "3px 0 0", fontSize: 10, color: "var(--snow5)", fontFamily: "var(--sans)" }}>
+          {ch.memberCount?.toLocaleString()} members
+          {ch.slowModeMinutes > 0 && ` · ${ch.slowModeMinutes}m slow`}
+        </p>
+      </div>
+      <span style={{ fontSize: 12, color: "var(--snow5)", flexShrink: 0 }}>›</span>
+    </a>
+  );
+
+  return (
+    <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", background: "var(--ink)", overflowY: "auto" }}>
+      {/* Header */}
+      <div style={{ padding: "20px 24px 12px", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
+        <div>
+          <h2 style={{ fontFamily: "var(--sans)", fontSize: 16, fontWeight: 700, color: "var(--snow)", margin: 0 }}>Channels</h2>
+          <p style={{ fontFamily: "var(--sans)", fontSize: 11, color: "var(--snow5)", margin: "2px 0 0" }}>real-time chatrooms</p>
+        </div>
+        <a
+          href="/channels"
+          style={{
+            padding: "6px 14px", borderRadius: "var(--rp)",
+            background: "var(--ambg)", border: "1px solid rgba(232,150,26,.35)",
+            color: "var(--amber)", fontSize: 11, fontWeight: 700,
+            fontFamily: "var(--sans)", textDecoration: "none",
+          }}
+        >
+          + Create
+        </a>
+      </div>
+
+      {/* Tabs */}
+      <div style={{ display: "flex", padding: "0 24px", gap: 4, marginBottom: 16, flexShrink: 0 }}>
+        {(["mine", "discover"] as const).map((t) => (
+          <button key={t} onClick={() => setTab(t)} style={{
+            padding: "7px 16px", borderRadius: "var(--rp)",
+            background: tab === t ? "var(--ambg)" : "transparent",
+            border: `1px solid ${tab === t ? "rgba(232,150,26,.35)" : "var(--edge1)"}`,
+            color: tab === t ? "var(--amber)" : "var(--snow4)",
+            fontSize: 12, fontWeight: 600, fontFamily: "var(--sans)", cursor: "pointer",
+          }}>
+            {t === "mine" ? "Your channels" : "Discover"}
+          </button>
+        ))}
+      </div>
+
+      <div style={{ flex: 1, overflowY: "auto", padding: "0 24px 40px" }}>
+        {tab === "mine" && (
+          <>
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search your channels…"
+              style={{
+                width: "100%", background: "var(--fog1)", border: "1px solid var(--edge1)",
+                borderRadius: "var(--rp)", padding: "8px 14px",
+                fontFamily: "var(--sans)", fontSize: 13, color: "var(--snow)",
+                outline: "none", boxSizing: "border-box", marginBottom: 14,
+              }}
+            />
+            {loadingMine ? (
+              <p style={{ fontSize: 12, color: "var(--snow5)", fontFamily: "var(--sans)" }}>Loading…</p>
+            ) : filtered.length === 0 ? (
+              <div style={{ textAlign: "center", padding: "48px 0" }}>
+                <p style={{ fontSize: 14, fontStyle: "italic", color: "var(--snow5)", fontFamily: "var(--serif)", marginBottom: 16 }}>
+                  {query ? "No channels match your search." : "You haven't joined any channels yet."}
+                </p>
+                {!query && <button onClick={() => setTab("discover")} style={{ fontSize: 12, color: "var(--amber)", background: "none", border: "none", cursor: "pointer", fontFamily: "var(--sans)" }}>explore channels →</button>}
+              </div>
+            ) : (
+              filtered.map((ch) => <Card key={ch.id} ch={ch} />)
+            )}
+          </>
+        )}
+
+        {tab === "discover" && (
+          <>
+            <div style={{ display: "flex", gap: 6, marginBottom: 14, flexWrap: "wrap" }}>
+              {(["featured", "new", "active"] as const).map((m) => (
+                <button key={m} onClick={() => setDiscMode(m)} style={{
+                  padding: "5px 12px", borderRadius: "var(--rp)",
+                  background: discMode === m ? "var(--ambg)" : "transparent",
+                  border: `1px solid ${discMode === m ? "rgba(232,150,26,.35)" : "var(--edge1)"}`,
+                  color: discMode === m ? "var(--amber)" : "var(--snow4)",
+                  fontSize: 11, fontWeight: 600, fontFamily: "var(--sans)", cursor: "pointer",
+                }}>
+                  {m === "featured" ? "Featured" : m === "new" ? "Newest" : "Most active"}
+                </button>
+              ))}
+            </div>
+            {loadingDisc ? (
+              <p style={{ fontSize: 12, color: "var(--snow5)", fontFamily: "var(--sans)" }}>Loading…</p>
+            ) : discovered.length === 0 ? (
+              <p style={{ fontSize: 13, fontStyle: "italic", color: "var(--snow5)", fontFamily: "var(--serif)", padding: "32px 0", textAlign: "center" }}>No channels found.</p>
+            ) : (
+              discovered.map((ch) => <Card key={ch.id} ch={ch} />)
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function DiscoverScreen() {
   return (
     <div style={{
@@ -408,6 +581,7 @@ function RadicalShell() {
             {/* Main content — switches based on activeScreen */}
             {activeScreen === "feed"     && <MainFeed />}
             {activeScreen === "talk"     && <TalkScreen />}
+            {activeScreen === "channels" && <ChannelsScreen />}
             {activeScreen === "discover" && <DiscoverScreen />}
             {activeScreen === "you"      && <YouScreen />}
 

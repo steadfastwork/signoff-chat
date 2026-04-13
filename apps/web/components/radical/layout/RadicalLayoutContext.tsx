@@ -8,7 +8,7 @@ import type { PostType } from "@/components/radical/PostComposer";
 // ---------------------------------------------------------------------------
 
 export type AwayStatusValue = "ONLINE" | "AWAY" | "OFFLINE";
-export type ActiveScreen = "feed" | "talk" | "discover" | "you";
+export type ActiveScreen = "feed" | "talk" | "discover" | "you" | "channels";
 
 export interface BuddyData {
   userId:      string;

@@ -457,94 +457,153 @@ function MobileTalkScreen() {
 
 function MobileChannelsScreen() {
   const router = useRouter();
-  const [channels, setChannels] = useState<any[]>([]);
-  const [loading, setLoading]   = useState(true);
+  const [tab,        setTab]        = useState<"mine" | "discover">("mine");
+  const [myChannels, setMyChannels] = useState<any[]>([]);
+  const [discovered, setDiscovered] = useState<any[]>([]);
+  const [loadingMine,setLoadingMine]= useState(true);
+  const [loadingDisc,setLoadingDisc]= useState(false);
+  const [query,      setQuery]      = useState("");
+  const [discMode,   setDiscMode]   = useState<"featured" | "new" | "active">("featured");
 
   useEffect(() => {
     fetch("/api/channels?mine=true")
       .then((r) => r.ok ? r.json() : [])
-      .then((data) => setChannels(Array.isArray(data) ? data : []))
+      .then((d) => setMyChannels(Array.isArray(d) ? d : []))
       .catch(() => {})
-      .finally(() => setLoading(false));
+      .finally(() => setLoadingMine(false));
   }, []);
 
+  useEffect(() => {
+    if (tab !== "discover") return;
+    setLoadingDisc(true);
+    fetch(`/api/channels?mode=${discMode}`)
+      .then((r) => r.ok ? r.json() : [])
+      .then((d) => setDiscovered(Array.isArray(d) ? d : []))
+      .catch(() => {})
+      .finally(() => setLoadingDisc(false));
+  }, [tab, discMode]);
+
+  const filtered = myChannels.filter((c) =>
+    !query || c.name.toLowerCase().includes(query.toLowerCase()) ||
+    c.description?.toLowerCase().includes(query.toLowerCase())
+  );
+
+  const ChannelRow = ({ ch }: { ch: any }) => (
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={() => router.push(`/channels/${ch.name}`)}
+      onKeyDown={(e) => e.key === "Enter" && router.push(`/channels/${ch.name}`)}
+      style={{ display: "flex", alignItems: "center", gap: 12, padding: "11px 16px", cursor: "pointer", borderBottom: "1px solid var(--edge1)" }}
+    >
+      <div style={{
+        width: 36, height: 36, borderRadius: 10, flexShrink: 0,
+        background: "var(--fog2)", color: "var(--snow3)",
+        display: "flex", alignItems: "center", justifyContent: "center",
+        fontSize: 16, fontWeight: 700, fontFamily: "var(--sans)",
+      }}>#</div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: "var(--snow)", fontFamily: "var(--sans)" }}>
+          #{ch.name}
+          {ch.favoriteByMe && <span style={{ fontSize: 10, color: "var(--amber)", marginLeft: 5 }}>★</span>}
+          {ch.type !== "PUBLIC" && (
+            <span style={{ fontSize: 9, color: "var(--snow4)", marginLeft: 5, fontFamily: "var(--sans)", border: "1px solid var(--edge2)", borderRadius: 3, padding: "1px 4px" }}>
+              {ch.type === "INVITE_ONLY" ? "invite" : "secret"}
+            </span>
+          )}
+        </div>
+        {ch.description && (
+          <p style={{ margin: 0, fontSize: 11, color: "var(--snow5)", fontFamily: "var(--sans)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {ch.description}
+          </p>
+        )}
+      </div>
+      <span style={{ fontSize: 11, color: "var(--snow5)", fontFamily: "var(--sans)", flexShrink: 0 }}>
+        {ch.memberCount?.toLocaleString()} ›
+      </span>
+    </div>
+  );
+
   return (
-    <div style={{ height: "100%", overflowY: "auto", paddingBottom: 90 }}>
-      <div style={{ padding: "14px 16px 8px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <span style={{ fontSize: 10, fontWeight: 700, color: "var(--snow5)", fontFamily: "var(--sans)", textTransform: "uppercase", letterSpacing: "0.08em" }}>
-          Your channels
-        </span>
-        <button
-          onClick={() => router.push("/channels")}
-          style={{ fontSize: 11, color: "var(--amber)", fontFamily: "var(--sans)", background: "none", border: "none", cursor: "pointer" }}
-        >
-          + Explore
-        </button>
+    <div style={{ height: "100%", display: "flex", flexDirection: "column" }}>
+      {/* Header */}
+      <div style={{ padding: "12px 16px 0", flexShrink: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+          <span style={{ fontSize: 15, fontWeight: 700, color: "var(--snow)", fontFamily: "var(--sans)" }}>Channels</span>
+          <a href="/channels" style={{ fontSize: 11, color: "var(--amber)", fontFamily: "var(--sans)", textDecoration: "none", fontWeight: 600 }}>+ Create</a>
+        </div>
+        {/* Tabs */}
+        <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
+          {(["mine", "discover"] as const).map((t) => (
+            <button key={t} onClick={() => setTab(t)} style={{
+              flex: 1, padding: "7px 0", borderRadius: "var(--rp)",
+              background: tab === t ? "var(--ambg)" : "transparent",
+              border: `1px solid ${tab === t ? "rgba(232,150,26,.35)" : "var(--edge1)"}`,
+              color: tab === t ? "var(--amber)" : "var(--snow4)",
+              fontSize: 11, fontWeight: 600, fontFamily: "var(--sans)", cursor: "pointer",
+            }}>
+              {t === "mine" ? "Your channels" : "Discover"}
+            </button>
+          ))}
+        </div>
+        {/* Discover mode pills */}
+        {tab === "discover" && (
+          <div style={{ display: "flex", gap: 5, marginBottom: 8, overflowX: "auto", scrollbarWidth: "none" }}>
+            {(["featured", "new", "active"] as const).map((m) => (
+              <button key={m} onClick={() => setDiscMode(m)} style={{
+                flexShrink: 0, padding: "4px 10px", borderRadius: "var(--rp)",
+                background: discMode === m ? "var(--ambg)" : "transparent",
+                border: `1px solid ${discMode === m ? "rgba(232,150,26,.35)" : "var(--edge1)"}`,
+                color: discMode === m ? "var(--amber)" : "var(--snow4)",
+                fontSize: 10, fontWeight: 600, fontFamily: "var(--sans)", cursor: "pointer",
+              }}>
+                {m === "featured" ? "Featured" : m === "new" ? "Newest" : "Active"}
+              </button>
+            ))}
+          </div>
+        )}
+        {/* Search (mine tab only) */}
+        {tab === "mine" && (
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search channels…"
+            style={{
+              width: "100%", background: "var(--fog1)", border: "1px solid var(--edge1)",
+              borderRadius: "var(--rp)", padding: "7px 12px",
+              fontFamily: "var(--sans)", fontSize: 13, color: "var(--snow)",
+              outline: "none", boxSizing: "border-box", marginBottom: 6,
+            }}
+          />
+        )}
       </div>
 
-      {loading ? (
-        <div style={{ padding: "32px 16px", textAlign: "center", fontSize: 12, color: "var(--snow5)", fontFamily: "var(--sans)" }}>
-          Loading…
-        </div>
-      ) : channels.length === 0 ? (
-        <div style={{ padding: "48px 16px", textAlign: "center" }}>
-          <p style={{ fontSize: 14, fontStyle: "italic", color: "var(--snow5)", fontFamily: "var(--serif)", marginBottom: 16 }}>
-            You haven't joined any channels yet.
-          </p>
-          <button
-            onClick={() => router.push("/channels")}
-            style={{
-              padding: "9px 20px", borderRadius: "var(--rp)",
-              background: "var(--ambg)", border: "1px solid rgba(232,150,26,.35)",
-              color: "var(--amber)", fontSize: 12, fontWeight: 700,
-              fontFamily: "var(--sans)", cursor: "pointer",
-            }}
-          >
-            Explore channels
-          </button>
-        </div>
-      ) : (
-        channels.map((ch) => (
-          <div
-            key={ch.id}
-            role="button"
-            tabIndex={0}
-            onClick={() => router.push(`/channels/${ch.name}`)}
-            onKeyDown={(e) => e.key === "Enter" && router.push(`/channels/${ch.name}`)}
-            style={{
-              display: "flex", alignItems: "center", gap: 12,
-              padding: "11px 16px", cursor: "pointer",
-              borderBottom: "1px solid var(--edge1)",
-            }}
-          >
-            <div style={{
-              width: 36, height: 36, borderRadius: 10,
-              background: "var(--fog2)", color: "var(--snow3)",
-              display: "flex", alignItems: "center", justifyContent: "center",
-              fontSize: 16, fontWeight: 700, fontFamily: "var(--sans)", flexShrink: 0,
-            }}>
-              #
+      {/* List */}
+      <div style={{ flex: 1, overflowY: "auto", paddingBottom: 90 }}>
+        {tab === "mine" && (
+          loadingMine ? (
+            <p style={{ padding: "24px 16px", fontSize: 12, color: "var(--snow5)", fontFamily: "var(--sans)", textAlign: "center" }}>Loading…</p>
+          ) : filtered.length === 0 ? (
+            <div style={{ padding: "48px 16px", textAlign: "center" }}>
+              <p style={{ fontSize: 14, fontStyle: "italic", color: "var(--snow5)", fontFamily: "var(--serif)", marginBottom: 12 }}>
+                {query ? "No channels match." : "No channels joined yet."}
+              </p>
+              {!query && <button onClick={() => setTab("discover")} style={{ fontSize: 12, color: "var(--amber)", background: "none", border: "none", cursor: "pointer", fontFamily: "var(--sans)" }}>explore channels →</button>}
             </div>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 13, fontWeight: 600, color: "var(--snow)", fontFamily: "var(--sans)" }}>
-                #{ch.name}
-                {ch.favoriteByMe && <span style={{ fontSize: 10, color: "var(--amber)", marginLeft: 5 }}>★</span>}
-              </div>
-              {ch.description && (
-                <p style={{
-                  margin: 0, fontSize: 11, color: "var(--snow5)", fontFamily: "var(--sans)",
-                  overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-                }}>
-                  {ch.description}
-                </p>
-              )}
-            </div>
-            <span style={{ fontSize: 11, color: "var(--snow5)", fontFamily: "var(--sans)", flexShrink: 0 }}>
-              {ch.memberCount} ›
-            </span>
-          </div>
-        ))
-      )}
+          ) : (
+            filtered.map((ch) => <ChannelRow key={ch.id} ch={ch} />)
+          )
+        )}
+        {tab === "discover" && (
+          loadingDisc ? (
+            <p style={{ padding: "24px 16px", fontSize: 12, color: "var(--snow5)", fontFamily: "var(--sans)", textAlign: "center" }}>Loading…</p>
+          ) : discovered.length === 0 ? (
+            <p style={{ padding: "32px 16px", fontSize: 13, fontStyle: "italic", color: "var(--snow5)", fontFamily: "var(--serif)", textAlign: "center" }}>No channels found.</p>
+          ) : (
+            discovered.map((ch) => <ChannelRow key={ch.id} ch={ch} />)
+          )
+        )}
+      </div>
     </div>
   );
 }
@@ -631,11 +690,11 @@ export function MobileLayout() {
   const avatarColor = session?.user?.avatarColor ?? "amber";
   const { bg, fg } = AVATAR_PALETTE[avatarColor] ?? AVATAR_PALETTE.amber;
 
-  const NAV_ITEMS: { key: "feed" | "talk" | "you"; label: string; icon: string; href?: string }[] = [
-    { key: "feed", label: "Feed",     icon: "⊞" },
-    { key: "talk", label: "Talk",     icon: "💬" },
-    { key: "feed", label: "Channels", icon: "#", href: "/channels" },
-    { key: "you",  label: "You",      icon: "◎" },
+  const NAV_ITEMS = [
+    { key: "feed"     as const, label: "Feed",     icon: "⊞" },
+    { key: "talk"     as const, label: "Talk",     icon: "💬" },
+    { key: "channels" as const, label: "Channels", icon: "#"  },
+    { key: "you"      as const, label: "You",      icon: "◎"  },
   ];
 
   return (
@@ -679,6 +738,14 @@ export function MobileLayout() {
         </div>
         <div style={{
           position: "absolute", inset: 0,
+          opacity: mobileScreen === "channels" ? 1 : 0,
+          pointerEvents: mobileScreen === "channels" ? "auto" : "none",
+          transition: "opacity 0.2s",
+        }}>
+          <MobileChannelsScreen />
+        </div>
+        <div style={{
+          position: "absolute", inset: 0,
           opacity: mobileScreen === "you" ? 1 : 0,
           pointerEvents: mobileScreen === "you" ? "auto" : "none",
           transition: "opacity 0.2s",
@@ -703,7 +770,7 @@ export function MobileLayout() {
         zIndex: 50,
       }}>
         {NAV_ITEMS.map((item, idx) => {
-          const isActive = !item.href && mobileScreen === item.key;
+          const isActive = mobileScreen === item.key;
           // Insert compose button before "You"
           const nodes = [];
           if (idx === 3) {
@@ -728,8 +795,8 @@ export function MobileLayout() {
           }
           nodes.push(
             <button
-              key={item.label}
-              onClick={() => item.href ? (window.location.href = item.href) : setMobileScreen(item.key)}
+              key={item.key}
+              onClick={() => setMobileScreen(item.key)}
               style={{
                 minWidth: 70, padding: "8px 22px", borderRadius: 22,
                 background: isActive ? "var(--ambg)" : "transparent",
