@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useRef, useState, useEffect } from "react";
 import { useUploadThing } from "@/lib/uploadthing";
 
 // ---------------------------------------------------------------------------
@@ -91,7 +91,29 @@ export function PostComposer({
   const [tagsRaw,     setTagsRaw]     = useState("");
   const [visibility,  setVisibility]  = useState<Visibility>("EVERYONE");
 
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef    = useRef<HTMLInputElement>(null);
+  const overlayRef      = useRef<HTMLDivElement>(null);
+
+  // ── visualViewport resize: keep the composer overlay sized to the visible
+  //    area so the keyboard doesn't hide the bottom of the sheet on mobile.
+  useEffect(() => {
+    if (!mobile || !isOpen) return;
+
+    const setHeight = () => {
+      if (overlayRef.current) {
+        const vh = window.visualViewport?.height ?? window.innerHeight;
+        overlayRef.current.style.height = `${vh}px`;
+      }
+    };
+
+    setHeight();
+    window.visualViewport?.addEventListener("resize", setHeight);
+    window.visualViewport?.addEventListener("scroll", setHeight);
+    return () => {
+      window.visualViewport?.removeEventListener("resize", setHeight);
+      window.visualViewport?.removeEventListener("scroll", setHeight);
+    };
+  }, [mobile, isOpen]);
 
   const { startUpload, isUploading } = useUploadThing("postMedia", {
     onClientUploadComplete: (files) => {
@@ -208,10 +230,13 @@ export function PostComposer({
           maxLength={140}
           style={{
             ...inputBase,
-            fontSize: 28, fontStyle: "italic",
+            // Use at least 16px to prevent iOS Safari from zooming in on focus
+            fontSize: mobile ? 18 : 28, fontStyle: "italic",
             color: "var(--amber)",
             caretColor: "var(--amber)",
             lineHeight: 1.35,
+            maxHeight: mobile ? "30vh" : undefined,
+            overflowY: "auto",
           }}
         />
       </div>
@@ -250,8 +275,10 @@ export function PostComposer({
         placeholder="What's on your mind? Write as much as you like."
         style={{
           ...inputBase,
-          fontSize: 18, lineHeight: 1.6,
-          minHeight: 160,
+          fontSize: 16, lineHeight: 1.6,
+          minHeight: mobile ? 100 : 160,
+          maxHeight: mobile ? "35vh" : undefined,
+          overflowY: "auto",
         }}
       />
       <div style={{ borderTop: "1px solid var(--edge1)", paddingTop: 12, marginTop: 4 }}>
@@ -287,11 +314,13 @@ export function PostComposer({
         placeholder="The quote that stopped you..."
         style={{
           ...inputBase,
-          fontSize: 20, fontStyle: "italic",
+          fontSize: 16, fontStyle: "italic",
           borderLeft: "3px solid var(--lav)",
           paddingLeft: 14,
           lineHeight: 1.5,
           minHeight: 80,
+          maxHeight: mobile ? "30vh" : undefined,
+          overflowY: "auto",
         }}
       />
 
@@ -445,7 +474,135 @@ export function PostComposer({
     </div>
   );
 
+  // ── Mobile header — post button is at the TOP so it stays above the keyboard
+  const MobileHeader = (
+    <div style={{
+      display: "flex", alignItems: "center", justifyContent: "space-between",
+      padding: "14px 20px",
+      borderBottom: "1px solid var(--edge1)",
+      flexShrink: 0,
+    }}>
+      <button
+        onClick={onClose}
+        style={{
+          background: "transparent", border: "none",
+          color: "var(--snow4)", fontSize: 14, fontFamily: "var(--sans)",
+          cursor: "pointer", padding: "4px 0",
+        }}
+      >
+        Cancel
+      </button>
+
+      <span style={{
+        fontSize: 12, fontWeight: 600, color: "var(--snow3)", fontFamily: "var(--sans)",
+      }}>
+        {type === "AWAY" ? "Away message" : type === "THOUGHT" ? "Thought" : type === "QUOTE" ? "Quote" : "Photo"}
+      </span>
+
+      {/* Post button — top right, always visible above keyboard */}
+      <button
+        onClick={handlePost}
+        disabled={!canPost() || isUploading}
+        style={{
+          padding: "6px 14px", borderRadius: "var(--rp)",
+          background: canPost() && !isUploading ? "var(--amber)" : "var(--snow5)",
+          border: "none",
+          color: canPost() && !isUploading ? "#0f0e0c" : "var(--snow4)",
+          fontSize: 12, fontWeight: 700, fontFamily: "var(--sans)",
+          cursor: canPost() && !isUploading ? "pointer" : "default",
+        }}
+      >
+        {POST_LABELS[type]}
+      </button>
+    </div>
+  );
+
+  // ── Mobile footer — visibility pills + char count (NO post button)
+  const MobileFooter = (
+    <div style={{
+      borderTop: "1px solid var(--edge1)",
+      padding: "10px 20px",
+      display: "flex", alignItems: "center", gap: 10,
+      flexShrink: 0,
+      flexWrap: "wrap",
+    }}>
+      <div style={{ display: "flex", gap: 5 }}>
+        {VIS_PILLS.map(({ value, label }) => {
+          const active = visibility === value;
+          return (
+            <button
+              key={value}
+              onClick={() => setVisibility(value)}
+              style={{
+                padding: "4px 10px", borderRadius: "var(--rp)",
+                border: active ? "1px solid rgba(232,150,26,.35)" : "1px solid var(--edge1)",
+                background: active ? "var(--ambg2)" : "transparent",
+                color: active ? "var(--amber)" : "var(--snow4)",
+                fontSize: 10, fontWeight: 600, fontFamily: "var(--sans)",
+                cursor: "pointer",
+              }}
+            >
+              {label}
+            </button>
+          );
+        })}
+      </div>
+      <div style={{ flex: 1 }} />
+      {type === "AWAY" && (
+        <span style={{ fontSize: 11, fontFamily: "var(--sans)", fontWeight: 600, color: remaining < 20 ? "var(--amber)" : "var(--snow4)" }}>
+          {remaining}
+        </span>
+      )}
+    </div>
+  );
+
   // ── Shell: mobile bottom sheet vs desktop modal ───────────────
+
+  if (mobile) {
+    return (
+      // Outer: fills exactly the visible viewport height (set by visualViewport hook)
+      <div
+        id="composer-overlay"
+        ref={overlayRef}
+        style={{
+          position: "fixed",
+          bottom: 0, left: 0, right: 0,
+          height: "100dvh",  // overridden by JS hook for keyboard support
+          zIndex: 150,
+          display: "flex",
+          flexDirection: "column",
+          justifyContent: "flex-end",
+        }}
+      >
+        {/* Backdrop */}
+        <div
+          style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,.6)" }}
+          onClick={onClose}
+        />
+
+        {/* Sheet */}
+        <div style={{
+          ...panel,
+          position: "relative",
+          zIndex: 1,
+          maxHeight: "92%",
+        }}>
+          {/* Type switcher */}
+          {TypeSwitcher}
+          {/* Mobile: post button in header */}
+          {MobileHeader}
+          {/* Editors — fill available space, scroll within */}
+          {type === "AWAY"    && AwayEditor}
+          {type === "THOUGHT" && ThoughtEditor}
+          {type === "QUOTE"   && QuoteEditor}
+          {type === "PHOTO"   && PhotoEditor}
+          {MobileFooter}
+        </div>
+      </div>
+    );
+  }
+
+  // Desktop modal — post button stays in the footer
   const content = (
     <div style={panel}>
       {TypeSwitcher}
@@ -457,37 +614,16 @@ export function PostComposer({
     </div>
   );
 
-  if (mobile) {
-    return (
-      <div style={{ position: "fixed", inset: 0, zIndex: 50 }}>
-        {/* Backdrop */}
-        <div
-          style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,.6)" }}
-          onClick={onClose}
-        />
-        {/* Bottom sheet */}
-        <div style={{
-          position: "absolute", bottom: 0, left: 0, right: 0,
-          zIndex: 1,
-        }}>
-          {content}
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div style={{
-      position: "fixed", inset: 0, zIndex: 50,
+      position: "fixed", inset: 0, zIndex: 150,
       display: "flex", alignItems: "center", justifyContent: "center",
       padding: "0 1rem",
     }}>
-      {/* Backdrop */}
       <div
         style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,.6)" }}
         onClick={onClose}
       />
-      {/* Modal */}
       <div style={{ position: "relative", zIndex: 1 }}>
         {content}
       </div>
