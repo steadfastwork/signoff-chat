@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useSession } from "next-auth/react";
-import { useRadicalLayout, type BuddyData } from "./RadicalLayoutContext";
+import { useRadicalLayout, type BuddyData, type ActiveScreen } from "./RadicalLayoutContext";
 import { AVATAR_PALETTE } from "./avatarPalette";
 import { getInitials } from "@/lib/utils";
 import { deriveAvatarColor } from "@/lib/auth";
@@ -428,7 +428,7 @@ function GroupSection({ group, groups, allBuddies, collapsed, onToggle, onOpenBu
 
 export function Sidebar() {
   const { data: session } = useSession();
-  const { setActiveBuddy, setComposerOpen, setComposerType } = useRadicalLayout();
+  const { setActiveBuddy, setComposerOpen, setComposerType, activeScreen, setActiveScreen } = useRadicalLayout();
 
   const [data,       setData]       = useState<BuddyListData | null>(null);
   const [loading,    setLoading]    = useState(true);
@@ -573,26 +573,36 @@ export function Sidebar() {
 
       {/* Navigation */}
       <div style={{ padding: 8, borderBottom: "1px solid var(--edge1)" }}>
-        {[
-          { label: "Feed",     icon: "⊞", key: "⌘1" },
-          { label: "Talk",     icon: "💬", key: "⌘2" },
-          { label: "Discover", icon: "✦",  key: "⌘3" },
-          { label: "You",      icon: "◎",  key: "⌘4" },
-        ].map((item, i) => (
-          <div key={item.label} style={{
-            display: "flex", alignItems: "center", gap: 9,
-            padding: "8px 10px", borderRadius: 10, cursor: "pointer",
-            background: i === 0 ? "var(--ambg)" : "transparent",
-          }}>
-            <span style={{ fontSize: 14, opacity: i === 0 ? 1 : 0.5 }}>{item.icon}</span>
-            <span style={{
-              fontSize: 13, fontWeight: 500, fontFamily: "var(--sans)",
-              color: i === 0 ? "var(--amber)" : "var(--snow3)", flex: 1,
-            }}>
-              {item.label}
-            </span>
-          </div>
-        ))}
+        {([
+          { label: "Feed",     icon: "⊞", screen: "feed"     as ActiveScreen },
+          { label: "Talk",     icon: "💬", screen: "talk"     as ActiveScreen },
+          { label: "Discover", icon: "✦",  screen: "discover" as ActiveScreen },
+          { label: "You",      icon: "◎",  screen: "you"      as ActiveScreen },
+        ] as const).map((item) => {
+          const isActive = activeScreen === item.screen;
+          return (
+            <div
+              key={item.label}
+              role="button"
+              tabIndex={0}
+              onClick={() => setActiveScreen(item.screen)}
+              onKeyDown={(e) => e.key === "Enter" && setActiveScreen(item.screen)}
+              style={{
+                display: "flex", alignItems: "center", gap: 9,
+                padding: "8px 10px", borderRadius: 10, cursor: "pointer",
+                background: isActive ? "var(--ambg)" : "transparent",
+              }}
+            >
+              <span style={{ fontSize: 14, opacity: isActive ? 1 : 0.5 }}>{item.icon}</span>
+              <span style={{
+                fontSize: 13, fontWeight: 500, fontFamily: "var(--sans)",
+                color: isActive ? "var(--amber)" : "var(--snow3)", flex: 1,
+              }}>
+                {item.label}
+              </span>
+            </div>
+          );
+        })}
       </div>
 
       {/* Buddy list — grouped */}

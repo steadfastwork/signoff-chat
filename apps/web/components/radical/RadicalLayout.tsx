@@ -3,14 +3,15 @@
 // ---------------------------------------------------------------------------
 // RadicalLayout — root of the RADICAL_UX experience.
 //
-// Uses CSS media queries (not JS) to switch between desktop and mobile
+// Uses a JS media query (not pure CSS) to switch between desktop and mobile
 // layouts, avoiding hydration mismatches during SSR.
 //
-// Add class="radical-ux" here so all tokens.css variables cascade to
-// every child component automatically.
+// The .radical-ux class scopes all token.css variables to this subtree.
 // ---------------------------------------------------------------------------
 
 import { useEffect, useState } from "react";
+import { useSession } from "next-auth/react";
+import { signOut } from "next-auth/react";
 import { TopBar } from "./layout/TopBar";
 import { Sidebar } from "./layout/Sidebar";
 import { MainFeed } from "./layout/MainFeed";
@@ -18,6 +19,259 @@ import { RightPanel } from "./layout/RightPanel";
 import { MobileLayout } from "./layout/MobileLayout";
 import { PostComposer } from "./PostComposer";
 import { RadicalLayoutProvider, useRadicalLayout } from "./layout/RadicalLayoutContext";
+import { AVATAR_PALETTE } from "./layout/avatarPalette";
+import { getInitials } from "@/lib/utils";
+
+// ---------------------------------------------------------------------------
+// Desktop placeholder screens
+// ---------------------------------------------------------------------------
+
+function TalkScreen() {
+  const { setActiveBuddy } = useRadicalLayout();
+  const [buddies, setBuddies] = useState<any[]>([]);
+  const [search, setSearch] = useState("");
+
+  useEffect(() => {
+    fetch("/api/buddies")
+      .then((r) => r.ok ? r.json() : null)
+      .then((data) => {
+        if (!data) return;
+        const all: any[] = [];
+        for (const g of (data.groups ?? [])) {
+          for (const b of (g.buddies ?? [])) all.push(b);
+        }
+        for (const b of (data.ungrouped ?? [])) all.push(b);
+        for (const b of (data.offlineBuddies ?? [])) all.push(b);
+        setBuddies(all);
+      })
+      .catch(() => {});
+  }, []);
+
+  const filtered = search.trim()
+    ? buddies.filter((b) => b.screenname.toLowerCase().includes(search.toLowerCase()))
+    : buddies;
+
+  return (
+    <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", background: "var(--ink)", overflowY: "auto" }}>
+      <div style={{ padding: "20px 24px 12px" }}>
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search conversations…"
+          style={{
+            width: "100%", background: "var(--fog1)", border: "1px solid var(--edge1)",
+            borderRadius: "var(--rp)", padding: "9px 16px",
+            fontFamily: "var(--sans)", fontSize: 14, color: "var(--snow)", outline: "none",
+            boxSizing: "border-box",
+          }}
+        />
+      </div>
+      <div style={{ flex: 1 }}>
+        {filtered.map((b: any) => {
+          const { bg, fg } = AVATAR_PALETTE[b.avatarColor ?? "amber"] ?? AVATAR_PALETTE.amber;
+          return (
+            <div
+              key={b.userId}
+              role="button"
+              tabIndex={0}
+              onClick={() => setActiveBuddy(b)}
+              onKeyDown={(e) => e.key === "Enter" && setActiveBuddy(b)}
+              style={{
+                display: "flex", alignItems: "center", gap: 14,
+                padding: "12px 24px", cursor: "pointer",
+                borderBottom: "1px solid var(--edge1)",
+              }}
+            >
+              <div style={{ position: "relative", flexShrink: 0 }}>
+                <div style={{
+                  width: 40, height: 40, borderRadius: 12, background: bg, color: fg,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  fontSize: 13, fontWeight: 700, fontFamily: "var(--sans)", userSelect: "none",
+                }}>
+                  {getInitials(b.screenname)}
+                </div>
+                <span style={{
+                  position: "absolute", bottom: -1, right: -1,
+                  width: 9, height: 9, borderRadius: "50%",
+                  background: !b.isOnline ? "var(--snow5)" : b.isAway ? "var(--away)" : "var(--green)",
+                  border: "2px solid var(--ink)",
+                }} />
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 14, fontWeight: 600, color: "var(--snow)", fontFamily: "var(--sans)" }}>
+                  {b.screenname}
+                  {b.isGold && <span style={{ fontSize: 10, color: "var(--amber)", marginLeft: 5 }}>★</span>}
+                </div>
+                {b.awayMessage && (
+                  <p style={{
+                    margin: "2px 0 0", fontSize: 12, fontStyle: "italic",
+                    color: "var(--snow4)", fontFamily: "var(--serif)",
+                    overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                  }}>
+                    {b.awayMessage}
+                  </p>
+                )}
+              </div>
+              <span style={{
+                fontSize: 11, color: !b.isOnline ? "var(--snow5)" : "var(--green)",
+                fontFamily: "var(--sans)",
+              }}>
+                {!b.isOnline ? "offline" : b.isAway ? "away" : "online"}
+              </span>
+            </div>
+          );
+        })}
+        {filtered.length === 0 && (
+          <div style={{ padding: "48px 24px", textAlign: "center" }}>
+            <p style={{ fontSize: 14, color: "var(--snow5)", fontFamily: "var(--sans)" }}>
+              {search ? "No results" : "No conversations yet"}
+            </p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function DiscoverScreen() {
+  return (
+    <div style={{
+      flex: 1, minWidth: 0, display: "flex", flexDirection: "column",
+      background: "var(--ink)", alignItems: "center", justifyContent: "center",
+      gap: 16, padding: 40,
+    }}>
+      <div style={{ fontSize: 56, opacity: 0.15 }}>🔍</div>
+      <h2 style={{
+        fontFamily: "var(--serif)", fontStyle: "italic",
+        fontSize: 24, color: "var(--snow3)", margin: 0, fontWeight: 400,
+      }}>
+        Discover people
+      </h2>
+      <p style={{
+        fontFamily: "var(--sans)", fontSize: 14, color: "var(--snow5)",
+        textAlign: "center", maxWidth: 320, lineHeight: 1.6, margin: 0,
+      }}>
+        Coming soon — find people by what they&rsquo;re currently listening to,
+        reading, or thinking about.
+      </p>
+    </div>
+  );
+}
+
+function YouScreen() {
+  const { data: session } = useSession();
+  const { setComposerOpen, setComposerType } = useRadicalLayout();
+  const [awayMsg, setAwayMsg] = useState("");
+
+  useEffect(() => {
+    if (!session?.user?.id) return;
+    fetch(`/api/away-feed?userId=${session.user.id}&limit=1`)
+      .then((r) => r.ok ? r.json() : null)
+      .then((data) => setAwayMsg(data?.feed?.[0]?.awayMessage ?? ""))
+      .catch(() => {});
+  }, [session?.user?.id]);
+
+  const avatarColor = session?.user?.avatarColor ?? "amber";
+  const { bg, fg } = AVATAR_PALETTE[avatarColor] ?? AVATAR_PALETTE.amber;
+  const screenname = session?.user?.screenname ?? "";
+
+  return (
+    <div style={{ flex: 1, minWidth: 0, overflowY: "auto", background: "var(--ink)", padding: "32px 32px 80px" }}>
+      {/* Profile header */}
+      <div style={{ display: "flex", alignItems: "center", gap: 20, marginBottom: 28 }}>
+        <div style={{
+          width: 72, height: 72, borderRadius: 22,
+          background: bg, color: fg,
+          display: "flex", alignItems: "center", justifyContent: "center",
+          fontSize: 24, fontWeight: 700, fontFamily: "var(--sans)", userSelect: "none", flexShrink: 0,
+        }}>
+          {getInitials(screenname)}
+        </div>
+        <div>
+          <div style={{ fontSize: 20, fontWeight: 700, color: "var(--snow)", fontFamily: "var(--sans)" }}>
+            {screenname}
+          </div>
+          {session?.user?.isGoldMember && (
+            <div style={{ fontSize: 11, color: "var(--amber)", fontFamily: "var(--sans)", fontWeight: 700, marginTop: 3 }}>
+              ✦ Gold Member
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Away message card */}
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={() => { setComposerType("AWAY"); setComposerOpen(true); }}
+        onKeyDown={(e) => e.key === "Enter" && (setComposerType("AWAY"), setComposerOpen(true))}
+        style={{
+          background: "var(--ambg2)", border: "1px solid rgba(232,150,26,.2)",
+          borderRadius: "var(--r2)", padding: "16px 18px",
+          cursor: "pointer", marginBottom: 20,
+        }}
+      >
+        <p style={{
+          fontFamily: "var(--serif)", fontStyle: "italic",
+          fontSize: 17, color: awayMsg ? "var(--snow)" : "var(--snow4)",
+          margin: "0 0 8px", lineHeight: 1.4,
+        }}>
+          {awayMsg || "no away message set"}
+        </p>
+        <span style={{ fontSize: 10, color: "var(--amber)", fontFamily: "var(--sans)", fontWeight: 600 }}>
+          ✦ Click to update away message
+        </span>
+      </div>
+
+      {/* Settings section */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+        <div style={{ fontSize: 9, fontWeight: 700, color: "var(--snow5)", fontFamily: "var(--sans)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6 }}>
+          Settings
+        </div>
+
+        {[
+          { label: "Gold membership",     hint: "Manage subscription",     action: () => window.location.href = "/upgrade" },
+          { label: "Encryption keys",     hint: "Backup & restore",         action: () => window.location.href = "/settings/backup" },
+          { label: "Edit profile",        hint: "Update bio, avatar color", action: () => window.location.href = "/u/" + screenname + "/edit" },
+        ].map((item) => (
+          <div
+            key={item.label}
+            role="button"
+            tabIndex={0}
+            onClick={item.action}
+            onKeyDown={(e) => e.key === "Enter" && item.action()}
+            style={{
+              display: "flex", alignItems: "center", justifyContent: "space-between",
+              padding: "13px 16px", borderRadius: "var(--r)",
+              background: "var(--fog1)", border: "1px solid var(--edge1)",
+              cursor: "pointer", marginBottom: 4,
+            }}
+          >
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 500, color: "var(--snow)", fontFamily: "var(--sans)" }}>{item.label}</div>
+              <div style={{ fontSize: 11, color: "var(--snow5)", fontFamily: "var(--sans)", marginTop: 2 }}>{item.hint}</div>
+            </div>
+            <span style={{ color: "var(--snow5)", fontSize: 14 }}>›</span>
+          </div>
+        ))}
+
+        <div style={{ marginTop: 12 }}>
+          <button
+            onClick={() => signOut({ callbackUrl: "/login" })}
+            style={{
+              width: "100%", padding: "12px 16px", borderRadius: "var(--r)",
+              background: "transparent", border: "1px solid var(--edge2)",
+              color: "var(--snow4)", fontFamily: "var(--sans)", fontSize: 13,
+              cursor: "pointer", textAlign: "left",
+            }}
+          >
+            Sign out
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Inner shell — needs access to context
@@ -25,14 +279,12 @@ import { RadicalLayoutProvider, useRadicalLayout } from "./layout/RadicalLayoutC
 
 function RadicalShell() {
   const {
-    activeBuddy, setActiveBuddy,
+    activeBuddy,
     composerOpen, setComposerOpen,
     composerType,
+    activeScreen,
   } = useRadicalLayout();
 
-  // Track window width for desktop vs mobile decision.
-  // Using a state + effect instead of pure CSS so we can fully unmount the
-  // mobile layout on desktop (avoids duplicate API fetches).
   const [isDesktop, setIsDesktop] = useState<boolean | null>(null);
 
   useEffect(() => {
@@ -43,18 +295,10 @@ function RadicalShell() {
     return () => mq.removeEventListener("change", handler);
   }, []);
 
-  // First paint: render nothing until we know which layout to show.
-  // This avoids a flash of wrong layout.
   if (isDesktop === null) return null;
-
-  const openBuddy = (screenname: string) => {
-    // For now just set activeBuddy from the screenname — caller has full data
-    // MainFeed passes BuddyData directly via onOpenChat → setActiveBuddy in context
-  };
 
   return (
     <>
-      {/* Desktop layout (1024px+) */}
       {isDesktop ? (
         <div style={{
           display: "flex", flexDirection: "column",
@@ -64,21 +308,20 @@ function RadicalShell() {
           <TopBar />
           <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
             <Sidebar />
-            <MainFeed
-              onOpenChat={(screenname) => {
-                // MainFeed sets activeBuddy via context directly from BuddyData
-                // This callback fires when clicking a person bubble or username
-              }}
-            />
+
+            {/* Main content — switches based on activeScreen */}
+            {activeScreen === "feed"     && <MainFeed />}
+            {activeScreen === "talk"     && <TalkScreen />}
+            {activeScreen === "discover" && <DiscoverScreen />}
+            {activeScreen === "you"      && <YouScreen />}
+
             <RightPanel />
           </div>
         </div>
       ) : (
-        /* Mobile layout (< 1024px) */
         <MobileLayout />
       )}
 
-      {/* Desktop PostComposer (mobile has its own inline) */}
       {isDesktop && (
         <PostComposer
           isOpen={composerOpen}
@@ -100,7 +343,7 @@ function RadicalShell() {
 }
 
 // ---------------------------------------------------------------------------
-// RadicalLayout — exported root (wraps provider + .radical-ux class)
+// RadicalLayout — exported root
 // ---------------------------------------------------------------------------
 
 export function RadicalLayout() {

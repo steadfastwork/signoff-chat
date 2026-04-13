@@ -8,6 +8,7 @@ import type { PostType } from "@/components/radical/PostComposer";
 // ---------------------------------------------------------------------------
 
 export type AwayStatusValue = "ONLINE" | "AWAY" | "OFFLINE";
+export type ActiveScreen = "feed" | "talk" | "discover" | "you";
 
 export interface BuddyData {
   userId:      string;
@@ -33,9 +34,13 @@ interface RadicalLayoutContextType {
   setComposerOpen:  (open: boolean) => void;
   composerType:     PostType;
   setComposerType:  (type: PostType) => void;
-  /** Mobile: which screen is active */
-  mobileScreen:     "feed" | "talk" | "you";
-  setMobileScreen:  (screen: "feed" | "talk" | "you") => void;
+  /** Active screen — shared between desktop and mobile */
+  activeScreen:     ActiveScreen;
+  setActiveScreen:  (screen: ActiveScreen) => void;
+  /** @deprecated use activeScreen instead */
+  mobileScreen:     ActiveScreen;
+  /** @deprecated use setActiveScreen instead */
+  setMobileScreen:  (screen: ActiveScreen) => void;
 }
 
 const RadicalLayoutContext = createContext<RadicalLayoutContextType | null>(null);
@@ -47,11 +52,11 @@ export function useRadicalLayout(): RadicalLayoutContextType {
 }
 
 export function RadicalLayoutProvider({ children }: { children: React.ReactNode }) {
-  const [activeBuddy,  setActiveBuddy]  = useState<BuddyData | null>(null);
-  const [activeTag,    setActiveTag]    = useState<string | null>(null);
-  const [composerOpen, setComposerOpen] = useState(false);
-  const [composerType, setComposerType] = useState<PostType>("AWAY");
-  const [mobileScreen, setMobileScreen] = useState<"feed" | "talk" | "you">("feed");
+  const [activeBuddy,   setActiveBuddy]   = useState<BuddyData | null>(null);
+  const [activeTag,     setActiveTag]     = useState<string | null>(null);
+  const [composerOpen,  setComposerOpen]  = useState(false);
+  const [composerType,  setComposerType]  = useState<PostType>("AWAY");
+  const [activeScreen,  setActiveScreen]  = useState<ActiveScreen>("feed");
 
   return (
     <RadicalLayoutContext.Provider value={{
@@ -59,7 +64,10 @@ export function RadicalLayoutProvider({ children }: { children: React.ReactNode 
       activeTag, setActiveTag,
       composerOpen, setComposerOpen,
       composerType, setComposerType,
-      mobileScreen, setMobileScreen,
+      activeScreen, setActiveScreen,
+      // backwards-compat aliases
+      mobileScreen: activeScreen,
+      setMobileScreen: setActiveScreen,
     }}>
       {children}
     </RadicalLayoutContext.Provider>
