@@ -266,11 +266,165 @@ function MobileFeedScreen() {
 // Mobile Talk screen
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// AddBuddyView — mobile inline buddy search/add
+// ---------------------------------------------------------------------------
+
+function MobileAddBuddyView({ onBack, onAdded }: { onBack: () => void; onAdded: () => void }) {
+  const [query,   setQuery]   = useState("");
+  const [results, setResults] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [sent,    setSent]    = useState<Record<string, boolean>>({});
+  const [sending, setSending] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    const q = query.trim();
+    if (q.length < 2) { setResults([]); return; }
+    const t = setTimeout(() => {
+      setLoading(true);
+      fetch(`/api/users/search?q=${encodeURIComponent(q)}`)
+        .then((r) => r.ok ? r.json() : [])
+        .then((d) => setResults(Array.isArray(d) ? d : []))
+        .catch(() => {})
+        .finally(() => setLoading(false));
+    }, 250);
+    return () => clearTimeout(t);
+  }, [query]);
+
+  const sendRequest = async (u: any) => {
+    setSending((prev) => ({ ...prev, [u.id]: true }));
+    const res = await fetch("/api/buddies", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ targetScreenname: u.screenname }),
+    });
+    setSending((prev) => ({ ...prev, [u.id]: false }));
+    if (res.ok) {
+      setSent((prev) => ({ ...prev, [u.id]: true }));
+      onAdded();
+    }
+  };
+
+  return (
+    <div style={{ height: "100%", display: "flex", flexDirection: "column" }}>
+      {/* Header */}
+      <div style={{
+        height: 52, borderBottom: "1px solid var(--edge1)",
+        display: "flex", alignItems: "center", gap: 10,
+        padding: "0 16px", flexShrink: 0,
+      }}>
+        <button
+          onClick={onBack}
+          style={{ background: "transparent", border: "none", color: "var(--amber)", fontSize: 20, cursor: "pointer", padding: 0 }}
+        >←</button>
+        <span style={{ fontSize: 15, fontWeight: 700, color: "var(--snow)", fontFamily: "var(--sans)" }}>
+          Find buddies
+        </span>
+      </div>
+
+      {/* Search */}
+      <div style={{ padding: "12px 16px", flexShrink: 0 }}>
+        <input
+          autoFocus
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search by screenname…"
+          style={{
+            width: "100%", background: "var(--fog1)", border: "1px solid var(--edge1)",
+            borderRadius: "var(--rp)", padding: "9px 14px",
+            fontFamily: "var(--sans)", fontSize: 14, color: "var(--snow)", outline: "none",
+            boxSizing: "border-box",
+          }}
+        />
+        {query.trim().length < 2 && (
+          <p style={{ margin: "8px 0 0", fontSize: 12, color: "var(--snow5)", fontFamily: "var(--sans)" }}>
+            Type at least 2 characters to search.
+          </p>
+        )}
+      </div>
+
+      {/* Results */}
+      <div style={{ flex: 1, overflowY: "auto" }}>
+        {loading && (
+          <p style={{ padding: "10px 16px", fontSize: 12, color: "var(--snow5)", fontFamily: "var(--sans)" }}>Searching…</p>
+        )}
+        {!loading && query.trim().length >= 2 && results.length === 0 && (
+          <p style={{ padding: "10px 16px", fontSize: 12, color: "var(--snow5)", fontFamily: "var(--sans)", fontStyle: "italic" }}>No users found.</p>
+        )}
+        {results.map((u: any) => {
+          const { bg, fg } = AVATAR_PALETTE[deriveAvatarColor(u.id)] ?? AVATAR_PALETTE.amber;
+          const statusColor = u.status === "ONLINE" ? "var(--green)" : u.status === "AWAY" ? "var(--away)" : "var(--snow5)";
+          const isSent = sent[u.id];
+          const isSending = sending[u.id];
+          return (
+            <div
+              key={u.id}
+              style={{
+                display: "flex", alignItems: "center", gap: 12,
+                padding: "10px 16px", borderBottom: "1px solid var(--edge1)",
+              }}
+            >
+              <div style={{ position: "relative", flexShrink: 0 }}>
+                <div style={{
+                  width: 40, height: 40, borderRadius: 12, background: bg, color: fg,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  fontSize: 13, fontWeight: 700, fontFamily: "var(--sans)", userSelect: "none",
+                }}>
+                  {getInitials(u.screenname)}
+                </div>
+                <span style={{
+                  position: "absolute", bottom: -1, right: -1,
+                  width: 8, height: 8, borderRadius: "50%",
+                  background: statusColor, border: "2px solid var(--ink)",
+                }} />
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 14, fontWeight: 600, color: "var(--snow)", fontFamily: "var(--sans)" }}>
+                  {u.screenname}
+                  {u.isGoldMember && <span style={{ fontSize: 10, color: "var(--amber)", marginLeft: 4 }}>★</span>}
+                </div>
+                {u.bio && (
+                  <p style={{
+                    margin: "2px 0 0", fontSize: 12, color: "var(--snow4)",
+                    fontFamily: "var(--sans)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                  }}>
+                    {u.bio}
+                  </p>
+                )}
+              </div>
+              <button
+                onClick={() => !isSent && sendRequest(u)}
+                disabled={isSent || isSending}
+                style={{
+                  flexShrink: 0, padding: "7px 14px", borderRadius: "var(--rp)",
+                  background: isSent ? "transparent" : "var(--ambg)",
+                  border: `1px solid ${isSent ? "var(--edge2)" : "rgba(232,150,26,.35)"}`,
+                  color: isSent ? "var(--snow5)" : "var(--amber)",
+                  fontSize: 12, fontWeight: 700, fontFamily: "var(--sans)",
+                  cursor: isSent ? "default" : "pointer",
+                  opacity: isSending ? 0.5 : 1,
+                }}
+              >
+                {isSent ? "✓ sent" : isSending ? "…" : "＋ add"}
+              </button>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Mobile Talk screen
+// ---------------------------------------------------------------------------
+
 function MobileTalkScreen() {
   const [conversations, setConversations] = useState<any[]>([]);
   const [chatUserId, setChatUserId]       = useState<string | null>(null);
   const [chatMessages, setChatMessages]   = useState<any[]>([]);
   const [input, setInput]                 = useState("");
+  const [showAddBuddy, setShowAddBuddy]   = useState(false);
   const { data: session }                 = useSession();
 
   useEffect(() => {
@@ -308,6 +462,29 @@ function MobileTalkScreen() {
       .then((r) => r.ok ? r.json() : null)
       .then((data) => { if (data?.messages) setChatMessages(data.messages); });
   };
+
+  if (showAddBuddy) {
+    return (
+      <MobileAddBuddyView
+        onBack={() => setShowAddBuddy(false)}
+        onAdded={() => {
+          // Re-fetch buddy list so any newly-accepted requests appear
+          fetch("/api/buddies")
+            .then((r) => r.ok ? r.json() : null)
+            .then((data) => {
+              if (!data) return;
+              const all: any[] = [];
+              const add = (arr: any[]) => arr.forEach((b) => all.push(b));
+              for (const g of (data.groups ?? [])) add(g.buddies ?? []);
+              add(data.ungrouped ?? []);
+              add(data.offlineBuddies ?? []);
+              setConversations(all);
+            })
+            .catch(() => {});
+        }}
+      />
+    );
+  }
 
   if (chatUserId) {
     const buddy = conversations.find((c) => c.userId === chatUserId);
@@ -396,17 +573,45 @@ function MobileTalkScreen() {
 
   return (
     <div style={{ height: "100%", overflowY: "auto" }}>
-      <div style={{ padding: "14px 16px 6px" }}>
+      <div style={{ padding: "14px 16px 8px", display: "flex", gap: 8 }}>
         <input
           placeholder="Search conversations…"
           style={{
-            width: "100%", background: "var(--fog1)", border: "1px solid var(--edge1)",
+            flex: 1, background: "var(--fog1)", border: "1px solid var(--edge1)",
             borderRadius: "var(--rp)", padding: "8px 14px",
             fontFamily: "var(--sans)", fontSize: 13, color: "var(--snow)", outline: "none",
-            boxSizing: "border-box",
+            minWidth: 0,
           }}
         />
+        <button
+          onClick={() => setShowAddBuddy(true)}
+          style={{
+            flexShrink: 0, padding: "8px 14px", borderRadius: "var(--rp)",
+            background: "var(--ambg)", border: "1px solid rgba(232,150,26,.35)",
+            color: "var(--amber)", fontSize: 13, fontWeight: 700,
+            fontFamily: "var(--sans)", cursor: "pointer",
+            whiteSpace: "nowrap",
+          }}
+          title="Find buddies"
+        >＋ Add</button>
       </div>
+
+      {conversations.length === 0 && (
+        <div style={{ padding: "32px 16px", textAlign: "center" }}>
+          <p style={{ fontSize: 13, fontStyle: "italic", color: "var(--snow5)", fontFamily: "var(--serif)", margin: "0 0 14px" }}>
+            No buddies yet.
+          </p>
+          <button
+            onClick={() => setShowAddBuddy(true)}
+            style={{
+              padding: "8px 20px", borderRadius: "var(--rp)",
+              background: "var(--ambg)", border: "1px solid rgba(232,150,26,.35)",
+              color: "var(--amber)", fontSize: 13, fontWeight: 700,
+              fontFamily: "var(--sans)", cursor: "pointer",
+            }}
+          >Find buddies →</button>
+        </div>
+      )}
 
       {conversations.map((b) => {
         const { bg, fg } = AVATAR_PALETTE[deriveAvatarColor(b.userId)] ?? AVATAR_PALETTE.amber;

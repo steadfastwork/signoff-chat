@@ -66,6 +66,183 @@ function mapApiBuddy(b: Record<string, unknown>): SidebarBuddy {
 }
 
 // ---------------------------------------------------------------------------
+// AddBuddyPanel — inline search-and-add panel
+// ---------------------------------------------------------------------------
+
+interface SearchUser {
+  id: string;
+  screenname: string;
+  isGoldMember: boolean;
+  status: string;
+  bio?: string | null;
+}
+
+function AddBuddyPanel({ onClose, onAdded }: { onClose: () => void; onAdded: () => void }) {
+  const [query,   setQuery]   = useState("");
+  const [results, setResults] = useState<SearchUser[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [sent,    setSent]    = useState<Record<string, boolean>>({});
+  const [sending, setSending] = useState<Record<string, boolean>>({});
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => { inputRef.current?.focus(); }, []);
+
+  useEffect(() => {
+    const q = query.trim();
+    if (q.length < 2) { setResults([]); return; }
+    const t = setTimeout(() => {
+      setLoading(true);
+      fetch(`/api/users/search?q=${encodeURIComponent(q)}`)
+        .then((r) => r.ok ? r.json() : [])
+        .then((d) => setResults(Array.isArray(d) ? d : []))
+        .catch(() => {})
+        .finally(() => setLoading(false));
+    }, 250);
+    return () => clearTimeout(t);
+  }, [query]);
+
+  const sendRequest = async (user: SearchUser) => {
+    setSending((prev) => ({ ...prev, [user.id]: true }));
+    const res = await fetch("/api/buddies", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ targetScreenname: user.screenname }),
+    });
+    setSending((prev) => ({ ...prev, [user.id]: false }));
+    if (res.ok) {
+      setSent((prev) => ({ ...prev, [user.id]: true }));
+      onAdded();
+    }
+  };
+
+  return (
+    <div style={{
+      position: "absolute", inset: 0,
+      background: "var(--ink2)", zIndex: 10,
+      display: "flex", flexDirection: "column",
+      borderRadius: 0,
+    }}>
+      {/* Header */}
+      <div style={{
+        padding: "12px 12px 10px",
+        borderBottom: "1px solid var(--edge1)",
+        display: "flex", alignItems: "center", gap: 8,
+        flexShrink: 0,
+      }}>
+        <button
+          onClick={onClose}
+          style={{
+            background: "none", border: "none", color: "var(--snow4)",
+            cursor: "pointer", fontSize: 15, padding: "0 2px", lineHeight: 1,
+          }}
+        >‹</button>
+        <span style={{ fontSize: 13, fontWeight: 700, color: "var(--snow)", fontFamily: "var(--sans)" }}>
+          Add buddy
+        </span>
+      </div>
+
+      {/* Search input */}
+      <div style={{ padding: "10px 12px", flexShrink: 0 }}>
+        <input
+          ref={inputRef}
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search by screenname…"
+          style={{
+            width: "100%", background: "var(--fog1)", border: "1px solid var(--edge1)",
+            borderRadius: "var(--rp)", padding: "7px 12px",
+            fontFamily: "var(--sans)", fontSize: 12, color: "var(--snow)", outline: "none",
+            boxSizing: "border-box",
+          }}
+        />
+      </div>
+
+      {/* Results */}
+      <div style={{ flex: 1, overflowY: "auto" }}>
+        {loading && (
+          <p style={{ padding: "10px 14px", fontSize: 11, color: "var(--snow5)", fontFamily: "var(--sans)" }}>
+            Searching…
+          </p>
+        )}
+        {!loading && query.trim().length >= 2 && results.length === 0 && (
+          <p style={{ padding: "10px 14px", fontSize: 11, color: "var(--snow5)", fontFamily: "var(--sans)", fontStyle: "italic" }}>
+            No users found.
+          </p>
+        )}
+        {query.trim().length < 2 && (
+          <p style={{ padding: "10px 14px", fontSize: 11, color: "var(--snow5)", fontFamily: "var(--sans)" }}>
+            Type at least 2 characters to search.
+          </p>
+        )}
+        {results.map((u) => {
+          const ac = deriveAvatarColor(u.id);
+          const { bg, fg } = AVATAR_PALETTE[ac] ?? AVATAR_PALETTE.amber;
+          const statusColor = u.status === "ONLINE" ? "var(--green)" : u.status === "AWAY" ? "var(--away)" : "var(--snow5)";
+          const isSent = sent[u.id];
+          const isSending = sending[u.id];
+          return (
+            <div
+              key={u.id}
+              style={{
+                display: "flex", alignItems: "center", gap: 10,
+                padding: "8px 12px", borderBottom: "1px solid var(--edge1)",
+              }}
+            >
+              <div style={{ position: "relative", flexShrink: 0 }}>
+                <div style={{
+                  width: 28, height: 28, borderRadius: 9,
+                  background: bg, color: fg,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  fontSize: 10, fontWeight: 700, fontFamily: "var(--sans)", userSelect: "none",
+                }}>
+                  {getInitials(u.screenname)}
+                </div>
+                <span style={{
+                  position: "absolute", bottom: -1, right: -1,
+                  width: 6, height: 6, borderRadius: "50%",
+                  background: statusColor, border: "2px solid var(--ink2)",
+                }} />
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: "var(--snow)", fontFamily: "var(--sans)" }}>
+                  {u.screenname}
+                  {u.isGoldMember && <span style={{ fontSize: 9, color: "var(--amber)", marginLeft: 4 }}>★</span>}
+                </div>
+                {u.bio && (
+                  <p style={{
+                    margin: "1px 0 0", fontSize: 10, color: "var(--snow4)",
+                    fontFamily: "var(--sans)", overflow: "hidden",
+                    textOverflow: "ellipsis", whiteSpace: "nowrap",
+                  }}>
+                    {u.bio}
+                  </p>
+                )}
+              </div>
+              <button
+                onClick={() => !isSent && sendRequest(u)}
+                disabled={isSent || isSending}
+                style={{
+                  flexShrink: 0,
+                  padding: "4px 10px", borderRadius: "var(--rp)",
+                  background: isSent ? "transparent" : "var(--ambg)",
+                  border: `1px solid ${isSent ? "var(--edge2)" : "rgba(232,150,26,.35)"}`,
+                  color: isSent ? "var(--snow5)" : "var(--amber)",
+                  fontSize: 10, fontWeight: 700, fontFamily: "var(--sans)",
+                  cursor: isSent ? "default" : "pointer",
+                  opacity: isSending ? 0.5 : 1,
+                }}
+              >
+                {isSent ? "✓ sent" : isSending ? "…" : "＋ add"}
+              </button>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // BuddyAvatar
 // ---------------------------------------------------------------------------
 
@@ -437,6 +614,7 @@ export function Sidebar() {
   const [newGroupName, setNewGroupName] = useState("");
   const [creatingGroup, setCreatingGroup] = useState(false);
   const [newGroupActive, setNewGroupActive] = useState(false);
+  const [showAddBuddy, setShowAddBuddy] = useState(false);
   const newGroupRef = useRef<HTMLInputElement>(null);
 
   // Load collapse state from localStorage
@@ -521,7 +699,14 @@ export function Sidebar() {
       borderRight: "1px solid var(--edge1)",
       display: "flex", flexDirection: "column",
       height: "100%", overflow: "hidden",
+      position: "relative",
     }}>
+      {showAddBuddy && (
+        <AddBuddyPanel
+          onClose={() => setShowAddBuddy(false)}
+          onAdded={fetchBuddies}
+        />
+      )}
       {/* Your status block */}
       <div style={{ padding: "14px 14px 10px", borderBottom: "1px solid var(--edge1)" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
@@ -731,12 +916,16 @@ export function Sidebar() {
             color: "var(--snow4)", fontSize: 12, cursor: "pointer",
             display: "flex", alignItems: "center", justifyContent: "center",
           }} title="Settings">⚙</button>
-          <button style={{
-            width: 24, height: 24, borderRadius: 6,
-            background: "transparent", border: "1px solid var(--edge1)",
-            color: "var(--snow4)", fontSize: 14, cursor: "pointer",
-            display: "flex", alignItems: "center", justifyContent: "center",
-          }} title="Add buddy">＋</button>
+          <button
+            onClick={() => setShowAddBuddy(true)}
+            style={{
+              width: 24, height: 24, borderRadius: 6,
+              background: "transparent", border: "1px solid var(--edge1)",
+              color: "var(--snow4)", fontSize: 14, cursor: "pointer",
+              display: "flex", alignItems: "center", justifyContent: "center",
+            }}
+            title="Add buddy"
+          >＋</button>
         </div>
       </div>
     </div>
