@@ -1,5 +1,5 @@
 {
-  "buildCommand": "cd apps/web && npx prisma generate && (npx prisma migrate resolve --rolled-back 20260325000000_add_admin_portal || true) && (npx prisma migrate resolve --rolled-back 20260413000002_add_edited_at_to_posts || true) && npx prisma migrate deploy && npx next build",
+  "buildCommand": "cd apps/web && npm run vercel-build",
   "outputDirectory": "apps/web/.next",
   "installCommand": "npm install --ignore-scripts",
   "devCommand": "cd apps/web && npx next dev --port $PORT",
