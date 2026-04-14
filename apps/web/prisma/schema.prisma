@@ -250,6 +250,7 @@ model AwayMessageHistory {
   echoOf       AwayMessageHistory?  @relation("PostEchoes", fields: [echoOfId], references: [id], onDelete: SetNull)
   echoes       AwayMessageHistory[] @relation("PostEchoes")
   echoCount    Int      @default(0)
+  editedAt     DateTime? // null = never edited; updated on each PATCH
 
   nudges   AwayNudge[]
   postTags PostTag[]

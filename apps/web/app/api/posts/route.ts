@@ -53,6 +53,7 @@ function buildPostSelect(viewerId: string) {
     nudgeCount: true,
     replyCount: true,
     echoCount: true,
+    editedAt: true,
     postType: true,
     bodyText: true,
     quoteText: true,

@@ -32,11 +32,12 @@ interface ApiPost {
   echoCount: number;
   hasNudged: boolean;
   setAt: string;
+  editedAt?: string | null;
   echoOf?: { user: { screenname: string } } | null;
   user: { id: string; screenname: string; isGoldMember: boolean; avatarColor?: string; status: string; currently: unknown };
 }
 
-function mapPost(p: ApiPost): PostCardPost {
+function mapPost(p: ApiPost, viewerId?: string): PostCardPost {
   const currently = parseCurrently(p.user.currently);
   return {
     id:           p.id,
@@ -53,6 +54,8 @@ function mapPost(p: ApiPost): PostCardPost {
     echoCount:    p.echoCount,
     hasNudged:    p.hasNudged,
     createdAt:    new Date(p.setAt),
+    editedAt:     p.editedAt ? new Date(p.editedAt) : null,
+    isOwnPost:    viewerId ? p.user.id === viewerId : false,
     awayStatus:   (p.user.status as "ONLINE" | "AWAY" | "OFFLINE") || "OFFLINE",
     currentlyFields: filledFields(currently).map(([key]) => ({
       emoji: CURRENTLY_META[key].emoji, label: CURRENTLY_META[key].label,
@@ -78,6 +81,8 @@ function MobileFeedScreen() {
   const sentinelRef = useRef<HTMLDivElement>(null);
   const scrollRef   = useRef<HTMLDivElement>(null);
 
+  const viewerId = session?.user?.id;
+
   // Scroll to top when feed becomes active
   useEffect(() => {
     if (activeScreen === "feed" && scrollRef.current) {
@@ -99,7 +104,7 @@ function MobileFeedScreen() {
       .then((r) => r.ok ? r.json() : null)
       .then((data) => {
         if (!data) return;
-        setPosts(data.posts.map(mapPost));
+        setPosts(data.posts.map((p: ApiPost) => mapPost(p, viewerId)));
         setCursor(data.nextCursor);
         setHasMore(!!data.nextCursor);
         const tally = new Map<string, number>();
@@ -155,7 +160,7 @@ function MobileFeedScreen() {
           .then((r) => r.ok ? r.json() : null)
           .then((data) => {
             if (!data) return;
-            setPosts((prev) => [...prev, ...data.posts.map(mapPost)]);
+            setPosts((prev) => [...prev, ...data.posts.map((p: ApiPost) => mapPost(p, viewerId))]);
             setCursor(data.nextCursor);
             setHasMore(!!data.nextCursor);
           });
@@ -245,6 +250,8 @@ function MobileFeedScreen() {
               key={p.id} post={p}
               onNudge={() => {}} onEcho={() => {}} onReply={() => {}}
               onTagClick={setActiveTag} onUserClick={() => {}}
+              onDelete={(postId) => setPosts((prev) => prev.filter((x) => x.id !== postId))}
+              onEdit={(postId, updates) => setPosts((prev) => prev.map((x) => x.id === postId ? { ...x, ...updates } : x))}
             />
           ))
         )}

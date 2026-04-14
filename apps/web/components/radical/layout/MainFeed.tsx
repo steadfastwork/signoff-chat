@@ -30,6 +30,7 @@ interface ApiPost {
   echoCount: number;
   hasNudged: boolean;
   setAt: string;
+  editedAt?: string | null;
   echoOf?: { user: { screenname: string } } | null;
   user: {
     id: string;
@@ -41,7 +42,7 @@ interface ApiPost {
   };
 }
 
-function mapPost(p: ApiPost): PostCardPost {
+function mapPost(p: ApiPost, viewerId?: string): PostCardPost {
   const currently = parseCurrently(p.user.currently);
   const currentlyFields = filledFields(currently).map(([key]) => ({
     emoji: CURRENTLY_META[key].emoji,
@@ -67,6 +68,8 @@ function mapPost(p: ApiPost): PostCardPost {
     echoCount:     p.echoCount,
     hasNudged:     p.hasNudged,
     createdAt:     new Date(p.setAt),
+    editedAt:      p.editedAt ? new Date(p.editedAt) : null,
+    isOwnPost:     viewerId ? p.user.id === viewerId : false,
     awayStatus:    (p.user.status as "ONLINE" | "AWAY" | "OFFLINE") || "OFFLINE",
     currentlyFields,
     echoOf:        p.echoOf ?? null,
@@ -146,7 +149,7 @@ export function MainFeed({ onOpenChat }: { onOpenChat?: (screenname: string) => 
 
     fetchPosts(activeTag, null).then((data) => {
       if (!data) return;
-      setPosts(data.posts.map(mapPost));
+      setPosts(data.posts.map((p) => mapPost(p, session?.user?.id)));
       setCursor(data.nextCursor);
       setHasMore(!!data.nextCursor);
 
@@ -168,7 +171,7 @@ export function MainFeed({ onOpenChat }: { onOpenChat?: (screenname: string) => 
           setLoadingMore(true);
           fetchPosts(activeTag, cursor).then((data) => {
             if (!data) return;
-            setPosts((prev) => [...prev, ...data.posts.map(mapPost)]);
+            setPosts((prev) => [...prev, ...data.posts.map((p) => mapPost(p, session?.user?.id))]);
             setCursor(data.nextCursor);
             setHasMore(!!data.nextCursor);
           }).finally(() => setLoadingMore(false));
@@ -228,6 +231,14 @@ export function MainFeed({ onOpenChat }: { onOpenChat?: (screenname: string) => 
 
   const handleEcho = async (postId: string) => {
     await fetch(`/api/posts/${postId}/echo`, { method: "POST" });
+  };
+
+  const handleDelete = (postId: string) => {
+    setPosts((prev) => prev.filter((p) => p.id !== postId));
+  };
+
+  const handleEdit = (postId: string, updates: Partial<PostCardPost> & { editedAt: Date }) => {
+    setPosts((prev) => prev.map((p) => p.id === postId ? { ...p, ...updates } : p));
   };
 
   const avatarColor = session?.user?.avatarColor ?? "amber";
@@ -355,6 +366,8 @@ export function MainFeed({ onOpenChat }: { onOpenChat?: (screenname: string) => 
               onReply={() => {}}
               onTagClick={setActiveTag}
               onUserClick={(sn) => onOpenChat?.(sn)}
+              onDelete={handleDelete}
+              onEdit={handleEdit}
             />
           ))
         )}
