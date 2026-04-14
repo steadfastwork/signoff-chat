@@ -247,7 +247,8 @@ function MobileFeedScreen() {
         ) : (
           posts.map((p) => (
             <PostCard
-              key={p.id} post={p}
+              key={p.id}
+              post={{ ...p, isOwnPost: p.user.screenname === session?.user?.screenname }}
               onNudge={() => {}} onEcho={() => {}} onReply={() => {}}
               onTagClick={setActiveTag} onUserClick={() => {}}
               onDelete={(postId) => setPosts((prev) => prev.filter((x) => x.id !== postId))}

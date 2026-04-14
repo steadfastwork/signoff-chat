@@ -360,7 +360,7 @@ export function MainFeed({ onOpenChat }: { onOpenChat?: (screenname: string) => 
           posts.map((post) => (
             <PostCard
               key={post.id}
-              post={post}
+              post={{ ...post, isOwnPost: post.user.screenname === screenname }}
               onNudge={handleNudge}
               onEcho={handleEcho}
               onReply={() => {}}
