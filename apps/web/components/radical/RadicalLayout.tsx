@@ -137,14 +137,170 @@ function TalkScreen() {
 // Channels screen
 // ---------------------------------------------------------------------------
 
+const CH_AVATAR_COLORS = ["amber","rose","sky","emerald","violet","orange"] as const;
+function memberAvatarPalette(userId: string) {
+  let h = 0;
+  for (let i = 0; i < userId.length; i++) h = (h * 31 + userId.charCodeAt(i)) >>> 0;
+  const key = CH_AVATAR_COLORS[h % CH_AVATAR_COLORS.length];
+  return AVATAR_PALETTE[key] ?? AVATAR_PALETTE.amber;
+}
+
+function ChannelMembersPanel({ channel, onClose }: { channel: any; onClose: () => void }) {
+  const [members, setMembers] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    setLoading(true);
+    setMembers([]);
+    fetch(`/api/channels/${channel.name}/members`)
+      .then((r) => r.ok ? r.json() : [])
+      .then((d) => setMembers(Array.isArray(d) ? d : []))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [channel.name]);
+
+  const online  = members.filter((m) => m.user.status === "ONLINE");
+  const away    = members.filter((m) => m.user.status === "AWAY");
+  const offline = members.filter((m) => m.user.status !== "ONLINE" && m.user.status !== "AWAY");
+
+  const MemberRow = ({ m }: { m: any }) => {
+    const { bg, fg } = memberAvatarPalette(m.userId);
+    const statusColor = m.user.status === "ONLINE" ? "var(--green)"
+      : m.user.status === "AWAY" ? "var(--away)" : "var(--snow5)";
+    return (
+      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 0" }}>
+        <div style={{ position: "relative", flexShrink: 0 }}>
+          <div style={{
+            width: 30, height: 30, borderRadius: 9,
+            background: bg, color: fg,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            fontSize: 11, fontWeight: 700, fontFamily: "var(--sans)", userSelect: "none",
+          }}>
+            {getInitials(m.user.screenname)}
+          </div>
+          <span style={{
+            position: "absolute", bottom: -1, right: -1,
+            width: 8, height: 8, borderRadius: "50%",
+            background: statusColor, border: "2px solid var(--ink)",
+          }} />
+        </div>
+        <span style={{
+          flex: 1, fontSize: 13, fontWeight: 500,
+          color: m.user.status === "OFFLINE" || m.user.status === "IDLE" || m.user.status === "INVISIBLE"
+            ? "var(--snow4)" : "var(--snow)",
+          fontFamily: "var(--sans)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+        }}>
+          {m.user.screenname}
+        </span>
+        {m.user.isGoldMember && (
+          <span style={{ fontSize: 10, color: "var(--amber)", flexShrink: 0 }}>★</span>
+        )}
+      </div>
+    );
+  };
+
+  const SectionLabel = ({ label, count }: { label: string; count: number }) => (
+    <div style={{
+      fontSize: 9, fontWeight: 700, color: "var(--snow5)",
+      fontFamily: "var(--sans)", textTransform: "uppercase",
+      letterSpacing: "0.08em", padding: "12px 0 4px",
+    }}>
+      {label} — {count}
+    </div>
+  );
+
+  return (
+    <div style={{
+      width: 280, flexShrink: 0,
+      borderLeft: "1px solid var(--edge1)",
+      display: "flex", flexDirection: "column",
+      background: "var(--ink2)",
+      overflow: "hidden",
+    }}>
+      {/* Panel header */}
+      <div style={{
+        padding: "16px 18px 12px",
+        borderBottom: "1px solid var(--edge1)",
+        flexShrink: 0,
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+          <button
+            onClick={onClose}
+            style={{
+              background: "none", border: "none", color: "var(--snow4)",
+              cursor: "pointer", fontSize: 16, padding: "0 4px 0 0", lineHeight: 1,
+            }}
+          >‹</button>
+          <span style={{ fontSize: 14, fontWeight: 700, color: "var(--snow)", fontFamily: "var(--sans)", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            #{channel.name}
+          </span>
+          <a
+            href={`/channels/${channel.name}`}
+            style={{
+              fontSize: 11, color: "var(--amber)", fontFamily: "var(--sans)",
+              fontWeight: 600, textDecoration: "none", flexShrink: 0,
+            }}
+          >
+            Open →
+          </a>
+        </div>
+        {channel.description && (
+          <p style={{ margin: 0, fontSize: 11, color: "var(--snow4)", fontFamily: "var(--sans)", lineHeight: 1.4 }}>
+            {channel.description}
+          </p>
+        )}
+        <p style={{ margin: "6px 0 0", fontSize: 10, color: "var(--snow5)", fontFamily: "var(--sans)" }}>
+          {channel.memberCount?.toLocaleString()} members
+          {channel.type !== "PUBLIC" && (
+            <span style={{ marginLeft: 6, border: "1px solid var(--edge2)", borderRadius: 3, padding: "1px 5px" }}>
+              {channel.type === "INVITE_ONLY" ? "invite only" : "secret"}
+            </span>
+          )}
+        </p>
+      </div>
+
+      {/* Member list */}
+      <div style={{ flex: 1, overflowY: "auto", padding: "0 18px 20px" }}>
+        {loading ? (
+          <p style={{ fontSize: 12, color: "var(--snow5)", fontFamily: "var(--sans)", padding: "20px 0" }}>Loading members…</p>
+        ) : members.length === 0 ? (
+          <p style={{ fontSize: 12, color: "var(--snow5)", fontFamily: "var(--sans)", padding: "20px 0", fontStyle: "italic" }}>No members found.</p>
+        ) : (
+          <>
+            {online.length > 0 && (
+              <>
+                <SectionLabel label="Online" count={online.length} />
+                {online.map((m) => <MemberRow key={m.userId} m={m} />)}
+              </>
+            )}
+            {away.length > 0 && (
+              <>
+                <SectionLabel label="Away" count={away.length} />
+                {away.map((m) => <MemberRow key={m.userId} m={m} />)}
+              </>
+            )}
+            {offline.length > 0 && (
+              <>
+                <SectionLabel label="Offline" count={offline.length} />
+                {offline.map((m) => <MemberRow key={m.userId} m={m} />)}
+              </>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function ChannelsScreen() {
-  const [tab,         setTab]         = useState<"mine" | "discover">("mine");
-  const [myChannels,  setMyChannels]  = useState<any[]>([]);
-  const [discovered,  setDiscovered]  = useState<any[]>([]);
-  const [loadingMine, setLoadingMine] = useState(true);
-  const [loadingDisc, setLoadingDisc] = useState(false);
-  const [query,       setQuery]       = useState("");
-  const [discMode,    setDiscMode]    = useState<"featured" | "new" | "active">("featured");
+  const [tab,           setTab]           = useState<"mine" | "discover">("mine");
+  const [myChannels,    setMyChannels]    = useState<any[]>([]);
+  const [discovered,    setDiscovered]    = useState<any[]>([]);
+  const [loadingMine,   setLoadingMine]   = useState(true);
+  const [loadingDisc,   setLoadingDisc]   = useState(false);
+  const [query,         setQuery]         = useState("");
+  const [discMode,      setDiscMode]      = useState<"featured" | "new" | "active">("featured");
+  const [activeChannel, setActiveChannel] = useState<any | null>(null);
 
   useEffect(() => {
     fetch("/api/channels?mine=true")
@@ -169,139 +325,158 @@ function ChannelsScreen() {
     c.description?.toLowerCase().includes(query.toLowerCase())
   );
 
-  const Card = ({ ch }: { ch: any }) => (
-    <a
-      href={`/channels/${ch.name}`}
-      style={{
-        display: "flex", alignItems: "center", gap: 14,
-        padding: "12px 16px", cursor: "pointer",
-        border: "1px solid var(--edge1)", borderRadius: "var(--r)",
-        background: "var(--fog1)", textDecoration: "none",
-        marginBottom: 8,
-      }}
-      onMouseEnter={(e) => (e.currentTarget.style.borderColor = "rgba(232,150,26,.35)")}
-      onMouseLeave={(e) => (e.currentTarget.style.borderColor = "var(--edge1)")}
-    >
-      <div style={{
-        width: 38, height: 38, borderRadius: 11, flexShrink: 0,
-        background: "var(--fog2)", color: "var(--snow3)",
-        display: "flex", alignItems: "center", justifyContent: "center",
-        fontSize: 18, fontWeight: 700, fontFamily: "var(--sans)",
-      }}>#</div>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 13, fontWeight: 600, color: "var(--snow)", fontFamily: "var(--sans)", display: "flex", alignItems: "center", gap: 6 }}>
-          #{ch.name}
-          {ch.favoriteByMe && <span style={{ fontSize: 10, color: "var(--amber)" }}>★</span>}
-          {ch.type !== "PUBLIC" && (
-            <span style={{ fontSize: 9, color: "var(--snow4)", fontFamily: "var(--sans)", border: "1px solid var(--edge2)", borderRadius: 4, padding: "1px 5px" }}>
-              {ch.type === "INVITE_ONLY" ? "invite only" : "secret"}
-            </span>
+  const Card = ({ ch }: { ch: any }) => {
+    const isActive = activeChannel?.id === ch.id;
+    return (
+      <div
+        onClick={() => setActiveChannel(isActive ? null : ch)}
+        style={{
+          display: "flex", alignItems: "center", gap: 14,
+          padding: "12px 16px", cursor: "pointer",
+          border: `1px solid ${isActive ? "rgba(232,150,26,.35)" : "var(--edge1)"}`,
+          borderRadius: "var(--r)",
+          background: isActive ? "var(--ambg)" : "var(--fog1)",
+          marginBottom: 8,
+          transition: "border-color 0.15s, background 0.15s",
+        }}
+        onMouseEnter={(e) => { if (!isActive) e.currentTarget.style.borderColor = "rgba(232,150,26,.25)"; }}
+        onMouseLeave={(e) => { if (!isActive) e.currentTarget.style.borderColor = "var(--edge1)"; }}
+      >
+        <div style={{
+          width: 38, height: 38, borderRadius: 11, flexShrink: 0,
+          background: isActive ? "rgba(232,150,26,.2)" : "var(--fog2)",
+          color: isActive ? "var(--amber)" : "var(--snow3)",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          fontSize: 18, fontWeight: 700, fontFamily: "var(--sans)",
+        }}>#</div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: isActive ? "var(--amber)" : "var(--snow)", fontFamily: "var(--sans)", display: "flex", alignItems: "center", gap: 6 }}>
+            #{ch.name}
+            {ch.favoriteByMe && <span style={{ fontSize: 10, color: "var(--amber)" }}>★</span>}
+            {ch.type !== "PUBLIC" && (
+              <span style={{ fontSize: 9, color: "var(--snow4)", fontFamily: "var(--sans)", border: "1px solid var(--edge2)", borderRadius: 4, padding: "1px 5px" }}>
+                {ch.type === "INVITE_ONLY" ? "invite only" : "secret"}
+              </span>
+            )}
+          </div>
+          {ch.description && (
+            <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--snow4)", fontFamily: "var(--sans)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {ch.description}
+            </p>
           )}
-        </div>
-        {ch.description && (
-          <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--snow4)", fontFamily: "var(--sans)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-            {ch.description}
+          <p style={{ margin: "3px 0 0", fontSize: 10, color: "var(--snow5)", fontFamily: "var(--sans)" }}>
+            {ch.memberCount?.toLocaleString()} members
+            {ch.slowModeMinutes > 0 && ` · ${ch.slowModeMinutes}m slow`}
           </p>
-        )}
-        <p style={{ margin: "3px 0 0", fontSize: 10, color: "var(--snow5)", fontFamily: "var(--sans)" }}>
-          {ch.memberCount?.toLocaleString()} members
-          {ch.slowModeMinutes > 0 && ` · ${ch.slowModeMinutes}m slow`}
-        </p>
+        </div>
+        <span style={{ fontSize: 12, color: isActive ? "var(--amber)" : "var(--snow5)", flexShrink: 0 }}>
+          {isActive ? "×" : "›"}
+        </span>
       </div>
-      <span style={{ fontSize: 12, color: "var(--snow5)", flexShrink: 0 }}>›</span>
-    </a>
-  );
+    );
+  };
 
   return (
-    <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", background: "var(--ink)", overflowY: "auto" }}>
-      {/* Header */}
-      <div style={{ padding: "20px 24px 12px", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
-        <div>
-          <h2 style={{ fontFamily: "var(--sans)", fontSize: 16, fontWeight: 700, color: "var(--snow)", margin: 0 }}>Channels</h2>
-          <p style={{ fontFamily: "var(--sans)", fontSize: 11, color: "var(--snow5)", margin: "2px 0 0" }}>real-time chatrooms</p>
+    <div style={{ flex: 1, minWidth: 0, display: "flex", background: "var(--ink)", overflow: "hidden" }}>
+      {/* Channel list */}
+      <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", overflowY: "auto" }}>
+        {/* Header */}
+        <div style={{ padding: "20px 24px 12px", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
+          <div>
+            <h2 style={{ fontFamily: "var(--sans)", fontSize: 16, fontWeight: 700, color: "var(--snow)", margin: 0 }}>Channels</h2>
+            <p style={{ fontFamily: "var(--sans)", fontSize: 11, color: "var(--snow5)", margin: "2px 0 0" }}>real-time chatrooms</p>
+          </div>
+          <a
+            href="/channels"
+            style={{
+              padding: "6px 14px", borderRadius: "var(--rp)",
+              background: "var(--ambg)", border: "1px solid rgba(232,150,26,.35)",
+              color: "var(--amber)", fontSize: 11, fontWeight: 700,
+              fontFamily: "var(--sans)", textDecoration: "none",
+            }}
+          >
+            + Create
+          </a>
         </div>
-        <a
-          href="/channels"
-          style={{
-            padding: "6px 14px", borderRadius: "var(--rp)",
-            background: "var(--ambg)", border: "1px solid rgba(232,150,26,.35)",
-            color: "var(--amber)", fontSize: 11, fontWeight: 700,
-            fontFamily: "var(--sans)", textDecoration: "none",
-          }}
-        >
-          + Create
-        </a>
-      </div>
 
-      {/* Tabs */}
-      <div style={{ display: "flex", padding: "0 24px", gap: 4, marginBottom: 16, flexShrink: 0 }}>
-        {(["mine", "discover"] as const).map((t) => (
-          <button key={t} onClick={() => setTab(t)} style={{
-            padding: "7px 16px", borderRadius: "var(--rp)",
-            background: tab === t ? "var(--ambg)" : "transparent",
-            border: `1px solid ${tab === t ? "rgba(232,150,26,.35)" : "var(--edge1)"}`,
-            color: tab === t ? "var(--amber)" : "var(--snow4)",
-            fontSize: 12, fontWeight: 600, fontFamily: "var(--sans)", cursor: "pointer",
-          }}>
-            {t === "mine" ? "Your channels" : "Discover"}
-          </button>
-        ))}
-      </div>
+        {/* Tabs */}
+        <div style={{ display: "flex", padding: "0 24px", gap: 4, marginBottom: 16, flexShrink: 0 }}>
+          {(["mine", "discover"] as const).map((t) => (
+            <button key={t} onClick={() => { setTab(t); setActiveChannel(null); }} style={{
+              padding: "7px 16px", borderRadius: "var(--rp)",
+              background: tab === t ? "var(--ambg)" : "transparent",
+              border: `1px solid ${tab === t ? "rgba(232,150,26,.35)" : "var(--edge1)"}`,
+              color: tab === t ? "var(--amber)" : "var(--snow4)",
+              fontSize: 12, fontWeight: 600, fontFamily: "var(--sans)", cursor: "pointer",
+            }}>
+              {t === "mine" ? "Your channels" : "Discover"}
+            </button>
+          ))}
+        </div>
 
-      <div style={{ flex: 1, overflowY: "auto", padding: "0 24px 40px" }}>
-        {tab === "mine" && (
-          <>
-            <input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search your channels…"
-              style={{
-                width: "100%", background: "var(--fog1)", border: "1px solid var(--edge1)",
-                borderRadius: "var(--rp)", padding: "8px 14px",
-                fontFamily: "var(--sans)", fontSize: 13, color: "var(--snow)",
-                outline: "none", boxSizing: "border-box", marginBottom: 14,
-              }}
-            />
-            {loadingMine ? (
-              <p style={{ fontSize: 12, color: "var(--snow5)", fontFamily: "var(--sans)" }}>Loading…</p>
-            ) : filtered.length === 0 ? (
-              <div style={{ textAlign: "center", padding: "48px 0" }}>
-                <p style={{ fontSize: 14, fontStyle: "italic", color: "var(--snow5)", fontFamily: "var(--serif)", marginBottom: 16 }}>
-                  {query ? "No channels match your search." : "You haven't joined any channels yet."}
-                </p>
-                {!query && <button onClick={() => setTab("discover")} style={{ fontSize: 12, color: "var(--amber)", background: "none", border: "none", cursor: "pointer", fontFamily: "var(--sans)" }}>explore channels →</button>}
+        <div style={{ flex: 1, overflowY: "auto", padding: "0 24px 40px" }}>
+          {tab === "mine" && (
+            <>
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search your channels…"
+                style={{
+                  width: "100%", background: "var(--fog1)", border: "1px solid var(--edge1)",
+                  borderRadius: "var(--rp)", padding: "8px 14px",
+                  fontFamily: "var(--sans)", fontSize: 13, color: "var(--snow)",
+                  outline: "none", boxSizing: "border-box", marginBottom: 14,
+                }}
+              />
+              {loadingMine ? (
+                <p style={{ fontSize: 12, color: "var(--snow5)", fontFamily: "var(--sans)" }}>Loading…</p>
+              ) : filtered.length === 0 ? (
+                <div style={{ textAlign: "center", padding: "48px 0" }}>
+                  <p style={{ fontSize: 14, fontStyle: "italic", color: "var(--snow5)", fontFamily: "var(--serif)", marginBottom: 16 }}>
+                    {query ? "No channels match your search." : "You haven't joined any channels yet."}
+                  </p>
+                  {!query && <button onClick={() => setTab("discover")} style={{ fontSize: 12, color: "var(--amber)", background: "none", border: "none", cursor: "pointer", fontFamily: "var(--sans)" }}>explore channels →</button>}
+                </div>
+              ) : (
+                filtered.map((ch) => <Card key={ch.id} ch={ch} />)
+              )}
+            </>
+          )}
+
+          {tab === "discover" && (
+            <>
+              <div style={{ display: "flex", gap: 6, marginBottom: 14, flexWrap: "wrap" }}>
+                {(["featured", "new", "active"] as const).map((m) => (
+                  <button key={m} onClick={() => setDiscMode(m)} style={{
+                    padding: "5px 12px", borderRadius: "var(--rp)",
+                    background: discMode === m ? "var(--ambg)" : "transparent",
+                    border: `1px solid ${discMode === m ? "rgba(232,150,26,.35)" : "var(--edge1)"}`,
+                    color: discMode === m ? "var(--amber)" : "var(--snow4)",
+                    fontSize: 11, fontWeight: 600, fontFamily: "var(--sans)", cursor: "pointer",
+                  }}>
+                    {m === "featured" ? "Featured" : m === "new" ? "Newest" : "Most active"}
+                  </button>
+                ))}
               </div>
-            ) : (
-              filtered.map((ch) => <Card key={ch.id} ch={ch} />)
-            )}
-          </>
-        )}
-
-        {tab === "discover" && (
-          <>
-            <div style={{ display: "flex", gap: 6, marginBottom: 14, flexWrap: "wrap" }}>
-              {(["featured", "new", "active"] as const).map((m) => (
-                <button key={m} onClick={() => setDiscMode(m)} style={{
-                  padding: "5px 12px", borderRadius: "var(--rp)",
-                  background: discMode === m ? "var(--ambg)" : "transparent",
-                  border: `1px solid ${discMode === m ? "rgba(232,150,26,.35)" : "var(--edge1)"}`,
-                  color: discMode === m ? "var(--amber)" : "var(--snow4)",
-                  fontSize: 11, fontWeight: 600, fontFamily: "var(--sans)", cursor: "pointer",
-                }}>
-                  {m === "featured" ? "Featured" : m === "new" ? "Newest" : "Most active"}
-                </button>
-              ))}
-            </div>
-            {loadingDisc ? (
-              <p style={{ fontSize: 12, color: "var(--snow5)", fontFamily: "var(--sans)" }}>Loading…</p>
-            ) : discovered.length === 0 ? (
-              <p style={{ fontSize: 13, fontStyle: "italic", color: "var(--snow5)", fontFamily: "var(--serif)", padding: "32px 0", textAlign: "center" }}>No channels found.</p>
-            ) : (
-              discovered.map((ch) => <Card key={ch.id} ch={ch} />)
-            )}
-          </>
-        )}
+              {loadingDisc ? (
+                <p style={{ fontSize: 12, color: "var(--snow5)", fontFamily: "var(--sans)" }}>Loading…</p>
+              ) : discovered.length === 0 ? (
+                <p style={{ fontSize: 13, fontStyle: "italic", color: "var(--snow5)", fontFamily: "var(--serif)", padding: "32px 0", textAlign: "center" }}>No channels found.</p>
+              ) : (
+                discovered.map((ch) => <Card key={ch.id} ch={ch} />)
+              )}
+            </>
+          )}
+        </div>
       </div>
+
+      {/* Members panel — slides in when a channel is selected */}
+      {activeChannel && (
+        <ChannelMembersPanel
+          channel={activeChannel}
+          onClose={() => setActiveChannel(null)}
+        />
+      )}
     </div>
   );
 }

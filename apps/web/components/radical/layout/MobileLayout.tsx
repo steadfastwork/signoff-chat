@@ -463,15 +463,25 @@ function MobileTalkScreen() {
 // Mobile Channels screen
 // ---------------------------------------------------------------------------
 
+const MOB_CH_AVATAR_COLORS = ["amber","rose","sky","emerald","violet","orange"] as const;
+function mobChAvatarPalette(userId: string) {
+  let h = 0;
+  for (let i = 0; i < userId.length; i++) h = (h * 31 + userId.charCodeAt(i)) >>> 0;
+  const key = MOB_CH_AVATAR_COLORS[h % MOB_CH_AVATAR_COLORS.length];
+  return AVATAR_PALETTE[key] ?? AVATAR_PALETTE.amber;
+}
+
 function MobileChannelsScreen() {
-  const router = useRouter();
-  const [tab,        setTab]        = useState<"mine" | "discover">("mine");
-  const [myChannels, setMyChannels] = useState<any[]>([]);
-  const [discovered, setDiscovered] = useState<any[]>([]);
-  const [loadingMine,setLoadingMine]= useState(true);
-  const [loadingDisc,setLoadingDisc]= useState(false);
-  const [query,      setQuery]      = useState("");
-  const [discMode,   setDiscMode]   = useState<"featured" | "new" | "active">("featured");
+  const [tab,           setTab]           = useState<"mine" | "discover">("mine");
+  const [myChannels,    setMyChannels]    = useState<any[]>([]);
+  const [discovered,    setDiscovered]    = useState<any[]>([]);
+  const [loadingMine,   setLoadingMine]   = useState(true);
+  const [loadingDisc,   setLoadingDisc]   = useState(false);
+  const [query,         setQuery]         = useState("");
+  const [discMode,      setDiscMode]      = useState<"featured" | "new" | "active">("featured");
+  const [activeChannel, setActiveChannel] = useState<any | null>(null);
+  const [members,       setMembers]       = useState<any[]>([]);
+  const [loadingMembers,setLoadingMembers]= useState(false);
 
   useEffect(() => {
     fetch("/api/channels?mine=true")
@@ -491,17 +501,32 @@ function MobileChannelsScreen() {
       .finally(() => setLoadingDisc(false));
   }, [tab, discMode]);
 
+  useEffect(() => {
+    if (!activeChannel) return;
+    setLoadingMembers(true);
+    setMembers([]);
+    fetch(`/api/channels/${activeChannel.name}/members`)
+      .then((r) => r.ok ? r.json() : [])
+      .then((d) => setMembers(Array.isArray(d) ? d : []))
+      .catch(() => {})
+      .finally(() => setLoadingMembers(false));
+  }, [activeChannel?.name]);
+
   const filtered = myChannels.filter((c) =>
     !query || c.name.toLowerCase().includes(query.toLowerCase()) ||
     c.description?.toLowerCase().includes(query.toLowerCase())
   );
 
+  const online  = members.filter((m) => m.user.status === "ONLINE");
+  const away    = members.filter((m) => m.user.status === "AWAY");
+  const offline = members.filter((m) => m.user.status !== "ONLINE" && m.user.status !== "AWAY");
+
   const ChannelRow = ({ ch }: { ch: any }) => (
     <div
       role="button"
       tabIndex={0}
-      onClick={() => router.push(`/channels/${ch.name}`)}
-      onKeyDown={(e) => e.key === "Enter" && router.push(`/channels/${ch.name}`)}
+      onClick={() => setActiveChannel(ch)}
+      onKeyDown={(e) => e.key === "Enter" && setActiveChannel(ch)}
       style={{ display: "flex", alignItems: "center", gap: 12, padding: "11px 16px", cursor: "pointer", borderBottom: "1px solid var(--edge1)" }}
     >
       <div style={{
@@ -533,7 +558,7 @@ function MobileChannelsScreen() {
   );
 
   return (
-    <div style={{ height: "100%", display: "flex", flexDirection: "column" }}>
+    <div style={{ height: "100%", display: "flex", flexDirection: "column", position: "relative", overflow: "hidden" }}>
       {/* Header */}
       <div style={{ padding: "12px 16px 0", flexShrink: 0 }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
@@ -612,6 +637,121 @@ function MobileChannelsScreen() {
           )
         )}
       </div>
+
+      {/* Members overlay — slides over the channel list */}
+      {activeChannel && (
+        <div style={{
+          position: "absolute", inset: 0,
+          background: "var(--ink)", zIndex: 10,
+          display: "flex", flexDirection: "column",
+        }}>
+          {/* Overlay header */}
+          <div style={{
+            display: "flex", alignItems: "center", gap: 10,
+            padding: "12px 16px", borderBottom: "1px solid var(--edge1)",
+            flexShrink: 0,
+          }}>
+            <button
+              onClick={() => setActiveChannel(null)}
+              style={{ background: "none", border: "none", color: "var(--snow3)", cursor: "pointer", fontSize: 18, padding: 0, lineHeight: 1 }}
+            >‹</button>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <span style={{ fontSize: 14, fontWeight: 700, color: "var(--snow)", fontFamily: "var(--sans)" }}>
+                #{activeChannel.name}
+              </span>
+              {activeChannel.description && (
+                <p style={{ margin: 0, fontSize: 11, color: "var(--snow4)", fontFamily: "var(--sans)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {activeChannel.description}
+                </p>
+              )}
+            </div>
+            <a
+              href={`/channels/${activeChannel.name}`}
+              style={{ fontSize: 11, color: "var(--amber)", fontFamily: "var(--sans)", fontWeight: 600, textDecoration: "none", flexShrink: 0 }}
+            >
+              Open →
+            </a>
+          </div>
+
+          {/* Stats row */}
+          <div style={{ padding: "8px 16px", borderBottom: "1px solid var(--edge1)", flexShrink: 0 }}>
+            <span style={{ fontSize: 11, color: "var(--snow5)", fontFamily: "var(--sans)" }}>
+              {activeChannel.memberCount?.toLocaleString()} members
+              {activeChannel.slowModeMinutes > 0 && ` · ${activeChannel.slowModeMinutes}m slow`}
+              {activeChannel.type !== "PUBLIC" && (
+                <span style={{ marginLeft: 8, border: "1px solid var(--edge2)", borderRadius: 3, padding: "1px 5px" }}>
+                  {activeChannel.type === "INVITE_ONLY" ? "invite only" : "secret"}
+                </span>
+              )}
+            </span>
+          </div>
+
+          {/* Member list */}
+          <div style={{ flex: 1, overflowY: "auto", paddingBottom: 90 }}>
+            {loadingMembers ? (
+              <p style={{ padding: "24px 16px", fontSize: 12, color: "var(--snow5)", fontFamily: "var(--sans)", textAlign: "center" }}>Loading members…</p>
+            ) : members.length === 0 ? (
+              <p style={{ padding: "24px 16px", fontSize: 12, color: "var(--snow5)", fontFamily: "var(--sans)", textAlign: "center", fontStyle: "italic" }}>No members found.</p>
+            ) : (
+              <>
+                {[
+                  { label: "Online", list: online },
+                  { label: "Away",   list: away   },
+                  { label: "Offline",list: offline },
+                ].map(({ label, list }) => list.length === 0 ? null : (
+                  <div key={label}>
+                    <div style={{
+                      padding: "10px 16px 4px",
+                      fontSize: 9, fontWeight: 700, color: "var(--snow5)",
+                      fontFamily: "var(--sans)", textTransform: "uppercase",
+                      letterSpacing: "0.08em",
+                    }}>
+                      {label} — {list.length}
+                    </div>
+                    {list.map((m: any) => {
+                      const { bg, fg } = mobChAvatarPalette(m.userId);
+                      const statusColor = m.user.status === "ONLINE" ? "var(--green)"
+                        : m.user.status === "AWAY" ? "var(--away)" : "var(--snow5)";
+                      return (
+                        <div key={m.userId} style={{
+                          display: "flex", alignItems: "center", gap: 12,
+                          padding: "10px 16px", borderBottom: "1px solid var(--edge1)",
+                        }}>
+                          <div style={{ position: "relative", flexShrink: 0 }}>
+                            <div style={{
+                              width: 32, height: 32, borderRadius: 10,
+                              background: bg, color: fg,
+                              display: "flex", alignItems: "center", justifyContent: "center",
+                              fontSize: 11, fontWeight: 700, fontFamily: "var(--sans)", userSelect: "none",
+                            }}>
+                              {getInitials(m.user.screenname)}
+                            </div>
+                            <span style={{
+                              position: "absolute", bottom: -1, right: -1,
+                              width: 8, height: 8, borderRadius: "50%",
+                              background: statusColor, border: "2px solid var(--ink)",
+                            }} />
+                          </div>
+                          <span style={{
+                            flex: 1, fontSize: 13, fontWeight: 500,
+                            color: label === "Offline" ? "var(--snow4)" : "var(--snow)",
+                            fontFamily: "var(--sans)",
+                          }}>
+                            {m.user.screenname}
+                          </span>
+                          {m.user.isGoldMember && (
+                            <span style={{ fontSize: 11, color: "var(--amber)" }}>★</span>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ))}
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

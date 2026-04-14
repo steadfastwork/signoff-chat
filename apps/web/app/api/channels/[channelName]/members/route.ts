@@ -8,8 +8,9 @@ type Params = { params: { channelName: string } };
 // ---------------------------------------------------------------------------
 // GET /api/channels/[channelName]/members
 //
-//   Default (no params)  — creator/admin only; returns full member list
-//   ?away=true           — any member; returns members who are currently away
+//   Default (no params)  — any member (PUBLIC channels: any authed user)
+//                          Returns full member list with online status.
+//   ?away=true           — any member; returns members who are currently away.
 //                          Used by the AwayBanner component.
 // ---------------------------------------------------------------------------
 
@@ -29,7 +30,6 @@ export async function GET(req: NextRequest, { params }: Params) {
   // ---------------------------------------------------------------------------
 
   if (awayOnly) {
-    // Verify requester is a member of the channel
     const membership = await prisma.channelMember.findUnique({
       where: { userId_channelId: { userId: session.user.id, channelId: channel.id } },
     });
@@ -40,25 +40,22 @@ export async function GET(req: NextRequest, { params }: Params) {
     const awayMembers = await prisma.channelMember.findMany({
       where: {
         channelId: channel.id,
-        user: {
-          status:      "AWAY",
-          awayMessage: { not: null },
-        },
+        user: { status: "AWAY", awayMessage: { not: null } },
       },
       select: {
         userId: true,
         user: {
           select: {
-            id:             true,
-            screenname:     true,
-            isGoldMember:   true,
-            awayMessage:    true,
+            id: true,
+            screenname: true,
+            isGoldMember: true,
+            awayMessage: true,
             awayMessageSetAt: true,
-            status:         true,
+            status: true,
           },
         },
       },
-      take: 5, // show at most 5 banners
+      take: 5,
     });
 
     return NextResponse.json(
@@ -75,16 +72,26 @@ export async function GET(req: NextRequest, { params }: Params) {
   }
 
   // ---------------------------------------------------------------------------
-  // Default — full member list; creator/admin only
+  // Full member list
+  //
+  // PUBLIC channels: any authenticated user may view the member list.
+  // Non-public channels: requester must be a member, creator, or admin.
   // ---------------------------------------------------------------------------
 
-  const isCreator = channel.creatorId === session.user.id;
-  const actor = isCreator ? null : await prisma.user.findUnique({
-    where: { id: session.user.id },
-    select: { adminRole: true },
-  });
-  if (!isCreator && !actor?.adminRole) {
-    return NextResponse.json({ error: "forbidden." }, { status: 403 });
+  if (channel.type !== "PUBLIC") {
+    const membership = await prisma.channelMember.findUnique({
+      where: { userId_channelId: { userId: session.user.id, channelId: channel.id } },
+    });
+    if (!membership) {
+      const isCreator = channel.creatorId === session.user.id;
+      const actor = isCreator ? null : await prisma.user.findUnique({
+        where: { id: session.user.id },
+        select: { adminRole: true },
+      });
+      if (!isCreator && !actor?.adminRole) {
+        return NextResponse.json({ error: "forbidden." }, { status: 403 });
+      }
+    }
   }
 
   const members = await prisma.channelMember.findMany({
@@ -93,17 +100,29 @@ export async function GET(req: NextRequest, { params }: Params) {
       userId: true,
       joinedAt: true,
       mutedUntil: true,
-      user: { select: { id: true, screenname: true, isGoldMember: true } },
+      user: {
+        select: {
+          id: true,
+          screenname: true,
+          isGoldMember: true,
+          status: true,
+        },
+      },
     },
     orderBy: { joinedAt: "asc" },
   });
 
   return NextResponse.json(
     members.map((m) => ({
-      userId: m.userId,
-      joinedAt: m.joinedAt,
+      userId:    m.userId,
+      joinedAt:  m.joinedAt,
       mutedUntil: m.mutedUntil ?? null,
-      user: m.user,
+      user: {
+        id:           m.user.id,
+        screenname:   m.user.screenname,
+        isGoldMember: m.user.isGoldMember,
+        status:       m.user.status === "INVISIBLE" ? "OFFLINE" : m.user.status,
+      },
     }))
   );
 }
