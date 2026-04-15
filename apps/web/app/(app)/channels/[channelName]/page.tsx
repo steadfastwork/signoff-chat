@@ -1150,7 +1150,7 @@ export default function ChannelRoomPage() {
       style={{
         background: "var(--bg)",
         fontFamily: "var(--font-dm-sans)",
-        height: "calc(100dvh - 52px - var(--tab-bar-h))",
+        height: "min(calc(var(--vvh, 100svh) - 52px), calc(100dvh - 52px - var(--tab-bar-h)))",
       }}
     >
       {/* ---------------------------------------------------------------- */}
@@ -1180,11 +1180,11 @@ export default function ChannelRoomPage() {
           {typeBadge}
 
           <span
-            className="text-[11px] font-mono ml-1 hidden sm:inline"
+            className="text-[11px] font-mono ml-1"
             style={{ color: "var(--text-dim)" }}
           >
-            {channel.memberCount} member
-            {channel.memberCount !== 1 ? "s" : ""}
+            {channel.memberCount}
+            <span className="hidden sm:inline"> member{channel.memberCount !== 1 ? "s" : ""}</span>
           </span>
 
           {channel.slowModeMinutes > 0 && (

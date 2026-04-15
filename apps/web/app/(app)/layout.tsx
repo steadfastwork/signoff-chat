@@ -1,6 +1,7 @@
 import { Sidebar } from "@/components/layout/Sidebar";
 import { MobileNav } from "@/components/layout/MobileNav";
 import { EncryptionSetupPrompt } from "@/components/EncryptionSetupPrompt";
+import { VisualViewportTracker } from "@/components/VisualViewportTracker";
 import { getFeatureFlag, BOARDS_ENABLED, isRadicalUXEnabled } from "@/lib/featureFlags";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
@@ -12,13 +13,19 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   // When RADICAL_UX is active the feed page renders a full-page layout shell.
   // Skip the existing sidebar / main wrapper so it doesn't duplicate.
   if (isRadical) {
-    return <>{children}</>;
+    return (
+      <>
+        <VisualViewportTracker />
+        {children}
+      </>
+    );
   }
 
   const boardsEnabled = await getFeatureFlag(BOARDS_ENABLED);
 
   return (
     <>
+      <VisualViewportTracker />
       {/* Fixed left sidebar — hidden on mobile */}
       <Sidebar boardsEnabled={boardsEnabled} />
 
