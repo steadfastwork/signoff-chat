@@ -1150,7 +1150,7 @@ export default function ChannelRoomPage() {
       style={{
         background: "var(--bg)",
         fontFamily: "var(--font-dm-sans)",
-        height: "min(calc(var(--vvh, 100svh) - 52px), calc(100dvh - 52px - var(--tab-bar-h)))",
+        height: "var(--chat-h, calc(100dvh - 52px - var(--tab-bar-h)))",
       }}
     >
       {/* ---------------------------------------------------------------- */}

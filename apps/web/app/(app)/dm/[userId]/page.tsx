@@ -29,7 +29,7 @@ export default async function DMPage({
       className="max-w-2xl mx-auto border-x"
       style={{
         borderColor: "var(--border)",
-        height: "min(calc(var(--vvh, 100svh) - 52px), calc(100dvh - 52px - var(--tab-bar-h)))",
+        height: "var(--chat-h, calc(100dvh - 52px - var(--tab-bar-h)))",
       }}
     >
       <DirectMessagePanel otherUser={otherUser} initialDraft={quote} />
