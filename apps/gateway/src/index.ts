@@ -18,7 +18,7 @@ const OSCAR_HOST = process.env.OSCAR_HOST || "signoff-oscar.internal";
 const OSCAR_TOC_PORT = Number(process.env.OSCAR_TOC_PORT || 9898);
 // Management REST API (private 6PN only) — used to provision accounts.
 const OSCAR_API_URL = process.env.OSCAR_API_URL || "http://signoff-oscar.internal:8080";
-const SESSION_TTL_MS = 15 * 60 * 1000;
+const SESSION_TTL_MS = 60 * 60 * 1000;
 
 if (!GATEWAY_SECRET) {
   console.error("FATAL: GATEWAY_SECRET is required");

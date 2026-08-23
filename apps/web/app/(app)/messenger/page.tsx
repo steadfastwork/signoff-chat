@@ -37,9 +37,21 @@ export default function MessengerPage() {
       setMessages((m) => [...m, { screenname: data.from, text: data.message, time: now() }]);
       sounds.msgIn();
     };
+    const onSubErr = () => {
+      setMessages((m) => [...m, { screenname: "system", text: "", time: now(), sys: "— couldn't connect to live messages; try refreshing —" }]);
+    };
     channel.bind("im", onIM);
+    channel.bind("pusher:subscription_error", onSubErr);
+
+    // Keep the gateway's OSCAR session alive while this window is open.
+    const hb = setInterval(() => {
+      fetch("/api/im/heartbeat", { method: "POST" }).catch(() => {});
+    }, 4 * 60 * 1000);
+
     return () => {
+      clearInterval(hb);
       channel.unbind("im", onIM);
+      channel.unbind("pusher:subscription_error", onSubErr);
       soketiClient.unsubscribe(channelName);
     };
   }, [me]);
@@ -58,7 +70,9 @@ export default function MessengerPage() {
       });
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
-        setMessages((m) => [...m, { screenname: "system", text: j.error || "send failed", time: now(), sys: `— ${j.error || "send failed"} —` }]);
+        const needsLogin = res.status === 401 || res.status === 409;
+        const note = needsLogin ? "your session expired — please sign in again" : j.error || "send failed";
+        setMessages((m) => [...m, { screenname: "system", text: "", time: now(), sys: `— ${note} —` }]);
       }
     } catch {
       setMessages((m) => [...m, { screenname: "system", text: "network error", time: now(), sys: "— network error —" }]);
