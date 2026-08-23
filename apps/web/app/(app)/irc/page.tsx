@@ -26,6 +26,7 @@ export default function IrcPage() {
   const { data: session } = useSession();
   const me = session?.user?.screenname ?? "";
   const [nick, setNick] = useState("");
+  const [saslPassword, setSaslPassword] = useState("");
   const [connected, setConnected] = useState(false);
   const [myNick, setMyNick] = useState("");
   const myNickRef = useRef("");
@@ -70,7 +71,7 @@ export default function IrcPage() {
     if (!nick.trim() || busy) return;
     setBusy(true);
     try {
-      const res = await fetch("/api/irc", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "connect", network: NETWORK, host: HOST, port: 6697, tls: true, nick: nick.trim() }) });
+      const res = await fetch("/api/irc", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "connect", network: NETWORK, host: HOST, port: 6697, tls: true, nick: nick.trim(), saslPassword: saslPassword.trim() || undefined }) });
       const j = await res.json();
       if (!res.ok) {
         push("*", { screenname: "system", text: "", time: now(), sys: `— ${j.error || "connect failed"} —` });
@@ -115,6 +116,10 @@ export default function IrcPage() {
             <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
               <span style={{ fontFamily: retro.fontMsg, fontStyle: "italic", fontSize: 13, color: retro.inkSoft }}>Nickname</span>
               <input value={nick} onChange={(e) => setNick(e.target.value)} onKeyDown={(e) => e.key === "Enter" && connect()} style={{ ...inputStyle, height: 36, fontWeight: "bold", color: retro.blue }} />
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              <span style={{ fontFamily: retro.fontMsg, fontStyle: "italic", fontSize: 13, color: retro.inkSoft }}>NickServ password <span style={{ color: retro.inkMuted }}>(optional — for registered channels)</span></span>
+              <input type="password" value={saslPassword} onChange={(e) => setSaslPassword(e.target.value)} onKeyDown={(e) => e.key === "Enter" && connect()} style={{ ...inputStyle, height: 36 }} />
             </div>
             <button onClick={connect} disabled={busy || !nick.trim()} style={{ ...btnStyle, height: 34, color: retro.greenDeep, border: `2px solid ${retro.green}`, opacity: busy ? 0.6 : 1 }}>{busy ? "Connecting…" : "Connect"}</button>
           </div>

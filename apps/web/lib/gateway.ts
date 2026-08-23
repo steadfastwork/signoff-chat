@@ -56,7 +56,7 @@ export const gateway = {
   chatSend: (screenname: string, roomId: number, message: string) =>
     call("/chat/send", { screenname, roomId, message }),
   chatLeave: (screenname: string, roomId: number) => call("/chat/leave", { screenname, roomId }),
-  ircConnect: (screenname: string, opts: { network: string; host: string; port?: number; tls?: boolean; nick: string; channels?: string[] }) =>
+  ircConnect: (screenname: string, opts: { network: string; host: string; port?: number; tls?: boolean; nick: string; channels?: string[]; saslPassword?: string }) =>
     call<{ ok: true; nick: string }>("/irc/connect", { screenname, ...opts }),
   ircJoin: (screenname: string, network: string, channel: string) => call("/irc/join", { screenname, network, channel }),
   ircSend: (screenname: string, network: string, target: string, message: string) => call("/irc/send", { screenname, network, target, message }),

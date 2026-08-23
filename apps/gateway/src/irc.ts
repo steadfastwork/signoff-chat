@@ -74,6 +74,7 @@ export class IrcClient extends EventEmitter {
   private sock?: tls.TLSSocket | net.Socket;
   private buf = "";
   private registered = false;
+  private saslPassword?: string;
   private channels = new Map<string, Set<string>>(); // channel -> nicks
   private namesAccum = new Map<string, string[]>();
 
@@ -90,7 +91,8 @@ export class IrcClient extends EventEmitter {
     this.sock?.write(line + "\r\n");
   }
 
-  connect(realname = "SIGNOFF user"): Promise<void> {
+  connect(realname = "SIGNOFF user", saslPassword?: string): Promise<void> {
+    this.saslPassword = saslPassword || undefined;
     return new Promise((resolve, reject) => {
       let settled = false;
       const done = (err?: Error) => {
@@ -101,6 +103,8 @@ export class IrcClient extends EventEmitter {
       const to = setTimeout(() => done(new Error(`${this.network}: registration timeout`)), 20000);
 
       const onConnect = () => {
+        // SASL requires CAP negotiation before registration completes.
+        if (this.saslPassword) this.write("CAP LS 302");
         this.write(`NICK ${this.nick}`);
         this.write(`USER ${this.nick} 0 * :${realname}`);
       };
@@ -132,6 +136,36 @@ export class IrcClient extends EventEmitter {
     switch (command) {
       case "PING":
         this.write(`PONG :${params[0] ?? ""}`);
+        return;
+      // ── SASL PLAIN (only when a password was provided) ──────────────────
+      case "CAP": {
+        const sub = params[1];
+        if (sub === "LS" && (params[2] ?? "").split(" ").includes("sasl")) {
+          this.write("CAP REQ :sasl");
+        } else if (sub === "ACK") {
+          this.write("AUTHENTICATE PLAIN");
+        } else if (sub === "NAK") {
+          this.write("CAP END");
+        }
+        return;
+      }
+      case "AUTHENTICATE": {
+        if (params[0] === "+" && this.saslPassword) {
+          const cred = Buffer.from(`\0${this.nick}\0${this.saslPassword}`).toString("base64");
+          this.write(`AUTHENTICATE ${cred}`);
+        }
+        return;
+      }
+      case "903": // RPL_SASLSUCCESS
+        this.write("CAP END");
+        return;
+      case "902": // nick locked
+      case "904": // SASL failed
+      case "905": // message too long
+      case "906": // aborted
+      case "908": // mechanisms
+        this.emit("system", { network: this.network, text: `SASL auth failed: ${params.slice(1).join(" ")}` });
+        this.write("CAP END");
         return;
       case "001": // RPL_WELCOME
         this.registered = true;

@@ -209,7 +209,7 @@ const server = http.createServer(async (req, res) => {
         irc.on("error", (e) => console.warn(`[${sn}] irc ${network} error:`, e.message));
         session.irc.set(network, irc);
         try {
-          await irc.connect();
+          await irc.connect("SIGNOFF user", String(body.saslPassword || "") || undefined);
         } catch (e) {
           session.irc.delete(network);
           return send(502, { error: e instanceof Error ? e.message : "irc connect failed" });

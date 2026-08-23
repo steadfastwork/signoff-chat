@@ -22,6 +22,7 @@ export async function POST(req: NextRequest) {
             tls: body.tls !== false,
             nick: String(body.nick || ""),
             channels: Array.isArray(body.channels) ? body.channels.map(String) : [],
+            saslPassword: body.saslPassword ? String(body.saslPassword) : undefined,
           }),
         );
       case "join":
