@@ -1,103 +1,68 @@
 import { NextRequest, NextResponse } from "next/server";
-import { randomBytes } from "crypto";
+import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
-import { validateScreenname, validatePassword, hashPassword } from "@/lib/auth";
-import { hashEmail } from "@/lib/crypto/email";
-import { encryptEmail } from "@/lib/emailEncryption";
+import { validateScreenname, validatePassword } from "@/lib/auth";
+import { gateway, GatewayError } from "@/lib/gateway";
 import { getHashedIp } from "@/lib/crypto/ip";
 import { rateLimit, limiters } from "@/lib/ratelimit";
 import { verifyTurnstile } from "@/lib/turnstile";
-import { sendVerificationEmail } from "@/lib/verificationEmail";
 
+// SIGNOFF revival: registration creates an AIM/ICQ account on open-oscar-server
+// (the canonical identity store) via the gateway, then a Postgres mirror row.
+// No email — this is a retro IM account, screenname + password only.
 export async function POST(req: NextRequest) {
-  // Rate limit — hash IP immediately, never store the raw value
   const hashedIp = getHashedIp(req.headers);
   const rl = await rateLimit(limiters.auth, `auth:h:${hashedIp}`);
   if (rl) return rl;
 
   try {
     const body = await req.json();
-    const { screenname, email, password, mlkemPublicKey, turnstileToken } = body as {
+    const { screenname, password, turnstileToken } = body as {
       screenname?: string;
-      email?: string;
       password?: string;
-      mlkemPublicKey?: string;
       turnstileToken?: string;
     };
 
-    // Verify CAPTCHA before doing any DB work
     const captchaOk = await verifyTurnstile(turnstileToken ?? "");
     if (!captchaOk) {
       return NextResponse.json({ error: "CAPTCHA verification failed. Please try again." }, { status: 400 });
     }
 
-    // --- Validate screenname ---
     const screennameError = validateScreenname(screenname ?? "");
-    if (screennameError) {
-      return NextResponse.json({ error: screennameError }, { status: 400 });
-    }
+    if (screennameError) return NextResponse.json({ error: screennameError }, { status: 400 });
 
-    // --- Validate password ---
     const passwordError = validatePassword(password ?? "");
-    if (passwordError) {
-      return NextResponse.json({ error: passwordError }, { status: 400 });
-    }
+    if (passwordError) return NextResponse.json({ error: passwordError }, { status: 400 });
 
-    // --- Validate email (basic format check before hashing) ---
-    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      return NextResponse.json({ error: "valid email is required." }, { status: 400 });
-    }
-
-    // Hash email immediately — plaintext never written to DB
-    const emailHash = hashEmail(email);
-
-    // Encrypt email for digest delivery — stored separately from the one-way hash
-    const encryptedEmail = encryptEmail(email.trim().toLowerCase());
-
-    // --- Check uniqueness (case-insensitive screenname, hashed email) ---
+    // Fast pre-check against the mirror (case-insensitive).
     const existing = await prisma.user.findFirst({
-      where: {
-        OR: [
-          { screenname: { equals: screenname, mode: "insensitive" } },
-          { emailHash },
-        ],
-      },
+      where: { screenname: { equals: screenname, mode: "insensitive" } },
       select: { screenname: true },
     });
+    if (existing) return NextResponse.json({ error: "screenname taken. try another." }, { status: 409 });
 
-    if (existing) {
-      const isScrn = existing.screenname.toLowerCase() === screenname!.toLowerCase();
-      return NextResponse.json(
-        { error: isScrn ? "screenname taken. try another." : "email already registered." },
-        { status: 409 }
-      );
+    // Create on OSCAR first (authoritative). 409 there = taken on the server.
+    try {
+      await gateway.register(screenname!, password!);
+    } catch (e) {
+      if (e instanceof GatewayError && e.status === 409) {
+        return NextResponse.json({ error: "screenname taken. try another." }, { status: 409 });
+      }
+      throw e;
     }
 
-    const passwordHash = await hashPassword(password!);
-
-    const verificationToken = randomBytes(32).toString("hex");
-    const verificationExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 h
-
+    // Mirror row for the app's relational data. passwordHash is stored for
+    // continuity only; OSCAR remains authoritative.
     const user = await prisma.user.create({
       data: {
         screenname: screenname!,
-        emailHash,
-        passwordHash,
-        emailEncrypted: encryptedEmail.encrypted,
-        emailNonce: encryptedEmail.nonce,
-        emailVerificationToken: verificationToken,
-        emailVerificationTokenExpiresAt: verificationExpiry,
-        ...(mlkemPublicKey ? { mlkemPublicKey } : {}),
+        passwordHash: await bcrypt.hash(password!, 12),
+        emailHash: null,
+        emailVerified: new Date(),
+        onboardingComplete: true,
       },
       select: { id: true, screenname: true },
     });
-
-    // Send verification email — fire-and-forget; don't fail registration if it errors
-    sendVerificationEmail({
-      to: email!.trim().toLowerCase(),
-      screenname: user.screenname,
-      verificationToken,
-    }).catch((err) => console.error("[register] Failed to send verification email:", err));
 
     return NextResponse.json(user, { status: 201 });
   } catch (err) {

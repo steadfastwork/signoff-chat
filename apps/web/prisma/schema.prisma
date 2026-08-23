@@ -113,7 +113,7 @@ model User {
   screenname   String     @unique
   // Email is never stored in plaintext.
   // emailHash = sha256(normalize(email) + EMAIL_PEPPER) — see lib/crypto/email.ts
-  emailHash    String     @unique
+  emailHash    String?    @unique
   passwordHash String
   bio          String?    @db.VarChar(160)
   awayMessage      String?    @db.VarChar(140)

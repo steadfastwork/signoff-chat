@@ -1,6 +1,7 @@
 import { getServerSession, type NextAuthOptions } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import { prisma } from "@/lib/prisma";
+import { gateway } from "@/lib/gateway";
 import bcrypt from "bcryptjs";
 import { hashEmail } from "@/lib/crypto/email";
 import { verifyTurnstile } from "@/lib/turnstile";
@@ -60,31 +61,45 @@ export const authOptions: NextAuthOptions = {
         const captchaOk = await verifyTurnstile(credentials.turnstileToken ?? "");
         if (!captchaOk) throw new Error("CAPTCHA_FAILED");
 
-        // Case-insensitive lookup — store original casing, match any casing
-        const user = await prisma.user.findFirst({
-          where: {
-            screenname: { equals: credentials.screenname, mode: "insensitive" },
-          },
-          select: {
-            id: true,
-            screenname: true,
-            passwordHash: true,
-            isGoldMember: true,
-            adminRole: true,
-            isSuspended: true,
-            suspendedUntil: true,
-            onboardingComplete: true,
-            onboardingStep: true,
-            emailVerified: true,
-          },
+        // OSCAR (open-oscar-server) is the canonical identity store. Validate the
+        // password by opening a gateway session; on success ensure a Postgres
+        // mirror row exists for the app's relational data (channels, buddies, …).
+        try {
+          await gateway.login(credentials.screenname, credentials.password);
+        } catch {
+          throw new Error("invalid credentials. try again.");
+        }
+
+        const selectMirror = {
+          id: true,
+          screenname: true,
+          isGoldMember: true,
+          adminRole: true,
+          isSuspended: true,
+          suspendedUntil: true,
+          onboardingComplete: true,
+          onboardingStep: true,
+        } as const;
+
+        let user = await prisma.user.findFirst({
+          where: { screenname: { equals: credentials.screenname, mode: "insensitive" } },
+          select: selectMirror,
         });
 
-        if (!user) throw new Error("invalid credentials. try again.");
-
-        const valid = await bcrypt.compare(credentials.password, user.passwordHash);
-        if (!valid) throw new Error("invalid credentials. try again.");
-
-        if (!user.emailVerified) throw new Error("EMAIL_NOT_VERIFIED");
+        if (!user) {
+          // First login for this OSCAR account → create the mirror row. passwordHash
+          // is stored for continuity only; OSCAR remains authoritative. No email.
+          user = await prisma.user.create({
+            data: {
+              screenname: credentials.screenname,
+              passwordHash: await bcrypt.hash(credentials.password, 12),
+              emailHash: null,
+              emailVerified: new Date(),
+              onboardingComplete: true,
+            },
+            select: selectMirror,
+          });
+        }
 
         // Auto-lift expired temporary suspensions at login time
         let isSuspended = user.isSuspended;
