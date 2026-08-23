@@ -16,6 +16,8 @@ const PORT = Number(process.env.PORT || 8787);
 const GATEWAY_SECRET = process.env.GATEWAY_SECRET || "";
 const OSCAR_HOST = process.env.OSCAR_HOST || "signoff-oscar.internal";
 const OSCAR_TOC_PORT = Number(process.env.OSCAR_TOC_PORT || 9898);
+// Management REST API (private 6PN only) — used to provision accounts.
+const OSCAR_API_URL = process.env.OSCAR_API_URL || "http://signoff-oscar.internal:8080";
 const SESSION_TTL_MS = 15 * 60 * 1000;
 
 if (!GATEWAY_SECRET) {
@@ -108,6 +110,19 @@ const server = http.createServer(async (req, res) => {
     if (!sn) throw new HttpError(400, "screenname required");
 
     switch (url) {
+      case "/register": {
+        // Provision a new AIM/ICQ account on open-oscar-server (canonical store).
+        const pw = String(body.password || "");
+        if (pw.length < 3) throw new HttpError(400, "password too short");
+        const r = await fetch(`${OSCAR_API_URL}/user`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ screen_name: sn, password: pw }),
+        });
+        if (r.ok) return send(200, { ok: true });
+        if (r.status === 409) return send(409, { error: "screenname already taken" });
+        return send(502, { error: `oscar mgmt api returned ${r.status}` });
+      }
       case "/login": {
         try {
           await login(sn, String(body.password || ""));

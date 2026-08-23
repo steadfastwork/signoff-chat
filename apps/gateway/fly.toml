@@ -14,6 +14,7 @@ primary_region = "iad"
 [env]
   OSCAR_HOST = "signoff-oscar.internal"
   OSCAR_TOC_PORT = "9898"
+  OSCAR_API_URL = "http://signoff-oscar.internal:8080"
   PORT = "8787"
 
 # Public HTTPS endpoint (Vercel calls it over the internet, guarded by the shared
