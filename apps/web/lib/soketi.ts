@@ -34,10 +34,16 @@ export const soketiServer = new Pusher({
 // Client (browser / React Native)
 // ---------------------------------------------------------------------------
 
+// The Pusher app KEY is a public client credential (it ships in browser JS by
+// design), so we fall back to the literal if the NEXT_PUBLIC_* env isn't inlined
+// at build. The secret stays server-side only.
+const PUSHER_KEY = process.env.NEXT_PUBLIC_PUSHER_KEY || "493e92a81b70d9a2aea5";
+const PUSHER_CLUSTER = process.env.NEXT_PUBLIC_PUSHER_CLUSTER || "us2";
+
 export const soketiClient =
   typeof window !== "undefined"
-    ? new PusherClient(process.env.NEXT_PUBLIC_PUSHER_KEY!, {
-        cluster:      process.env.NEXT_PUBLIC_PUSHER_CLUSTER || "us2",
+    ? new PusherClient(PUSHER_KEY, {
+        cluster:      PUSHER_CLUSTER,
         forceTLS:     true,
         authEndpoint: "/api/pusher/auth",
       })
