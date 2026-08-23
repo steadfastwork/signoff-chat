@@ -151,6 +151,8 @@ export function RetroWindow({ title, badge = false, onClose, onBack, children, w
     <div
       style={{
         width,
+        maxWidth: "100%", // never overflow narrow / mobile viewports
+        boxSizing: "border-box",
         background: retro.paper,
         border: `1px solid ${retro.border}`,
         borderRadius: 4,
