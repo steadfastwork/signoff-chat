@@ -60,6 +60,8 @@ const store = new Store<StoreSchema>({
 // ---------------------------------------------------------------------------
 
 let mainWindow:  BrowserWindow | null = null;
+// Deployed web client the shell loads. Override for local dev.
+const APP_URL = process.env.SIGNOFF_APP_URL || "https://www.signoff.chat";
 let nextServer:  UtilityProcess | ChildProcess | null = null;
 let allowQuit  = false;
 
@@ -269,7 +271,9 @@ function createWindow(): BrowserWindow {
   });
 
   // ── Load the app ──────────────────────────────────────────────────────────
-  win.loadURL("http://127.0.0.1:3000");
+  // Thin shell: load the deployed web client directly (no bundled Next server).
+  // Override with SIGNOFF_APP_URL for local dev (e.g. http://localhost:3000).
+  win.loadURL(APP_URL);
 
   // ── Show after first paint ────────────────────────────────────────────────
   win.once("ready-to-show", () => win.show());
@@ -319,13 +323,15 @@ function createWindow(): BrowserWindow {
     return { action: "deny" };
   });
 
-  // Prevent navigation away from localhost in the main window
+  // Keep in-window navigation to our own app; open everything else externally.
   win.webContents.on("will-navigate", (event, url) => {
     const parsed = new URL(url);
-    const isLocal =
+    const isOwn =
       parsed.hostname === "localhost" ||
-      parsed.hostname === "127.0.0.1";
-    if (!isLocal) {
+      parsed.hostname === "127.0.0.1" ||
+      parsed.hostname === "signoff.chat" ||
+      parsed.hostname.endsWith(".signoff.chat");
+    if (!isOwn) {
       event.preventDefault();
       shell.openExternal(url);
     }
@@ -352,17 +358,8 @@ function quitApp(): void {
 // ---------------------------------------------------------------------------
 
 app.whenReady().then(async () => {
-  // 1. Spawn Next.js
-  nextServer = spawnNextJs();
-
-  // 2. Wait for it to be ready
-  try {
-    await waitForServer();
-  } catch (err) {
-    console.error("[main] Next.js failed to start:", err);
-    app.quit();
-    return;
-  }
+  // Thin shell: no bundled Next.js server — we load the deployed web client.
+  // (SIGNOFF_APP_URL can point at a local dev server instead.)
 
   // 3. Init local DB
   initDb();
