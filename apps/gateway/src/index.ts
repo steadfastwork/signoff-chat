@@ -165,7 +165,15 @@ const server = http.createServer(async (req, res) => {
       case "/chat/join": {
         const room = String(body.room || "").trim();
         if (!room) throw new HttpError(400, "room required");
-        const res = await requireSession(sn).client.joinChat(room);
+        const session = requireSession(sn);
+        // open-oscar-server's TOC create-room path is broken; public rooms must be
+        // created via the management API first, then joined over TOC. Idempotent.
+        await fetch(`${OSCAR_API_URL}/chat/room/public`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ name: room }),
+        }).catch(() => {});
+        const res = await session.client.joinChat(room);
         return send(200, res);
       }
       case "/chat/send": {
