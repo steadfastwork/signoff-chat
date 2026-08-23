@@ -121,7 +121,7 @@ function LoginForm() {
       } catch {
         // Key unlock failed (wrong password stored, or corrupted) — not fatal
       }
-      router.push("/feed");
+      router.push("/messenger");
       router.refresh();
     }
   }

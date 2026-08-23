@@ -206,10 +206,10 @@ export async function middleware(req: NextRequest) {
       return addSecurityHeaders(NextResponse.redirect(new URL(step, req.url)));
     }
   } else if (pathname === "/") {
-    // Authenticated users visiting the landing page → send them to the feed
+    // Authenticated users visiting the landing page → send them to the messenger
     const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
     if (token) {
-      return addSecurityHeaders(NextResponse.redirect(new URL("/feed", req.url)));
+      return addSecurityHeaders(NextResponse.redirect(new URL("/messenger", req.url)));
     }
   }
 
