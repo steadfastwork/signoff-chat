@@ -1,0 +1,7 @@
+# Never upload local dotenv files to Vercel — production env comes from the
+# Vercel project settings. Shipping a stale .env inlines dead values at build
+# (e.g. a deleted Upstash host) and breaks runtime. Keep *.example files.
+**/.env
+**/.env.local
+**/.env.*.local
+**/.env.production
