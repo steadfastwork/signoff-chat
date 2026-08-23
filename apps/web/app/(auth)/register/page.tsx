@@ -2,14 +2,12 @@
 
 import { useState } from "react";
 import { signIn } from "next-auth/react";
-import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { RetroWindow, btnStyle, inputStyle, retro, sounds } from "@/components/retro/retro-components";
 
 // Retro "Get a Screen Name" window. Creates an AIM/ICQ account on OSCAR via
 // /api/auth/register, then signs in. Screenname + password only — no email.
 export default function RegisterPage() {
-  const router = useRouter();
   const [screenname, setScreenname] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -45,17 +43,9 @@ export default function RegisterPage() {
         setLoading(false);
         return;
       }
-      // Auto sign-in.
-      const result = await signIn("credentials", { screenname: screenname.trim(), password, redirect: false });
-      setLoading(false);
-      if (result?.error) {
-        setError("account created — please sign in.");
-        router.push("/login");
-        return;
-      }
+      // Auto sign-in — NextAuth handles the redirect server-side (reliable).
       sounds.doorOpen();
-      router.push("/messenger");
-      router.refresh();
+      await signIn("credentials", { screenname: screenname.trim(), password, redirect: true, callbackUrl: "/messenger" });
     } catch {
       setLoading(false);
       setError("something went wrong. try again.");

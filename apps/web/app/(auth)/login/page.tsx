@@ -2,7 +2,7 @@
 
 import { useState, useRef, Suspense } from "react";
 import { signIn } from "next-auth/react";
-import { useRouter } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Turnstile } from "@marsidev/react-turnstile";
 import type { TurnstileInstance } from "@marsidev/react-turnstile";
@@ -13,12 +13,13 @@ const TURNSTILE_SITE_KEY = process.env.NEXT_PUBLIC_CLOUDFLARE_TURNSTILE_SITE_KEY
 // Retro "Sign On" window (handoff/PROMPTS.md #3). Keeps the NextAuth credentials
 // flow — which now authenticates against OSCAR via the gateway.
 function LoginForm() {
-  const router = useRouter();
+  const params = useSearchParams();
   const [screenname, setScreenname] = useState("");
   const [password, setPassword] = useState("");
   const [savePassword, setSavePassword] = useState(false);
   const [autoLogin, setAutoLogin] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  // NextAuth redirects back to /login?error=... on a failed credential sign-in.
+  const [error, setError] = useState<string | null>(params.get("error") ? "wrong screenname or password. try again." : null);
   const [loading, setLoading] = useState(false);
   const [turnstileToken, setTurnstileToken] = useState<string>("");
   const turnstileRef = useRef<TurnstileInstance>(null);
@@ -32,22 +33,17 @@ function LoginForm() {
     }
     setLoading(true);
     setError(null);
-    const result = await signIn("credentials", {
+    sounds.doorOpen();
+    // Let NextAuth perform the redirect server-side — more reliable than a
+    // client-side router.push after redirect:false (which was leaving users on
+    // /login even after a successful sign-in).
+    await signIn("credentials", {
       screenname: screenname.trim(),
       password,
       turnstileToken,
-      redirect: false,
+      redirect: true,
+      callbackUrl: "/messenger",
     });
-    setLoading(false);
-    turnstileRef.current?.reset();
-    setTurnstileToken("");
-    if (result?.error) {
-      setError("wrong screenname or password. try again.");
-    } else {
-      sounds.doorOpen();
-      router.push("/messenger");
-      router.refresh();
-    }
   }
 
   const label: React.CSSProperties = { fontFamily: retro.fontMsg, fontStyle: "italic", fontSize: 13, color: retro.inkSoft };
