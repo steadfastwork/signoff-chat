@@ -16,6 +16,16 @@ const FLAP_SIGNON = 0x01;
 const FLAP_DATA = 0x02;
 const FLAP_KEEPALIVE = 0x05;
 
+// AIM away-message substitutions: %n = buddy name, %d = date, %t = time.
+function subSpecials(text: string, buddyName: string): string {
+  const now = new Date();
+  const t = now.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  return text
+    .split("%n").join(buddyName)
+    .split("%t").join(t)
+    .split("%d").join(`${now.getMonth() + 1}/${now.getDate()}`);
+}
+
 export function roast(pw: string): string {
   const pb = Buffer.from(pw, "ascii");
   let hex = "";
@@ -78,6 +88,9 @@ export class TocClient extends EventEmitter {
   // Joined chat rooms (chatId -> {name, users}) + pending join resolvers by name.
   private chatRooms = new Map<number, { name: string; users: string[] }>();
   private pendingJoins = new Map<string, (roomId: number) => void>();
+  // Away state: message + who we've already auto-replied to this away session.
+  private awayMessage: string | null = null;
+  private awayRepliedTo = new Set<string>();
 
   constructor(screenname: string, password: string, host: string, port: number) {
     super();
@@ -185,6 +198,11 @@ export class TocClient extends EventEmitter {
         const auto = (p[2] || "F").toUpperCase() === "T";
         const idx = kind === "IM_IN_ENC2" ? 9 : kind === "IM_IN2" ? 4 : 3;
         this.emit("im", { from, message: p.slice(idx).join(":"), auto });
+        // Away auto-response: reply once per buddy while away (skip auto messages).
+        if (this.awayMessage && !auto && !this.awayRepliedTo.has(from.toLowerCase())) {
+          this.awayRepliedTo.add(from.toLowerCase());
+          this.sendIM(from, subSpecials(this.awayMessage, from), true);
+        }
         break;
       }
       case "UPDATE_BUDDY":
@@ -284,8 +302,14 @@ export class TocClient extends EventEmitter {
   }
 
   setAway(message: string): void {
-    // Empty message clears the away state.
+    // Empty message clears the away state. Reset the auto-reply set either way.
+    this.awayMessage = message ? message : null;
+    this.awayRepliedTo.clear();
     this.sendData(message ? `toc_set_away "${message.replace(/"/g, '\\"')}"` : "toc_set_away");
+  }
+
+  isAway(): boolean {
+    return this.awayMessage != null;
   }
 
   isConnected(): boolean {

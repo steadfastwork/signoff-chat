@@ -14,6 +14,7 @@ import {
   BuddyRow,
   MessageLog,
   SendButton,
+  AwayBanner,
   btnStyle,
   inputStyle,
   retro,
@@ -32,8 +33,22 @@ export default function MessengerPage() {
   const [messages, setMessages] = useState<RetroMessage[]>([]);
   const [buddies, setBuddies] = useState<RetroBuddy[]>([]);
   const [newBuddy, setNewBuddy] = useState("");
+  const [away, setAway] = useState(false);
+  const [awayMsg, setAwayMsg] = useState("");
+  const [awayComposer, setAwayComposer] = useState(false);
   const meRef = useRef(me);
   meRef.current = me;
+
+  async function setAwayStatus(message: string) {
+    try {
+      const res = await fetch("/api/away", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ message }) });
+      const j = await res.json().catch(() => ({}));
+      setAway(!!j.away);
+      setAwayComposer(false);
+    } catch {
+      /* ignore */
+    }
+  }
 
   const now = () => new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
   const toBuddy = (p: Presence): RetroBuddy => ({ screenname: p.name, status: p.online ? "ONLINE" : "OFFLINE" });
@@ -122,6 +137,25 @@ export default function MessengerPage() {
     <div className="retro-desktop" style={{ minHeight: "calc(100dvh - 52px)", display: "flex", justifyContent: "center", alignItems: "flex-start", gap: 16, padding: 24, flexWrap: "wrap" }}>
       {/* Buddy List */}
       <RetroWindow title={`${me || "…"}'s Buddy List`} badge width={230}>
+        {/* Away control */}
+        <div style={{ padding: "6px 8px", borderBottom: `1px solid ${retro.hairline}` }}>
+          {away ? (
+            <AwayBanner message={awayMsg || "(away)"} onBack={() => setAwayStatus("")} />
+          ) : awayComposer ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+              <textarea value={awayMsg} onChange={(e) => setAwayMsg(e.target.value)} placeholder="I am away from my computer right now." rows={2}
+                style={{ ...inputStyle, padding: 6, fontFamily: retro.fontMsg, resize: "none", height: "auto" }} />
+              <div style={{ fontSize: 10, color: retro.inkMuted, fontFamily: retro.fontMono }}>%n buddy · %d date · %t time</div>
+              <div style={{ display: "flex", gap: 5 }}>
+                <button onClick={() => setAwayStatus(awayMsg || "I am away right now.")} style={{ ...btnStyle, height: 28, padding: "0 10px", color: retro.amberDeep }}>Set Away</button>
+                <button onClick={() => setAwayComposer(false)} style={{ ...btnStyle, height: 28, padding: "0 10px" }}>Cancel</button>
+              </div>
+            </div>
+          ) : (
+            <button onClick={() => setAwayComposer(true)} style={{ ...btnStyle, height: 26, padding: "0 10px", fontSize: 11, width: "100%" }}>I&apos;m Away…</button>
+          )}
+        </div>
+
         <div style={{ padding: "6px 10px", borderBottom: `1px solid ${retro.hairline}`, fontSize: 11, color: retro.inkSoft, fontFamily: retro.fontUI }}>
           Buddies ({online}/{buddies.length})
         </div>
