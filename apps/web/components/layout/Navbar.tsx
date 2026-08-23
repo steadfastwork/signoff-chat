@@ -34,6 +34,13 @@ export function Navbar(_props?: { boardsEnabled?: boolean }) {
         <span style={{ fontFamily: retro.fontBrand, fontSize: 22, color: retro.blue, letterSpacing: 1 }}>SIGNOFF.CHAT</span>
       </Link>
 
+      {authed && (
+        <div style={{ display: "flex", gap: 4, marginLeft: 8 }}>
+          <Link href="/messenger" style={{ fontSize: 13, color: retro.inkSoft, textDecoration: "none", padding: "4px 8px" }}>Messenger</Link>
+          <Link href="/rooms" style={{ fontSize: 13, color: retro.inkSoft, textDecoration: "none", padding: "4px 8px" }}>Rooms</Link>
+        </div>
+      )}
+
       <span style={{ flex: 1 }} />
 
       {authed && (

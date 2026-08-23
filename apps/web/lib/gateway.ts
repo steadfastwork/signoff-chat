@@ -50,6 +50,12 @@ export const gateway = {
   setAway: (screenname: string, message: string) => call("/away", { screenname, message }),
   roster: (screenname: string) =>
     call<{ buddies: BuddyPresence[] }>("/roster", { screenname }),
+  chatRooms: (screenname: string) => call<{ rooms: unknown }>("/chat/rooms", { screenname }),
+  chatJoin: (screenname: string, room: string) =>
+    call<{ roomId: number; room: string }>("/chat/join", { screenname, room }),
+  chatSend: (screenname: string, roomId: number, message: string) =>
+    call("/chat/send", { screenname, roomId, message }),
+  chatLeave: (screenname: string, roomId: number) => call("/chat/leave", { screenname, roomId }),
 };
 
 export interface BuddyPresence {

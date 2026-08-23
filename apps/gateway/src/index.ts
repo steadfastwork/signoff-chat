@@ -49,6 +49,8 @@ function wire(client: TocClient, screenname: string) {
   const ch = channelFor(screenname);
   client.on("im", (im) => void pusher.trigger(ch, "im", im).catch(() => {}));
   client.on("buddy", (b) => void pusher.trigger(ch, "buddy", b).catch(() => {}));
+  client.on("chat", (m) => void pusher.trigger(ch, "chat", m).catch(() => {}));
+  client.on("chatroster", (r) => void pusher.trigger(ch, "chat-roster", r).catch(() => {}));
   client.on("close", () => {
     sessions.delete(norm(screenname));
     void pusher.trigger(ch, "session-closed", {}).catch(() => {});
@@ -152,6 +154,27 @@ const server = http.createServer(async (req, res) => {
       }
       case "/roster": {
         return send(200, { buddies: requireSession(sn).client.getRoster() });
+      }
+      case "/chat/rooms": {
+        // List public chat rooms via the OSCAR management API (exchange 5).
+        requireSession(sn); // must be signed in
+        const r = await fetch(`${OSCAR_API_URL}/chat/room/public`);
+        if (!r.ok) return send(502, { error: `oscar mgmt api ${r.status}` });
+        return send(200, { rooms: await r.json() });
+      }
+      case "/chat/join": {
+        const room = String(body.room || "").trim();
+        if (!room) throw new HttpError(400, "room required");
+        const res = await requireSession(sn).client.joinChat(room);
+        return send(200, res);
+      }
+      case "/chat/send": {
+        requireSession(sn).client.sendChat(Number(body.roomId), String(body.message || ""));
+        return send(200, { ok: true });
+      }
+      case "/chat/leave": {
+        requireSession(sn).client.leaveChat(Number(body.roomId));
+        return send(200, { ok: true });
       }
       case "/away": {
         requireSession(sn).client.setAway(String(body.message || ""));

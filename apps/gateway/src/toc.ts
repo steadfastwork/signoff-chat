@@ -36,10 +36,22 @@ export interface BuddyUpdate {
   userClass: string;
 }
 
+export interface ChatMessage {
+  roomId: number;
+  from: string;
+  message: string;
+}
+export interface ChatRoster {
+  roomId: number;
+  users: string[];
+}
+
 export interface TocClientEvents {
   online: () => void;
   im: (im: IncomingIM) => void;
   buddy: (b: BuddyUpdate) => void;
+  chat: (m: ChatMessage) => void;
+  chatroster: (r: ChatRoster) => void;
   error: (err: Error) => void;
   close: () => void;
 }
@@ -63,6 +75,9 @@ export class TocClient extends EventEmitter {
   private connected = false;
   // Server-side roster/presence, accumulated from UPDATE_BUDDY events.
   private roster = new Map<string, BuddyUpdate>();
+  // Joined chat rooms (chatId -> {name, users}) + pending join resolvers by name.
+  private chatRooms = new Map<number, { name: string; users: string[] }>();
+  private pendingJoins = new Map<string, (roomId: number) => void>();
 
   constructor(screenname: string, password: string, host: string, port: number) {
     super();
@@ -187,6 +202,51 @@ export class TocClient extends EventEmitter {
         this.emit("buddy", update);
         break;
       }
+      case "CHAT_JOIN": {
+        // CHAT_JOIN:<id>:<room name>
+        const p = cmd.split(":");
+        const roomId = parseInt(p[1], 10);
+        const name = p.slice(2).join(":");
+        if (!Number.isNaN(roomId)) {
+          this.chatRooms.set(roomId, { name, users: [] });
+          const resolve = this.pendingJoins.get(name.toLowerCase());
+          if (resolve) {
+            this.pendingJoins.delete(name.toLowerCase());
+            resolve(roomId);
+          }
+        }
+        break;
+      }
+      case "CHAT_IN":
+      case "CHAT_IN_ENC": {
+        // CHAT_IN:<id>:<user>:<whisper>:<msg>
+        // CHAT_IN_ENC:<id>:<user>:<whisper>:<A>:en:<msg>
+        const p = cmd.split(":");
+        const roomId = parseInt(p[1], 10);
+        const from = p[2];
+        const msg = kind === "CHAT_IN_ENC" ? p.slice(6).join(":") : p.slice(4).join(":");
+        if (!Number.isNaN(roomId)) this.emit("chat", { roomId, from, message: msg });
+        break;
+      }
+      case "CHAT_UPDATE_BUDDY": {
+        // CHAT_UPDATE_BUDDY:<id>:<inside T/F>:<user1>:<user2>...
+        const p = cmd.split(":");
+        const roomId = parseInt(p[1], 10);
+        const inside = (p[2] || "T").toUpperCase() === "T";
+        const users = p.slice(3).filter(Boolean);
+        const room = this.chatRooms.get(roomId);
+        if (room) {
+          if (inside) room.users = Array.from(new Set([...room.users, ...users]));
+          else room.users = room.users.filter((u) => !users.includes(u));
+          this.emit("chatroster", { roomId, users: room.users });
+        }
+        break;
+      }
+      case "CHAT_LEFT": {
+        const roomId = parseInt(cmd.split(":")[1], 10);
+        if (!Number.isNaN(roomId)) this.chatRooms.delete(roomId);
+        break;
+      }
       case "CONFIG":
       case "CONFIG2": {
         // Saved buddy list sent at signon. Format: lines "g:<group>" / "b:<name>[:alias…]".
@@ -234,6 +294,36 @@ export class TocClient extends EventEmitter {
 
   getRoster(): BuddyUpdate[] {
     return Array.from(this.roster.values());
+  }
+
+  /** Join a public chat room (exchange 5). Resolves with the assigned room id. */
+  joinChat(roomName: string, exchange = 5): Promise<{ roomId: number; room: string }> {
+    return new Promise((resolve, reject) => {
+      const key = roomName.toLowerCase();
+      const to = setTimeout(() => {
+        this.pendingJoins.delete(key);
+        reject(new Error("chat join timeout"));
+      }, 12000);
+      this.pendingJoins.set(key, (roomId) => {
+        clearTimeout(to);
+        resolve({ roomId, room: roomName });
+      });
+      // Room name is a single CSV field → quote it.
+      this.sendData(`toc_chat_join ${exchange} "${roomName.replace(/"/g, '\\"')}"`);
+    });
+  }
+
+  sendChat(roomId: number, message: string): void {
+    this.sendData(`toc_chat_send ${roomId} "${message.replace(/"/g, '\\"')}"`);
+  }
+
+  leaveChat(roomId: number): void {
+    this.sendData(`toc_chat_leave ${roomId}`);
+    this.chatRooms.delete(roomId);
+  }
+
+  getChatRoom(roomId: number): { name: string; users: string[] } | undefined {
+    return this.chatRooms.get(roomId);
   }
 
   close(): void {
