@@ -61,6 +61,8 @@ export class TocClient extends EventEmitter {
   private sock?: net.Socket;
   private keepAliveTimer?: NodeJS.Timeout;
   private connected = false;
+  // Server-side roster/presence, accumulated from UPDATE_BUDDY events.
+  private roster = new Map<string, BuddyUpdate>();
 
   constructor(screenname: string, password: string, host: string, port: number) {
     super();
@@ -174,13 +176,15 @@ export class TocClient extends EventEmitter {
       case "UPDATE_BUDDY2": {
         // UPDATE_BUDDY:<name>:<online T/F>:<evil>:<signon>:<idle>:<uc>
         const p = cmd.split(":");
-        this.emit("buddy", {
+        const update: BuddyUpdate = {
           name: p[1],
           online: (p[2] || "F").toUpperCase() === "T",
           warnLevel: parseInt(p[3] || "0", 10) || 0,
           idleMinutes: parseInt(p[5] || "0", 10) || 0,
           userClass: (p[6] || "").trim(),
-        });
+        };
+        this.roster.set(update.name.toLowerCase(), update);
+        this.emit("buddy", update);
         break;
       }
       default:
@@ -205,6 +209,10 @@ export class TocClient extends EventEmitter {
 
   isConnected(): boolean {
     return this.connected;
+  }
+
+  getRoster(): BuddyUpdate[] {
+    return Array.from(this.roster.values());
   }
 
   close(): void {

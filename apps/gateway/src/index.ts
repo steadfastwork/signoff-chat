@@ -150,6 +150,9 @@ const server = http.createServer(async (req, res) => {
         requireSession(sn).client.addBuddies(names);
         return send(200, { ok: true });
       }
+      case "/roster": {
+        return send(200, { buddies: requireSession(sn).client.getRoster() });
+      }
       case "/away": {
         requireSession(sn).client.setAway(String(body.message || ""));
         return send(200, { ok: true });

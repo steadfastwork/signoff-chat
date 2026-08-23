@@ -48,4 +48,14 @@ export const gateway = {
     call("/im", { screenname, dest, message, auto }),
   addBuddies: (screenname: string, names: string[]) => call("/buddies/add", { screenname, names }),
   setAway: (screenname: string, message: string) => call("/away", { screenname, message }),
+  roster: (screenname: string) =>
+    call<{ buddies: BuddyPresence[] }>("/roster", { screenname }),
 };
+
+export interface BuddyPresence {
+  name: string;
+  online: boolean;
+  warnLevel: number;
+  idleMinutes: number;
+  userClass: string;
+}
