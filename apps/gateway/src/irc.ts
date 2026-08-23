@@ -176,12 +176,30 @@ export class IrcClient extends EventEmitter {
       case "JOIN": {
         const channel = (params[0] ?? "").replace(/^:/, "");
         const who = nickOf(prefix);
-        if (who && who !== this.nick) {
+        if (who === this.nick) {
+          // Our own join confirmed — register the channel immediately.
+          if (!this.channels.has(channel)) this.channels.set(channel, new Set([this.nick]));
+          this.emit("system", { network: this.network, text: `you joined ${channel}` });
+        } else if (who) {
           const set = this.channels.get(channel) ?? new Set();
           set.add(who);
           this.channels.set(channel, set);
           this.emit("names", { network: this.network, channel, users: Array.from(set) });
         }
+        return;
+      }
+      // Common join/registration errors → surface them so the user knows why.
+      case "471": // full
+      case "473": // invite only
+      case "474": // banned
+      case "475": // bad key
+      case "477": // registration required (nick/account)
+      case "479": // illegal channel name
+      case "403": // no such channel
+      case "465": // banned from server
+      case "464": {
+        // password mismatch
+        this.emit("system", { network: this.network, text: params.slice(1).join(" ") || command });
         return;
       }
       case "PART":
