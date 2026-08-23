@@ -11,6 +11,7 @@
 import http from "node:http";
 import Pusher from "pusher";
 import { TocClient } from "./toc.js";
+import { IrcClient } from "./irc.js";
 
 const PORT = Number(process.env.PORT || 8787);
 const GATEWAY_SECRET = process.env.GATEWAY_SECRET || "";
@@ -42,8 +43,14 @@ interface Session {
   client: TocClient;
   screenname: string;
   lastSeen: number;
+  irc: Map<string, IrcClient>; // network -> connection
 }
 const sessions = new Map<string, Session>();
+
+function closeIrc(session: Session) {
+  for (const c of session.irc.values()) c.close();
+  session.irc.clear();
+}
 
 function wire(client: TocClient, screenname: string) {
   const ch = channelFor(screenname);
@@ -65,7 +72,7 @@ async function login(screenname: string, password: string): Promise<void> {
   const client = new TocClient(screenname, password, OSCAR_HOST, OSCAR_TOC_PORT);
   wire(client, screenname);
   await client.connect(); // rejects on bad credentials / timeout
-  sessions.set(key, { client, screenname, lastSeen: Date.now() });
+  sessions.set(key, { client, screenname, lastSeen: Date.now(), irc: new Map() });
 }
 
 function requireSession(screenname: string): Session {
@@ -78,7 +85,7 @@ function requireSession(screenname: string): Session {
 // Idle sweep: close sessions the web app stopped heart-beating.
 setInterval(() => {
   const now = Date.now();
-  for (const [k, s] of sessions) if (now - s.lastSeen > SESSION_TTL_MS) { s.client.close(); sessions.delete(k); }
+  for (const [k, s] of sessions) if (now - s.lastSeen > SESSION_TTL_MS) { closeIrc(s); s.client.close(); sessions.delete(k); }
 }, 60000);
 
 class HttpError extends Error {
@@ -135,7 +142,8 @@ const server = http.createServer(async (req, res) => {
         return send(200, { ok: true });
       }
       case "/logout": {
-        sessions.get(norm(sn))?.client.close();
+        const s = sessions.get(norm(sn));
+        if (s) { closeIrc(s); s.client.close(); }
         sessions.delete(norm(sn));
         return send(200, { ok: true });
       }
@@ -183,6 +191,58 @@ const server = http.createServer(async (req, res) => {
       case "/chat/leave": {
         requireSession(sn).client.leaveChat(Number(body.roomId));
         return send(200, { ok: true });
+      }
+      case "/irc/connect": {
+        const session = requireSession(sn);
+        const network = String(body.network || "").trim();
+        const host = String(body.host || "").trim();
+        const nick = String(body.nick || "").trim();
+        if (!network || !host || !nick) throw new HttpError(400, "network, host, nick required");
+        const existing = session.irc.get(network);
+        if (existing?.isRegistered()) return send(200, { ok: true, nick: existing.nick });
+        const irc = new IrcClient(network, host, Number(body.port) || 6697, body.tls !== false, nick);
+        const ch = channelFor(sn);
+        irc.on("message", (m) => void pusher.trigger(ch, "irc", m).catch(() => {}));
+        irc.on("names", (n) => void pusher.trigger(ch, "irc-names", n).catch(() => {}));
+        irc.on("system", (s2) => void pusher.trigger(ch, "irc-system", s2).catch(() => {}));
+        irc.on("close", () => session.irc.delete(network));
+        irc.on("error", (e) => console.warn(`[${sn}] irc ${network} error:`, e.message));
+        session.irc.set(network, irc);
+        try {
+          await irc.connect();
+        } catch (e) {
+          session.irc.delete(network);
+          return send(502, { error: e instanceof Error ? e.message : "irc connect failed" });
+        }
+        for (const c of Array.isArray(body.channels) ? body.channels.map(String) : []) irc.join(c);
+        return send(200, { ok: true, nick: irc.nick });
+      }
+      case "/irc/join": {
+        const irc = requireSession(sn).irc.get(String(body.network || ""));
+        if (!irc) throw new HttpError(409, "not connected to that network");
+        irc.join(String(body.channel || ""));
+        return send(200, { ok: true });
+      }
+      case "/irc/send": {
+        const irc = requireSession(sn).irc.get(String(body.network || ""));
+        if (!irc) throw new HttpError(409, "not connected to that network");
+        irc.say(String(body.target || ""), String(body.message || ""));
+        return send(200, { ok: true });
+      }
+      case "/irc/part": {
+        requireSession(sn).irc.get(String(body.network || ""))?.part(String(body.channel || ""));
+        return send(200, { ok: true });
+      }
+      case "/irc/disconnect": {
+        const s2 = requireSession(sn);
+        s2.irc.get(String(body.network || ""))?.close();
+        s2.irc.delete(String(body.network || ""));
+        return send(200, { ok: true });
+      }
+      case "/irc/status": {
+        const s2 = requireSession(sn);
+        const networks = Array.from(s2.irc.entries()).map(([network, c]) => ({ network, nick: c.nick, channels: c.getChannels() }));
+        return send(200, { networks });
       }
       case "/away": {
         requireSession(sn).client.setAway(String(body.message || ""));

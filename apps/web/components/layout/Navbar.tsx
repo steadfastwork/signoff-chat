@@ -38,6 +38,7 @@ export function Navbar(_props?: { boardsEnabled?: boolean }) {
         <div style={{ display: "flex", gap: 4, marginLeft: 8 }}>
           <Link href="/messenger" style={{ fontSize: 13, color: retro.inkSoft, textDecoration: "none", padding: "4px 8px" }}>Messenger</Link>
           <Link href="/rooms" style={{ fontSize: 13, color: retro.inkSoft, textDecoration: "none", padding: "4px 8px" }}>Rooms</Link>
+          <Link href="/irc" style={{ fontSize: 13, color: retro.inkSoft, textDecoration: "none", padding: "4px 8px" }}>IRC</Link>
         </div>
       )}
 
