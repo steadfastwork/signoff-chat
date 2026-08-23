@@ -187,8 +187,23 @@ export class TocClient extends EventEmitter {
         this.emit("buddy", update);
         break;
       }
+      case "CONFIG":
+      case "CONFIG2": {
+        // Saved buddy list sent at signon. Format: lines "g:<group>" / "b:<name>[:alias…]".
+        // Seed the roster (offline until an UPDATE_BUDDY reports presence).
+        for (const line of cmd.split("\n")) {
+          if (line.startsWith("b:")) {
+            const name = line.slice(2).split(":")[0].trim();
+            const key = name.toLowerCase();
+            if (name && !this.roster.has(key)) {
+              this.roster.set(key, { name, online: false, warnLevel: 0, idleMinutes: 0, userClass: "" });
+            }
+          }
+        }
+        break;
+      }
       default:
-        break; // SIGN_ON banner, CONFIG2, NICK, etc. — ignore for now
+        break; // SIGN_ON banner, NICK, etc. — ignore
     }
   }
 
@@ -199,6 +214,12 @@ export class TocClient extends EventEmitter {
   }
 
   addBuddies(names: string[]): void {
+    // Seed the roster so a just-added (possibly offline) buddy appears right away;
+    // OSCAR only emits UPDATE_BUDDY for presence changes / online buddies.
+    for (const n of names) {
+      const key = n.toLowerCase();
+      if (!this.roster.has(key)) this.roster.set(key, { name: n, online: false, warnLevel: 0, idleMinutes: 0, userClass: "" });
+    }
     if (names.length) this.sendData(`toc_add_buddy ${names.join(" ")}`);
   }
 
