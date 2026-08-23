@@ -402,3 +402,14 @@ body {
 }
 .rich-content a.rich-link:hover,
 .rich-editor .ProseMirror a:hover { text-decoration-style: solid; }
+
+/* ---------------------------------------------------------------------------
+   Retro "Online Messenger" desktop background — the #3f4778 field + 9px dot
+   grid that windows float over (see handoff/PROMPTS.md #1 and #9).
+   Apply `.retro-desktop` to the shell that hosts the RetroWindow(s).
+   --------------------------------------------------------------------------- */
+.retro-desktop {
+  background-color: #3f4778;
+  background-image: radial-gradient(rgba(205, 215, 255, 0.09) 1px, transparent 1px);
+  background-size: 9px 9px;
+}

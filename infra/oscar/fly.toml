@@ -1,0 +1,80 @@
+# Fly.io deploy config for open-oscar-server (SIGNOFF's AIM/ICQ backbone).
+#
+# Deploy: clone https://github.com/mk6i/open-oscar-server, copy this file in as its
+# fly.toml, then `fly deploy` from that clone (its Dockerfile is the build context):
+#
+#   git clone https://github.com/mk6i/open-oscar-server ~/signoff-oscar-deploy
+#   cp ~/signoff-chat/infra/oscar/fly.toml ~/signoff-oscar-deploy/fly.toml
+#   cd ~/signoff-oscar-deploy
+#   fly volumes create oscar_data --size 1 --region iad   # once, same region as below
+#   fly ips allocate-v4                                    # once (dedicated IP for raw TCP)
+#   fly secrets set OSCAR_ADVERTISED_LISTENERS_PLAIN="LOCAL://oscar.signoff.chat:5190"
+#   fly deploy
+#
+# If you chose a region other than `iad` in `fly launch`, change primary_region below
+# AND create the volume in that same region.
+
+app = "signoff-oscar"
+primary_region = "iad"
+
+[build]
+  # No args needed — Fly builds open-oscar-server's own Dockerfile from the clone.
+
+[env]
+  DB_PATH = "/data/oscar.sqlite"        # persisted on the mounted volume (see [mounts])
+  DISABLE_AUTH = "false"                # production: enforce passwords (default image ships true)
+  DISABLE_MULTI_LOGIN_NOTIF = "true"
+  OSCAR_LISTENERS = "LOCAL://0.0.0.0:5190"
+  TOC_LISTENERS = "0.0.0.0:9898"
+  API_LISTENER = "0.0.0.0:8080"         # 0.0.0.0 so the gateway reaches it over 6PN; NOT publicly mapped
+  WEBAPI_LISTENERS = "0.0.0.0:8081"     # also private-only (no [[services]] mapping below)
+  LOG_LEVEL = "info"
+  # ICQ-legacy (ICQ 2000-era UDP clients) is OFF: with no settings.env baked in, its
+  # timer intervals default to 0 and the cleanup routine panics (NewTicker(0)). Modern
+  # ICQ clients still work over OSCAR/BOS regardless.
+  ICQ_LEGACY_ENABLED = "false"
+  # Advertise the public A record so OSCAR redirects clients to oscar.signoff.chat:5190
+  # (not an internal address). Kept in [env], NOT a secret — none of these are sensitive,
+  # and mixing [env] + secrets for the same keys previously produced a mangled value.
+  OSCAR_ADVERTISED_LISTENERS_PLAIN = "LOCAL://oscar.signoff.chat:5190"
+
+[mounts]
+  source = "oscar_data"
+  destination = "/data"
+
+# --- Public TCP: real AIM clients (5190) + TOC clients / our gateway fallback (9898).
+#     Requires a dedicated IPv4 (`fly ips allocate-v4`). The management API (8080) and
+#     WebAPI (8081) are deliberately NOT exposed here — the gateway reaches them only
+#     over the private 6PN network at signoff-oscar.internal:{8080,8081}.
+[[services]]
+  protocol = "tcp"
+  internal_port = 5190
+  auto_stop_machines = false            # stateful presence server — never autostop
+  auto_start_machines = true
+  min_machines_running = 1
+  [[services.ports]]
+    port = 5190
+  [[services.tcp_checks]]
+    interval = "15s"
+    timeout = "2s"
+    grace_period = "10s"
+
+[[services]]
+  protocol = "tcp"
+  internal_port = 9898
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+  [[services.ports]]
+    port = 9898
+  [[services.tcp_checks]]
+    interval = "15s"
+    timeout = "2s"
+    grace_period = "10s"
+
+# Note: legacy ICQ UDP (4000/udp) is intentionally omitted for v1. Add a udp service
+# here later if we want to support vintage ICQ clients over the wire.
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"

@@ -1,0 +1,38 @@
+# Fly.io config for the SIGNOFF gateway. Deploy from apps/gateway:
+#   cd apps/gateway
+#   fly launch --no-deploy --name signoff-gateway   # region iad
+#   fly secrets set GATEWAY_SECRET=... PUSHER_APP_ID=... PUSHER_KEY=... PUSHER_SECRET=... PUSHER_CLUSTER=us2
+#   fly deploy --remote-only
+# GATEWAY_SECRET must match the value in Vercel (vercel env pull to read it).
+# It reaches open-oscar-server over Fly's private network (signoff-oscar.internal:9898).
+
+app = "signoff-gateway"
+primary_region = "iad"
+
+[build]
+
+[env]
+  OSCAR_HOST = "signoff-oscar.internal"
+  OSCAR_TOC_PORT = "9898"
+  PORT = "8787"
+
+# Public HTTPS endpoint (Vercel calls it over the internet, guarded by the shared
+# secret). Fly terminates TLS at 443 → internal 8787. Never autostop: the machine
+# holds live OSCAR sessions in memory.
+[http_service]
+  internal_port = 8787
+  force_https = true
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[http_service.checks]]
+    method = "GET"
+    path = "/health"
+    interval = "15s"
+    timeout = "2s"
+    grace_period = "10s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
