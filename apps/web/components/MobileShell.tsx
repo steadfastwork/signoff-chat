@@ -97,6 +97,8 @@ export function MobileShell() {
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [statusOpen, setStatusOpen] = useState(false);
   const [myStatus, setMyStatus] = useState<"Online" | "Away" | "Invisible" | "Offline">("Online");
+  const [helpOpen, setHelpOpen] = useState(false);
+  const [infoFor, setInfoFor] = useState<string | null>(null); // buddy info dialog
 
   const now = () => new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 
@@ -357,6 +359,12 @@ export function MobileShell() {
     const msgs = dmByBuddy[dmTarget] ?? [];
     body = (
       <RetroWindow title={`${dmTarget} — Direct Message`} onBack={() => setDmTarget(null)} style={fullWin}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 12px", fontSize: 11.5, color: retro.inkSoft, borderBottom: `1px solid ${retro.hairline}`, background: "#faf8f3" }}>
+          <span style={{ width: 8, height: 8, borderRadius: "50%", background: buddies.find((b) => b.screenname.toLowerCase() === dmTarget.toLowerCase())?.status === "ONLINE" ? retro.green : "#c9c6bc" }} />
+          <span style={{ fontFamily: retro.fontMono }}>direct message</span>
+          <span style={{ flex: 1 }} />
+          <span onClick={() => setInfoFor(dmTarget)} style={{ color: retro.blue, textDecoration: "underline", cursor: "pointer" }}>profile</span>
+        </div>
         <div style={{ margin: "8px 10px", flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
           <MessageLog messages={msgs} me={me} height="100%" />
         </div>
@@ -384,7 +392,7 @@ export function MobileShell() {
         <div style={{ display: "flex", gap: 6, padding: "2px 8px", fontSize: 13, color: retro.inkSoft, borderBottom: `1px solid ${retro.hairline}`, background: "#faf8f3" }}>
           <span onClick={() => setStatusOpen(true)} style={{ padding: "9px 8px", cursor: "pointer" }}><u>M</u>y Signoff</span>
           <span onClick={() => { const el = document.getElementById("mob-add-buddy"); el?.focus(); }} style={{ padding: "9px 8px", cursor: "pointer" }}><u>P</u>eople</span>
-          <span style={{ padding: "9px 8px", color: retro.inkMuted }}><u>H</u>elp</span>
+          <span onClick={() => setHelpOpen(true)} style={{ padding: "9px 8px", cursor: "pointer" }}><u>H</u>elp</span>
         </div>
         {/* header: avatar · screenname · status · bell */}
         <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px" }}>
@@ -501,9 +509,13 @@ export function MobileShell() {
           {/* ── SIGNOFF rooms ────────────────────────────────── */}
           <div style={section}>SIGNOFF Rooms</div>
           {rooms.map((r) => (
-            <div key={r.name} onClick={() => joinRoom(r.name)} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 14px", cursor: "pointer", borderBottom: `1px solid ${retro.hairline}` }}>
-              <span style={{ color: retro.blue, fontWeight: "bold", fontSize: 15 }}># {r.name}</span>
-              <span style={{ fontSize: 11, color: retro.inkMuted }}>{r.participants?.length ?? 0}</span>
+            <div key={r.name} onClick={() => joinRoom(r.name)} style={{ display: "flex", alignItems: "center", gap: 10, minHeight: 54, padding: "4px 14px", cursor: "pointer", borderBottom: `1px solid ${retro.hairline}` }}>
+              <span style={{ width: 26, textAlign: "center", fontSize: 15, color: retro.blue, fontFamily: retro.fontMono, fontWeight: "bold" }}>#</span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 16, fontWeight: "bold", color: retro.blue, fontFamily: retro.fontMono }}>{r.name}</div>
+                <div style={{ fontSize: 11.5, color: retro.inkMuted }}>public room</div>
+              </div>
+              <span style={{ fontSize: 12, color: retro.inkMuted, fontFamily: retro.fontMono }}>{r.participants?.length ?? 0}</span>
             </div>
           ))}
           <div style={{ display: "flex", gap: 5, padding: "8px 12px" }}>
@@ -649,6 +661,46 @@ export function MobileShell() {
             </div>
             <div onClick={toggleBuddySounds} style={{ margin: "8px 14px 0", minHeight: 44, display: "flex", alignItems: "center", gap: 8, padding: "0 14px", background: "#fdfcf9", border: `1px solid ${retro.inputBorder}`, borderRadius: 4, cursor: "pointer", fontSize: 13, color: retro.inkSoft }}>
               <span style={{ width: 15, height: 15, background: "#fff", border: `1px solid ${retro.inkMuted}`, borderRadius: 2, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: "bold", color: retro.blue }}>{buddySounds ? "✓" : ""}</span>Sounds on
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Help dialog (per mock, crypto topic omitted) */}
+      {helpOpen && (
+        <div onClick={() => setHelpOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 80, background: "rgba(25,30,60,0.45)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ width: "100%", maxWidth: 340, background: retro.well, border: `1px solid ${retro.border}`, borderRadius: 3, boxShadow: "0 20px 50px rgba(10,15,40,0.5)" }}>
+            <div style={{ background: "#fdfcf9", color: retro.ink, fontWeight: "bold", fontSize: 15, padding: "10px 14px", display: "flex", alignItems: "center", borderBottom: `1px solid ${retro.hairline}`, borderRadius: "3px 3px 0 0" }}><span style={{ fontFamily: "Georgia,serif", marginRight: 8 }}>?</span><span style={{ flex: 1 }}>Help Topics</span><span onClick={() => setHelpOpen(false)} style={{ color: retro.inkMuted, cursor: "pointer", padding: "2px 4px" }}>✕</span></div>
+            <div style={{ padding: 14, fontSize: 13, color: retro.inkSoft, lineHeight: 1.6 }}>
+              <div style={{ background: "#fff", border: `1px solid ${retro.hairline}`, borderRadius: 3, padding: "4px 12px" }}>
+                {[["Getting started", "Sign on, add buddies, send your first message."], ["Away messages", "Set an auto-response with %n, %d and %t."], ["Channels & IRC", "Join SIGNOFF rooms or real IRC networks like Libera."], ["Buddy list", "Group buddies, star favorites, set your status."]].map(([t, d], i, a) => (
+                  <div key={t} style={{ padding: "8px 0", borderBottom: i < a.length - 1 ? `1px solid ${retro.hairline}` : "none" }}><span style={{ fontWeight: "bold", color: retro.blue }}>{t}</span><br /><span style={{ fontSize: 12, color: retro.inkMuted }}>{d}</span></div>
+                ))}
+              </div>
+              <div style={{ fontSize: 11, color: retro.inkMuted, textAlign: "center", fontFamily: retro.fontMono, marginTop: 10 }}>signoff.chat/help</div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Buddy Info dialog */}
+      {infoFor && (
+        <div onClick={() => setInfoFor(null)} style={{ position: "fixed", inset: 0, zIndex: 80, background: "rgba(25,30,60,0.45)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ width: "100%", maxWidth: 320, background: retro.well, border: `1px solid ${retro.border}`, borderRadius: 3, boxShadow: "0 20px 50px rgba(10,15,40,0.5)" }}>
+            <div style={{ background: "#fdfcf9", color: retro.ink, fontWeight: "bold", fontSize: 15, padding: "10px 14px", display: "flex", alignItems: "center", borderBottom: `1px solid ${retro.hairline}`, borderRadius: "3px 3px 0 0" }}><span style={{ flex: 1 }}>Buddy Info</span><span onClick={() => setInfoFor(null)} style={{ color: retro.inkMuted, cursor: "pointer", padding: "2px 4px" }}>✕</span></div>
+            <div style={{ padding: 14, fontSize: 13, color: retro.inkSoft }}>
+              <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 12 }}>
+                <div style={{ width: 48, height: 48, borderRadius: 3, background: retro.gradient, color: retro.gold, fontFamily: retro.fontBrand, fontSize: 20, display: "flex", alignItems: "center", justifyContent: "center" }}>{infoFor.slice(0, 2).toUpperCase()}</div>
+                <div>
+                  <div style={{ fontWeight: "bold", fontSize: 16, color: snColor(infoFor) }}>{infoFor}</div>
+                  <div style={{ fontSize: 12, color: retro.inkMuted }}>{buddies.find((b) => b.screenname.toLowerCase() === infoFor.toLowerCase())?.status === "ONLINE" ? "online" : "offline"}</div>
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button onClick={() => { setNewBuddy(infoFor); addBuddy(); setInfoFor(null); }} style={{ ...btnStyle, flex: 1, height: 44, fontSize: 12, fontWeight: "bold" }}>Add Buddy</button>
+                <button onClick={() => { fetch(`/api/users/${encodeURIComponent(infoFor)}/block`, { method: "POST" }).catch(() => {}); setInfoFor(null); }} style={{ ...btnStyle, flex: 1, height: 44, fontSize: 12, fontWeight: "bold", color: retro.redDeep }}>Block</button>
+                <button onClick={() => setInfoFor(null)} style={{ ...btnStyle, flex: 1, height: 44, fontSize: 12, fontWeight: "bold", color: retro.blue }}>Close</button>
+              </div>
             </div>
           </div>
         </div>
