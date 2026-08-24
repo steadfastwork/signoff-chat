@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { useSession } from "next-auth/react";
 import { soketiClient } from "@/lib/soketi";
 import { gatewayUserChannel } from "@/lib/gatewayChannel";
+import { IRC_NETWORKS, findNetwork } from "@/lib/ircNetworks";
 import {
   RetroWindow,
   MessageLog,
@@ -19,12 +20,12 @@ import {
 } from "@/components/retro/retro-components";
 
 // v1 preset network.
-const NETWORK = "Libera.Chat";
-const HOST = "irc.libera.chat";
 
 export default function IrcPage() {
   const { data: session } = useSession();
   const me = session?.user?.screenname ?? "";
+  const [netId, setNetId] = useState(IRC_NETWORKS[0].id);
+  const net = findNetwork(netId);
   const [nick, setNick] = useState("");
   const [saslPassword, setSaslPassword] = useState("");
   const [connected, setConnected] = useState(false);
@@ -71,7 +72,7 @@ export default function IrcPage() {
     if (!nick.trim() || busy) return;
     setBusy(true);
     try {
-      const res = await fetch("/api/irc", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "connect", network: NETWORK, host: HOST, port: 6697, tls: true, nick: nick.trim(), saslPassword: saslPassword.trim() || undefined }) });
+      const res = await fetch("/api/irc", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "connect", network: net.label, host: net.host, port: 6697, tls: true, nick: nick.trim(), saslPassword: saslPassword.trim() || undefined }) });
       const j = await res.json();
       if (!res.ok) {
         push("*", { screenname: "system", text: "", time: now(), sys: `— ${j.error || "connect failed"} —` });
@@ -80,7 +81,7 @@ export default function IrcPage() {
         setMyNick(j.nick || nick.trim());
         myNickRef.current = j.nick || nick.trim();
         setActive("*");
-        push("*", { screenname: "system", text: "", time: now(), sys: `— connected to ${NETWORK} as ${j.nick} —` });
+        push("*", { screenname: "system", text: "", time: now(), sys: `— connected to ${net.label} as ${j.nick} —` });
         sounds.doorOpen();
       }
     } finally {
@@ -92,7 +93,7 @@ export default function IrcPage() {
     let c = chan.trim();
     if (!c) return;
     if (!c.startsWith("#")) c = "#" + c;
-    await fetch("/api/irc", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "join", network: NETWORK, channel: c }) });
+    await fetch("/api/irc", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "join", network: net.label, channel: c }) });
     setChannels((prev) => (prev.includes(c) ? prev : [...prev, c]));
     setActive(c);
     setChannelInput("");
@@ -104,7 +105,7 @@ export default function IrcPage() {
     setText("");
     push(active, { screenname: myNick, text: body, time: now() }); // IRC doesn't echo own msgs
     sounds.msgOut();
-    fetch("/api/irc", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "send", network: NETWORK, target: active, message: body }) }).catch(() => {});
+    fetch("/api/irc", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "send", network: net.label, target: active, message: body }) }).catch(() => {});
   }
 
   if (!connected) {
@@ -112,7 +113,12 @@ export default function IrcPage() {
       <div className="retro-desktop" style={{ minHeight: "calc(100dvh - 52px)", display: "flex", justifyContent: "center", alignItems: "flex-start", padding: 24 }}>
         <RetroWindow title="Connect to IRC" badge width={340}>
           <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
-            <div style={{ fontFamily: retro.fontMsg, fontSize: 13, color: retro.inkSoft }}>Network: <b>{NETWORK}</b> ({HOST})</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              <span style={{ fontFamily: retro.fontMsg, fontStyle: "italic", fontSize: 13, color: retro.inkSoft }}>Network</span>
+              <select value={netId} onChange={(e) => setNetId(e.target.value)} style={{ ...inputStyle, height: 36 }}>
+                {IRC_NETWORKS.map((n) => <option key={n.id} value={n.id}>{n.label}</option>)}
+              </select>
+            </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
               <span style={{ fontFamily: retro.fontMsg, fontStyle: "italic", fontSize: 13, color: retro.inkSoft }}>Nickname</span>
               <input value={nick} onChange={(e) => setNick(e.target.value)} onKeyDown={(e) => e.key === "Enter" && connect()} style={{ ...inputStyle, height: 36, fontWeight: "bold", color: retro.blue }} />
@@ -133,7 +139,7 @@ export default function IrcPage() {
 
   return (
     <div className="retro-desktop" style={{ minHeight: "calc(100dvh - 52px)", display: "flex", justifyContent: "center", alignItems: "flex-start", gap: 16, padding: 24, flexWrap: "wrap" }}>
-      <RetroWindow title={`IRC — ${NETWORK}`} badge width={210}>
+      <RetroWindow title={`IRC — ${net.label}`} badge width={210}>
         <div style={{ padding: "6px 10px", borderBottom: `1px solid ${retro.hairline}`, fontSize: 11, color: retro.inkSoft, fontFamily: retro.fontUI }}>you are {myNick}</div>
         <div style={{ background: retro.well, minHeight: 240, maxHeight: 360, overflowY: "auto", padding: "4px 0" }}>
           <div onClick={() => setActive("*")} style={{ padding: "5px 12px", cursor: "pointer", fontFamily: retro.fontUI, fontSize: 13, background: active === "*" ? retro.selection : "transparent", color: retro.inkMuted }}>server</div>
@@ -145,9 +151,14 @@ export default function IrcPage() {
           <input value={channelInput} onChange={(e) => setChannelInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && joinChannel(channelInput)} placeholder="#channel" style={{ ...inputStyle, flex: 1, minWidth: 0, height: 30, fontSize: 12 }} />
           <button onClick={() => joinChannel(channelInput)} style={{ ...btnStyle, height: 30, padding: "0 8px" }}>Join</button>
         </div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 5, padding: "0 8px 8px" }}>
+          {net.suggested.map((c) => (
+            <span key={c} onClick={() => joinChannel(c)} style={{ fontSize: 11, color: retro.blue, border: `1px solid ${retro.inputBorder}`, borderRadius: 12, padding: "3px 8px", cursor: "pointer", background: "#fff" }}>{c}</span>
+          ))}
+        </div>
       </RetroWindow>
 
-      <RetroWindow title={active === "*" ? "Server" : `${NETWORK}: ${active}`} width={470}>
+      <RetroWindow title={active === "*" ? "Server" : `${net.label}: ${active}`} width={470}>
         <div style={{ display: "flex", gap: 8, padding: 8 }}>
           <div style={{ flex: 1, minWidth: 0 }}><MessageLog messages={msgs} me={myNick} height={320} /></div>
           {active.startsWith("#") && (
