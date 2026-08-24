@@ -241,9 +241,41 @@ export function MobileShell() {
   async function sendIrc() {
     const body = text.trim(); if (!body || !ircView || !ircConnected) return; setText("");
     const net = findNetwork(ircConnected.netId);
-    setIrcMsgs((p) => ({ ...p, [ircView]: [...(p[ircView] ?? []), { screenname: ircConnected.nick, text: body, time: now() }] })); // IRC doesn't echo own
+    const api = (payload: Record<string, unknown>) =>
+      fetch("/api/irc", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...payload, network: net.label }) }).catch(() => {});
+    const echo = (buf: string, m: RetroMessage) => setIrcMsgs((p) => ({ ...p, [buf]: [...(p[buf] ?? []), m] }));
+    const sys = (buf: string, t: string) => echo(buf, { screenname: "sys", text: "", time: now(), sys: `— ${t} —` });
+
+    // Slash-commands, IRC-style ("as good as Pidgin").
+    if (body.startsWith("/") && !body.startsWith("//")) {
+      const sp = body.indexOf(" ");
+      const cmd = (sp === -1 ? body.slice(1) : body.slice(1, sp)).toLowerCase();
+      const arg = sp === -1 ? "" : body.slice(sp + 1).trim();
+      sounds.msgOut();
+      switch (cmd) {
+        case "me":
+          echo(ircView, { screenname: ircConnected.nick, text: `* ${ircConnected.nick} ${arg}`, time: now() });
+          await api({ action: "raw", line: `PRIVMSG ${ircView} :ACTION ${arg}` }); return;
+        case "msg": case "query": {
+          const s2 = arg.indexOf(" "); const to = s2 === -1 ? arg : arg.slice(0, s2); const msg = s2 === -1 ? "" : arg.slice(s2 + 1);
+          if (!to) { sys(ircView, "usage: /msg <nick> <message>"); return; }
+          echo(to, { screenname: ircConnected.nick, text: msg, time: now() }); setIrcView(to);
+          if (msg) await api({ action: "send", target: to, message: msg }); return;
+        }
+        case "join": case "j": { const c = arg.replace(/^#?/, "#"); if (arg) await joinIrc(c); return; }
+        case "part": case "leave": { const c = arg || ircView; await api({ action: "part", channel: c }); setIrcChannels((p) => p.filter((x) => x !== c)); if (ircView === c) setIrcView(null); return; }
+        case "nick": if (arg) await api({ action: "raw", line: `NICK ${arg}` }); return;
+        case "topic": await api({ action: "raw", line: `TOPIC ${ircView}${arg ? ` :${arg}` : ""}` }); return;
+        case "whois": if (arg) { sys(ircView, `whois ${arg}…`); await api({ action: "raw", line: `WHOIS ${arg}` }); } return;
+        case "raw": case "quote": if (arg) await api({ action: "raw", line: arg }); return;
+        default: sys(ircView, `unknown command: /${cmd}`); return;
+      }
+    }
+
+    const msg = body.startsWith("//") ? body.slice(1) : body; // // escapes a literal leading slash
+    echo(ircView, { screenname: ircConnected.nick, text: msg, time: now() }); // IRC doesn't echo own
     sounds.msgOut();
-    await fetch("/api/irc", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "send", network: net.label, target: ircView, message: body }) }).catch(() => {});
+    await api({ action: "send", target: ircView, message: msg });
   }
 
   const online = buddies.filter((b) => b.status === "ONLINE").length;

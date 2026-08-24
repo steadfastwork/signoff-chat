@@ -170,7 +170,10 @@ export class IrcClient extends EventEmitter {
       }
       case "AUTHENTICATE": {
         if (params[0] === "+" && this.saslPassword) {
-          const cred = Buffer.from(`\0${this.nick}\0${this.saslPassword}`).toString("base64");
+          // authcid must be the account name (the nick the user asked for), NOT
+          // this.nick — a 433 may already have suffixed it to `nick_`, which is
+          // not a real account and would make SASL fail.
+          const cred = Buffer.from(`\0${this.wantedNick}\0${this.saslPassword}`).toString("base64");
           this.write(`AUTHENTICATE ${cred}`);
         }
         return;
@@ -198,7 +201,9 @@ export class IrcClient extends EventEmitter {
         if (this.nick !== this.wantedNick && this.saslPassword) {
           this.write(`PRIVMSG NickServ :GHOST ${this.wantedNick} ${this.saslPassword}`);
           this.write(`PRIVMSG NickServ :RELEASE ${this.wantedNick} ${this.saslPassword}`);
+          // GHOST can take a moment to free the nick; try the reclaim twice.
           setTimeout(() => { if (this.nick !== this.wantedNick) this.write(`NICK ${this.wantedNick}`); }, 2500);
+          setTimeout(() => { if (this.nick !== this.wantedNick) this.write(`NICK ${this.wantedNick}`); }, 5000);
         }
         return;
       case "NICK": {
@@ -314,6 +319,10 @@ export class IrcClient extends EventEmitter {
   }
   say(target: string, message: string) {
     this.write(`PRIVMSG ${target} :${message}`);
+  }
+  /** Send a raw IRC line (used for slash-commands: /nick, /topic, /whois, …). */
+  raw(line: string) {
+    this.write(line);
   }
   getChannels(): string[] {
     return Array.from(this.channels.keys());

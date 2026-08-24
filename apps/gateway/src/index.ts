@@ -219,8 +219,16 @@ const server = http.createServer(async (req, res) => {
         const host = String(body.host || "").trim();
         const nick = String(body.nick || "").trim();
         if (!network || !host || !nick) throw new HttpError(400, "network, host, nick required");
+        const saslPassword = String(body.saslPassword || "") || undefined;
         const existing = session.irc.get(network);
-        if (existing?.isRegistered()) return send(200, { ok: true, nick: existing.nick });
+        // Reuse a live connection ONLY if it's already on the requested nick and
+        // no new password was supplied. If it's stuck on a suffixed nick (e.g.
+        // `saynotozog_`) or the user just entered their NickServ password, tear it
+        // down and reconnect fresh so SASL identify + nick-reclaim actually run.
+        if (existing?.isRegistered() && existing.nick.toLowerCase() === nick.toLowerCase() && !saslPassword) {
+          return send(200, { ok: true, nick: existing.nick });
+        }
+        if (existing) { existing.close(); session.irc.delete(network); }
         const irc = new IrcClient(network, host, Number(body.port) || 6697, body.tls !== false, nick);
         const ch = channelFor(sn);
         irc.on("message", (m) => void pusher.trigger(ch, "irc", m).catch(() => {}));
@@ -230,7 +238,7 @@ const server = http.createServer(async (req, res) => {
         irc.on("error", (e) => console.warn(`[${sn}] irc ${network} error:`, e.message));
         session.irc.set(network, irc);
         try {
-          await irc.connect("SIGNOFF user", String(body.saslPassword || "") || undefined);
+          await irc.connect("SIGNOFF user", saslPassword);
         } catch (e) {
           session.irc.delete(network);
           return send(502, { error: e instanceof Error ? e.message : "irc connect failed" });
@@ -258,6 +266,12 @@ const server = http.createServer(async (req, res) => {
       }
       case "/irc/part": {
         ircSessionFor(sn).irc.get(String(body.network || ""))?.part(String(body.channel || ""));
+        return send(200, { ok: true });
+      }
+      case "/irc/raw": {
+        const irc = ircSessionFor(sn).irc.get(String(body.network || ""));
+        if (!irc) throw new HttpError(409, "not connected to that network");
+        irc.raw(String(body.line || ""));
         return send(200, { ok: true });
       }
       case "/irc/disconnect": {

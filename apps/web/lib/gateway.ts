@@ -61,6 +61,7 @@ export const gateway = {
   ircJoin: (screenname: string, network: string, channel: string) => call("/irc/join", { screenname, network, channel }),
   ircSend: (screenname: string, network: string, target: string, message: string) => call("/irc/send", { screenname, network, target, message }),
   ircPart: (screenname: string, network: string, channel: string) => call("/irc/part", { screenname, network, channel }),
+  ircRaw: (screenname: string, network: string, line: string) => call("/irc/raw", { screenname, network, line }),
   ircDisconnect: (screenname: string, network: string) => call("/irc/disconnect", { screenname, network }),
   ircStatus: (screenname: string) => call<{ networks: { network: string; nick: string; channels: string[] }[] }>("/irc/status", { screenname }),
   ircList: (screenname: string, network: string, filter?: string) =>

@@ -31,6 +31,8 @@ export async function POST(req: NextRequest) {
         return NextResponse.json(await gateway.ircSend(sn, String(body.network || ""), String(body.target || ""), String(body.message || "")));
       case "part":
         return NextResponse.json(await gateway.ircPart(sn, String(body.network || ""), String(body.channel || "")));
+      case "raw":
+        return NextResponse.json(await gateway.ircRaw(sn, String(body.network || ""), String(body.line || "")));
       case "disconnect":
         return NextResponse.json(await gateway.ircDisconnect(sn, String(body.network || "")));
       case "status":
