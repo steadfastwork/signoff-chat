@@ -95,6 +95,7 @@ export function MobileShell() {
   const [groupOrder, setGroupOrder] = useState<string[]>(["Buddies"]);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [statusOpen, setStatusOpen] = useState(false);
+  const [myStatus, setMyStatus] = useState<"Online" | "Away" | "Invisible" | "Offline">("Online");
 
   const now = () => new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 
@@ -129,6 +130,13 @@ export function MobileShell() {
     setGroupOf((p) => { const n = { ...p, [name.toLowerCase()]: group }; try { localStorage.setItem("signoff_buddy_groups", JSON.stringify(n)); } catch {} return n; });
   }
   function toggleCollapse(g: string) { setCollapsed((p) => ({ ...p, [g]: !p[g] })); }
+  const statusDot = (s: string) => (s === "Online" ? retro.green : s === "Away" ? retro.amber : "#a5a29a");
+  async function chooseStatus(s: "Online" | "Away" | "Invisible" | "Offline") {
+    setMyStatus(s); setStatusOpen(false);
+    if (s === "Online") { if (away) setAwayStatus(""); }
+    else if (s === "Away") { setTab("away"); }
+    else { fetch("/api/user/status", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ status: s.toUpperCase() }) }).catch(() => {}); }
+  }
 
   // load my profile (bio) once signed in
   useEffect(() => {
@@ -366,21 +374,19 @@ export function MobileShell() {
     const multi = groupOrder.length > 1;
     body = (
       <RetroWindow title={`${me || "…"}'s Buddy List`} badge style={fullWin}>
+        {/* menu bar (per mock) */}
+        <div style={{ display: "flex", gap: 6, padding: "2px 8px", fontSize: 13, color: retro.inkSoft, borderBottom: `1px solid ${retro.hairline}`, background: "#faf8f3" }}>
+          <span onClick={() => setStatusOpen(true)} style={{ padding: "9px 8px", cursor: "pointer" }}><u>M</u>y Signoff</span>
+          <span onClick={() => { const el = document.getElementById("mob-add-buddy"); el?.focus(); }} style={{ padding: "9px 8px", cursor: "pointer" }}><u>P</u>eople</span>
+          <span style={{ padding: "9px 8px", color: retro.inkMuted }}><u>H</u>elp</span>
+        </div>
         {/* header: avatar · screenname · status · bell */}
-        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", borderBottom: `1px solid ${retro.hairline}` }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px" }}>
           <div style={{ width: 44, height: 44, borderRadius: 6, background: retro.gradient, color: retro.gold, fontFamily: retro.fontBrand, fontSize: 18, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{(me || "?").slice(0, 2).toUpperCase()}</div>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 17, fontWeight: "bold", color: retro.blue }}>{me} <span style={{ color: retro.goldDim }}>★</span></div>
-            <div style={{ position: "relative", display: "inline-block", marginTop: 2 }}>
-              <button onClick={() => setStatusOpen((v) => !v)} style={{ ...btnStyle, height: 28, padding: "0 10px", fontSize: 13, display: "flex", alignItems: "center", gap: 6 }}>
-                <span style={{ width: 9, height: 9, borderRadius: "50%", background: away ? retro.amber : retro.green }} /> {away ? "Away" : "Online"} ▾
-              </button>
-              {statusOpen && (
-                <div style={{ position: "absolute", top: 30, left: 0, zIndex: 5, background: "#fff", border: `1px solid ${retro.inputBorder}`, borderRadius: 6, boxShadow: "0 4px 14px rgba(10,15,40,0.2)", minWidth: 130 }}>
-                  <div onClick={() => { setStatusOpen(false); if (away) setAwayStatus(""); }} style={{ padding: "9px 12px", fontSize: 14, cursor: "pointer", display: "flex", alignItems: "center", gap: 8 }}><span style={{ width: 9, height: 9, borderRadius: "50%", background: retro.green }} /> Online</div>
-                  <div onClick={() => { setStatusOpen(false); setTab("away"); }} style={{ padding: "9px 12px", fontSize: 14, cursor: "pointer", display: "flex", alignItems: "center", gap: 8, borderTop: `1px solid ${retro.hairline}` }}><span style={{ width: 9, height: 9, borderRadius: "50%", background: retro.amber }} /> Away…</div>
-                </div>
-              )}
+            <div onClick={() => setStatusOpen(true)} style={{ display: "inline-flex", alignItems: "center", gap: 6, marginTop: 4, padding: "5px 11px", background: "#fdfcf9", border: `1px solid ${retro.inputBorder}`, borderRadius: 3, fontSize: 13, cursor: "pointer", color: retro.inkSoft }}>
+              <span style={{ width: 9, height: 9, borderRadius: "50%", background: statusDot(away ? "Away" : myStatus) }} /> {away ? "Away" : myStatus} ▾
             </div>
           </div>
           <button onClick={toggleBuddySounds} title="notification sounds" style={{ ...btnStyle, width: 52, height: 46, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 1, color: buddySounds ? retro.ink : retro.inkMuted }}>
@@ -420,7 +426,7 @@ export function MobileShell() {
         </div>
 
         <div style={{ display: "flex", gap: 5, padding: 8, borderTop: `1px solid ${retro.hairline}` }}>
-          <input value={newBuddy} onChange={(e) => setNewBuddy(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addBuddy()} placeholder="add buddy…" style={{ ...inputStyle, flex: 1, minWidth: 0, height: 40, fontSize: 16 }} />
+          <input id="mob-add-buddy" value={newBuddy} onChange={(e) => setNewBuddy(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addBuddy()} placeholder="add buddy…" style={{ ...inputStyle, flex: 1, minWidth: 0, height: 40, fontSize: 16 }} />
           <button onClick={addBuddy} style={{ ...btnStyle, height: 40, padding: "0 14px" }}>Add</button>
         </div>
       </RetroWindow>
@@ -578,12 +584,19 @@ export function MobileShell() {
     );
   }
 
-  const TABS: { key: Tab; label: string; icon: string }[] = [
-    { key: "buddies", label: "Buddies", icon: "👥" },
-    { key: "channels", label: "Channels", icon: "#" },
-    { key: "away", label: "Away", icon: "☾" },
-    { key: "setup", label: "Setup", icon: "⚙" },
+  const TABS: { key: Tab; label: string }[] = [
+    { key: "buddies", label: "Buddies" },
+    { key: "channels", label: "Channels" },
+    { key: "away", label: "Away" },
+    { key: "setup", label: "Setup" },
   ];
+  const tabIcon = (key: Tab, active: boolean) => {
+    const c = active ? retro.blue : "#4a4a52";
+    if (key === "buddies") return (<svg width="22" height="19" viewBox="0 0 22 19" fill="none"><circle cx="7" cy="6" r="3.2" stroke={c} strokeWidth="1.6" /><path d="M2 17c0-3 2.2-5 5-5s5 2 5 5" stroke={c} strokeWidth="1.6" strokeLinecap="round" /><circle cx="15.5" cy="7" r="2.6" stroke={c} strokeWidth="1.5" /><path d="M14 12.3c2.8-.4 6 1.2 6 4.7" stroke={c} strokeWidth="1.5" strokeLinecap="round" /></svg>);
+    if (key === "channels") return (<span style={{ fontFamily: retro.fontBrand, fontSize: 22, lineHeight: "19px", color: c }}>#</span>);
+    if (key === "away") return (<svg width="20" height="19" viewBox="0 0 20 19" fill="none"><rect x="2" y="2" width="16" height="15" rx="2" stroke={c} strokeWidth="1.5" /><path d="M6 7h8M6 10.5h8M6 14h5" stroke={c} strokeWidth="1.4" strokeLinecap="round" /></svg>);
+    return (<svg width="20" height="18" viewBox="0 0 20 18" fill="none"><path d="M2 5h16M2 13h16" stroke={c} strokeWidth="1.6" strokeLinecap="round" /><circle cx="13" cy="5" r="2.4" fill={retro.chrome} stroke={c} strokeWidth="1.6" /><circle cx="7" cy="13" r="2.4" fill={retro.chrome} stroke={c} strokeWidth="1.6" /></svg>);
+  };
 
   return (
     <div className="retro-desktop" style={{ position: "fixed", inset: 0, zIndex: 60, display: "flex", flexDirection: "column", paddingTop: "env(safe-area-inset-top,0px)" }}>
@@ -615,6 +628,26 @@ export function MobileShell() {
         </div>
       )}
 
+      {/* Status bottom-sheet (per mock) */}
+      {statusOpen && (
+        <div onClick={() => setStatusOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 80, background: "rgba(25,30,60,0.45)", display: "flex", flexDirection: "column", justifyContent: "flex-end" }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: retro.well, border: `1px solid ${retro.border}`, borderRadius: "12px 12px 0 0", boxShadow: "0 -10px 30px rgba(10,15,40,0.4)", paddingBottom: "calc(28px + env(safe-area-inset-bottom,0px))" }}>
+            <div style={{ display: "flex", justifyContent: "center", padding: "8px 0 2px" }}><span style={{ width: 40, height: 4, borderRadius: 2, background: retro.inputBorder }} /></div>
+            <div style={{ color: retro.ink, fontWeight: "bold", fontSize: 15, padding: "8px 16px", display: "flex", alignItems: "center" }}><span style={{ flex: 1 }}>My Status</span><span onClick={() => setStatusOpen(false)} style={{ color: retro.inkMuted, fontSize: 13, padding: "4px 6px", cursor: "pointer" }}>✕</span></div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, padding: "6px 14px 4px" }}>
+              {(["Online", "Away", "Invisible", "Offline"] as const).map((s) => (
+                <div key={s} onClick={() => chooseStatus(s)} style={{ minHeight: 48, display: "flex", alignItems: "center", gap: 9, padding: "0 14px", background: "#fdfcf9", border: `1px solid ${((away ? "Away" : myStatus) === s) ? retro.blue : retro.inputBorder}`, borderRadius: 4, cursor: "pointer", fontSize: 14, fontWeight: "bold", color: retro.inkSoft }}>
+                  <span style={{ width: 10, height: 10, borderRadius: "50%", background: statusDot(s), border: `1px solid ${retro.inkMuted}` }} /> {s}
+                </div>
+              ))}
+            </div>
+            <div onClick={toggleBuddySounds} style={{ margin: "8px 14px 0", minHeight: 44, display: "flex", alignItems: "center", gap: 8, padding: "0 14px", background: "#fdfcf9", border: `1px solid ${retro.inputBorder}`, borderRadius: 4, cursor: "pointer", fontSize: 13, color: retro.inkSoft }}>
+              <span style={{ width: 15, height: 15, background: "#fff", border: `1px solid ${retro.inkMuted}`, borderRadius: 2, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: "bold", color: retro.blue }}>{buddySounds ? "✓" : ""}</span>Sounds on
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Bottom tab bar */}
       <div style={{ display: "flex", gap: 4, padding: "6px 8px calc(8px + env(safe-area-inset-bottom,0px))", background: retro.chrome, borderTop: `1px solid ${retro.border}`, borderRadius: "14px 14px 0 0", margin: "0 6px", boxShadow: "0 -6px 20px rgba(10,15,40,0.25)" }}>
         {TABS.map((t) => {
@@ -622,7 +655,7 @@ export function MobileShell() {
           return (
             <div key={t.key} onClick={() => { setTab(t.key); if (t.key === "buddies") setDmTarget(null); if (t.key === "channels") { setRoom(null); roomRef.current = null; setIrcView(null); } }}
               style={{ flex: 1, minHeight: 52, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 3, cursor: "pointer", borderRadius: 8, background: active ? retro.selection : "transparent" }}>
-              <span style={{ fontSize: 18, color: active ? retro.blue : retro.inkSoft, fontFamily: t.icon === "#" ? retro.fontBrand : "inherit" }}>{t.icon}</span>
+              {tabIcon(t.key, active)}
               <span style={{ fontSize: 11, fontWeight: "bold", color: retro.inkSoft }}>{t.label}</span>
             </div>
           );
