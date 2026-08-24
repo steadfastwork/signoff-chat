@@ -13,17 +13,7 @@ files:
   - "!assets/entitlements.mac.plist"
   - "!assets/icon-1024.png"
 
-# Bundle Next.js standalone output alongside the app
-extraResources:
-  - from: "../web/.next/standalone"
-    to: web
-    filter: "**/*"
-  - from: "../web/.next/static"
-    to: web/.next/static
-    filter: "**/*"
-  - from: "../web/public"
-    to: web/public
-    filter: "**/*"
+# Thin shell: no bundled Next.js server — the app loads https://www.signoff.chat.
 
 asar: true
 

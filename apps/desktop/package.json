@@ -6,8 +6,7 @@
   "main": "dist/main.js",
   "scripts": {
     "start": "electron .",
-    "build": "npm run build:web && npm run build:electron",
-    "build:web": "cd ../web && NEXT_PUBLIC_IS_ELECTRON=true next build",
+    "build": "npm run build:electron",
     "build:electron": "tsc",
     "build:electron:watch": "tsc --watch",
     "dev": "tsc && electron .",
