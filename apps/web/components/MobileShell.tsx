@@ -9,7 +9,7 @@ import { useSession, signOut } from "next-auth/react";
 import { useIsMobile } from "@/lib/hooks/useIsMobile";
 import { soketiClient } from "@/lib/soketi";
 import { gatewayUserChannel } from "@/lib/gatewayChannel";
-import { IRC_NETWORKS, findNetwork } from "@/lib/ircNetworks";
+import { IRC_NETWORKS, findNetwork, findNetworkByLabel } from "@/lib/ircNetworks";
 import {
   RetroWindow,
   BuddyRow,
@@ -179,6 +179,35 @@ export function MobileShell() {
   }
 
   useEffect(() => { if (me) setIrcNick((n) => n || me); }, [me]);
+
+  // IRC lives on the gateway (decoupled from this webview). Rehydrate the UI from
+  // the live connection so switching tabs / reloading / re-focusing the app keeps
+  // you "in" your channels instead of showing the Connect form again.
+  const syncIrc = useCallback(async () => {
+    try {
+      const j = await (await fetch("/api/irc", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "status" }) })).json();
+      const nets: { network: string; nick: string; channels: string[] }[] = Array.isArray(j.networks) ? j.networks : [];
+      const active = nets[0];
+      if (active) {
+        const preset = findNetworkByLabel(active.network);
+        setIrcConnected({ netId: preset?.id ?? IRC_NETWORKS[0].id, nick: active.nick });
+        if (active.channels.length) setIrcChannels((p) => Array.from(new Set([...p, ...active.channels])));
+      } else {
+        setIrcConnected(null);
+      }
+    } catch { /* leave current UI state */ }
+  }, []);
+
+  useEffect(() => {
+    if (!me) return;
+    syncIrc();
+    const onVis = () => { if (document.visibilityState === "visible") syncIrc(); };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, [me, syncIrc]);
+
+  // Re-check the moment the user opens the Channels tab.
+  useEffect(() => { if (me && tab === "channels") syncIrc(); }, [tab, me, syncIrc]);
 
   async function connectIrc() {
     const nick = ircNick.trim(); if (!nick || ircBusy) return;

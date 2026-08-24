@@ -18,3 +18,6 @@ export const IRC_NETWORKS: IrcNetworkPreset[] = [
 ];
 
 export const findNetwork = (id: string) => IRC_NETWORKS.find((n) => n.id === id) ?? IRC_NETWORKS[0];
+// The gateway keys IRC connections by network *label* (what /connect sent). Map
+// a label from /irc/status back to its preset so the UI can rehydrate.
+export const findNetworkByLabel = (label: string) => IRC_NETWORKS.find((n) => n.label === label);
