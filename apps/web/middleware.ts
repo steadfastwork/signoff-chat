@@ -224,7 +224,8 @@ export const config = {
      * - _next/static  (Next.js static assets)
      * - _next/image   (Next.js image optimization)
      * - favicon.ico, *.png, *.jpg, *.svg, *.webp, *.ico (static media)
+     * - *.wav, *.mp3, *.ogg, *.m4a (audio assets, e.g. /sounds/*)
      */
-    "/((?!_next/static|_next/image|favicon\\.ico|.*\\.(?:png|jpg|jpeg|svg|webp|ico)$).*)",
+    "/((?!_next/static|_next/image|favicon\\.ico|.*\\.(?:png|jpg|jpeg|svg|webp|ico|wav|mp3|ogg|m4a)$).*)",
   ],
 };
