@@ -29,8 +29,6 @@ import * as http from "http";
 import * as path from "path";
 import Store from "electron-store";
 
-import { initDb, closeDb }                                          from "./localDb";
-import { registerIpcHandlers }                                      from "./ipc";
 import { createTray, showTrayHint, destroyTray, triggerAwayDialog } from "./tray";
 import { registerShortcuts, unregisterShortcuts }                   from "./shortcuts";
 import { initUpdater }                                              from "./updater";
@@ -361,17 +359,13 @@ app.whenReady().then(async () => {
   // Thin shell: no bundled Next.js server — we load the deployed web client.
   // (SIGNOFF_APP_URL can point at a local dev server instead.)
 
-  // 3. Init local DB
-  initDb();
-
-  // 4. Init auto-launch (must be after app is ready)
+  // Init auto-launch (must be after app is ready)
   initAutoLaunch();
 
-  // 5. Create window
+  // Create window
   mainWindow = createWindow();
 
-  // 6a. Register IPC handlers (needs mainWindow reference)
-  registerIpcHandlers(mainWindow);
+  // Register preferences IPC (tray/prefs still use the main process)
   registerPrefsIpcHandlers();
 
   // 6b. If auto-launched with start-minimized, keep window hidden initially
@@ -449,7 +443,6 @@ app.on("window-all-closed", () => {
 app.on("will-quit", () => {
   unregisterShortcuts();
   destroyTray();
-  closeDb();
 
   // Terminate the Next.js server process
   if (nextServer) {
