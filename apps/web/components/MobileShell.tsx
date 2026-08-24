@@ -60,6 +60,7 @@ export function MobileShell() {
   const [ircChannels, setIrcChannels] = useState<string[]>([]);
   const [ircJoinInput, setIrcJoinInput] = useState("");
   const [ircView, setIrcView] = useState<string | null>(null); // active irc channel
+  const [ircError, setIrcError] = useState<string | null>(null);
   const ircViewRef = useRef<string | null>(null);
   ircViewRef.current = ircView;
   const [ircMsgs, setIrcMsgs] = useState<Record<string, RetroMessage[]>>({});
@@ -182,12 +183,15 @@ export function MobileShell() {
   async function connectIrc() {
     const nick = ircNick.trim(); if (!nick || ircBusy) return;
     const net = findNetwork(ircNetId);
-    setIrcBusy(true);
+    setIrcBusy(true); setIrcError(null);
     try {
       const r = await fetch("/api/irc", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "connect", network: net.label, host: net.host, port: net.port, tls: net.tls, nick, saslPassword: ircPw.trim() || undefined }) });
-      const j = await r.json();
+      const j = await r.json().catch(() => ({}));
       if (r.ok) { setIrcConnected({ netId: net.id, nick: j.nick || nick }); setIrcPw(""); sounds.doorOpen(); }
-      else setIrcMsgs((p) => ({ ...p, "*server*": [...(p["*server*"] ?? []), { screenname: "sys", text: "", time: now(), sys: `— ${j.error || "connect failed"} —` }] }));
+      else if (r.status === 401 || r.status === 409) setIrcError("your session expired — pull down to refresh, then sign in again");
+      else setIrcError(j.error || `couldn't connect to ${net.label}`);
+    } catch {
+      setIrcError("network error — try again");
     } finally { setIrcBusy(false); }
   }
   async function joinIrc(chan: string) {
@@ -286,6 +290,7 @@ export function MobileShell() {
               </select>
               <input value={ircNick} onChange={(e) => setIrcNick(e.target.value)} placeholder="nickname" style={{ ...inputStyle, height: 40, fontSize: 16, fontWeight: "bold", color: retro.blue }} />
               <input type="password" value={ircPw} onChange={(e) => setIrcPw(e.target.value)} placeholder="NickServ password (optional)" style={{ ...inputStyle, height: 40, fontSize: 16 }} />
+              {ircError && <div style={{ fontSize: 13, color: retro.red, fontFamily: retro.fontUI }}>{ircError}</div>}
               <button onClick={connectIrc} disabled={ircBusy || !ircNick.trim()} style={{ ...btnStyle, height: 42, color: retro.greenDeep, border: `2px solid ${retro.green}`, opacity: ircBusy ? 0.6 : 1 }}>{ircBusy ? "Connecting…" : `Connect to ${findNetwork(ircNetId).label}`}</button>
             </div>
           ) : (
