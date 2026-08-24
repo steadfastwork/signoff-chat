@@ -1,13 +1,15 @@
 import { VisualViewportTracker } from "@/components/VisualViewportTracker";
+import { MobileShell } from "@/components/MobileShell";
 
-// Minimal app shell for the retro Online Messenger. The old Sidebar / MobileNav /
-// EncryptionSetupPrompt were removed in the strip — the Messenger carries its own
-// buddy list, and encryption is gone.
+// Desktop (≥1024px): multi-window pages render in <main>. Mobile (<1024px):
+// MobileShell overlays the single-window Buddies/Channels/Away/Setup experience
+// (approved SIGNOFF Retro Mobile design). MobileShell self-gates on viewport.
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
     <>
       <VisualViewportTracker />
       <main className="pt-[52px] min-h-screen">{children}</main>
+      <MobileShell />
     </>
   );
 }
