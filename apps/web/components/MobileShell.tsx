@@ -9,6 +9,7 @@ import { useSession, signOut } from "next-auth/react";
 import { useIsMobile } from "@/lib/hooks/useIsMobile";
 import { soketiClient } from "@/lib/soketi";
 import { gatewayUserChannel } from "@/lib/gatewayChannel";
+import { IRC_NETWORKS, findNetwork } from "@/lib/ircNetworks";
 import {
   RetroWindow,
   BuddyRow,
@@ -49,6 +50,20 @@ export function MobileShell() {
   const roomRef = useRef<number | null>(null);
   const [roomMsgs, setRoomMsgs] = useState<RetroMessage[]>([]);
   const [roomWho, setRoomWho] = useState<string[]>([]);
+  const [roomInput, setRoomInput] = useState("");
+
+  // IRC
+  const [ircNetId, setIrcNetId] = useState(IRC_NETWORKS[0].id);
+  const [ircNick, setIrcNick] = useState("");
+  const [ircPw, setIrcPw] = useState("");
+  const [ircConnected, setIrcConnected] = useState<{ netId: string; nick: string } | null>(null);
+  const [ircChannels, setIrcChannels] = useState<string[]>([]);
+  const [ircJoinInput, setIrcJoinInput] = useState("");
+  const [ircView, setIrcView] = useState<string | null>(null); // active irc channel
+  const ircViewRef = useRef<string | null>(null);
+  ircViewRef.current = ircView;
+  const [ircMsgs, setIrcMsgs] = useState<Record<string, RetroMessage[]>>({});
+  const [ircBusy, setIrcBusy] = useState(false);
 
   // away
   const [away, setAway] = useState(false);
@@ -105,14 +120,25 @@ export function MobileShell() {
     const onRoster = (r: { roomId: number; users: string[] }) => {
       if (r.roomId === roomRef.current) setRoomWho(r.users);
     };
+    const onIrc = (m: { target: string; from: string; message: string }) => {
+      setIrcMsgs((p) => ({ ...p, [m.target]: [...(p[m.target] ?? []), { screenname: m.from, text: m.message, time: now() }] }));
+      if (m.target !== ircViewRef.current || m.from.toLowerCase() !== (ircNick || me).toLowerCase()) sounds.msgIn();
+    };
+    const onIrcSys = (s: { text: string }) => {
+      const k = ircViewRef.current || "*server*";
+      setIrcMsgs((p) => ({ ...p, [k]: [...(p[k] ?? []), { screenname: "sys", text: "", time: now(), sys: `— ${s.text} —` }] }));
+    };
     ch.bind("im", onIM);
     ch.bind("buddy", onBuddy);
     ch.bind("chat", onChat);
     ch.bind("chat-roster", onRoster);
+    ch.bind("irc", onIrc);
+    ch.bind("irc-system", onIrcSys);
     const hb = setInterval(() => fetch("/api/im/heartbeat", { method: "POST" }).catch(() => {}), 240000);
     return () => {
       clearInterval(hb);
       ch.unbind("im", onIM); ch.unbind("buddy", onBuddy); ch.unbind("chat", onChat); ch.unbind("chat-roster", onRoster);
+      ch.unbind("irc", onIrc); ch.unbind("irc-system", onIrcSys);
       soketiClient.unsubscribe(gatewayUserChannel(me));
     };
   }, [me]);
@@ -144,6 +170,33 @@ export function MobileShell() {
       const next = [message, ...saved].slice(0, 8); setSaved(next);
       try { localStorage.setItem("signoff_away_presets", JSON.stringify(next)); } catch {}
     }
+  }
+
+  useEffect(() => { if (me) setIrcNick((n) => n || me); }, [me]);
+
+  async function connectIrc() {
+    const nick = ircNick.trim(); if (!nick || ircBusy) return;
+    const net = findNetwork(ircNetId);
+    setIrcBusy(true);
+    try {
+      const r = await fetch("/api/irc", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "connect", network: net.label, host: net.host, port: net.port, tls: net.tls, nick, saslPassword: ircPw.trim() || undefined }) });
+      const j = await r.json();
+      if (r.ok) { setIrcConnected({ netId: net.id, nick: j.nick || nick }); setIrcPw(""); sounds.doorOpen(); }
+      else setIrcMsgs((p) => ({ ...p, "*server*": [...(p["*server*"] ?? []), { screenname: "sys", text: "", time: now(), sys: `— ${j.error || "connect failed"} —` }] }));
+    } finally { setIrcBusy(false); }
+  }
+  async function joinIrc(chan: string) {
+    let c = chan.trim(); if (!c || !ircConnected) return; if (!c.startsWith("#")) c = "#" + c;
+    const net = findNetwork(ircConnected.netId);
+    await fetch("/api/irc", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "join", network: net.label, channel: c }) }).catch(() => {});
+    setIrcChannels((p) => (p.includes(c) ? p : [...p, c])); setIrcJoinInput(""); setIrcView(c); sounds.doorOpen();
+  }
+  async function sendIrc() {
+    const body = text.trim(); if (!body || !ircView || !ircConnected) return; setText("");
+    const net = findNetwork(ircConnected.netId);
+    setIrcMsgs((p) => ({ ...p, [ircView]: [...(p[ircView] ?? []), { screenname: ircConnected.nick, text: body, time: now() }] })); // IRC doesn't echo own
+    sounds.msgOut();
+    await fetch("/api/irc", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "send", network: net.label, target: ircView, message: body }) }).catch(() => {});
   }
 
   const online = buddies.filter((b) => b.status === "ONLINE").length;
@@ -181,6 +234,17 @@ export function MobileShell() {
         </div>
       </RetroWindow>
     );
+  } else if (tab === "channels" && ircView) {
+    const msgs = ircMsgs[ircView] ?? [];
+    body = (
+      <RetroWindow title={`${findNetwork(ircConnected?.netId ?? "libera").label}: ${ircView}`} onBack={() => setIrcView(null)} style={fullWin}>
+        <div style={{ margin: "8px 10px", flex: 1, minHeight: 0 }}><MessageLog messages={msgs} me={ircConnected?.nick ?? me} height={9999} /></div>
+        <div style={{ display: "flex", gap: 7, padding: "0 10px 10px" }}>
+          <input value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === "Enter" && sendIrc()} placeholder={`message ${ircView}…`} style={{ ...inputStyle, flex: 1, minWidth: 0, height: 40, fontSize: 16 }} />
+          <SendButton onClick={sendIrc} />
+        </div>
+      </RetroWindow>
+    );
   } else if (tab === "channels" && room) {
     body = (
       <RetroWindow title={`Chat Room: ${room.name}`} onBack={() => { setRoom(null); roomRef.current = null; }} style={fullWin}>
@@ -193,19 +257,51 @@ export function MobileShell() {
       </RetroWindow>
     );
   } else if (tab === "channels") {
+    const net = findNetwork(ircConnected?.netId ?? ircNetId);
+    const section: React.CSSProperties = { fontSize: 12, fontWeight: "bold", color: retro.inkSoft, padding: "10px 12px 4px", textTransform: "uppercase", letterSpacing: 0.5 };
+    const chip: React.CSSProperties = { fontSize: 12, color: retro.blue, border: `1px solid ${retro.inputBorder}`, borderRadius: 12, padding: "4px 10px", cursor: "pointer", background: "#fff" };
     body = (
       <RetroWindow title="Channels" badge style={fullWin}>
-        <div style={{ flex: 1, overflowY: "auto", background: retro.well, padding: "4px 0" }}>
+        <div style={{ flex: 1, overflowY: "auto", background: retro.well }}>
+          {/* ── IRC ─────────────────────────────────────────── */}
+          <div style={section}>IRC</div>
+          {!ircConnected ? (
+            <div style={{ padding: "4px 12px 12px", display: "flex", flexDirection: "column", gap: 8 }}>
+              <select value={ircNetId} onChange={(e) => setIrcNetId(e.target.value)} style={{ ...inputStyle, height: 40, fontSize: 15 }}>
+                {IRC_NETWORKS.map((n) => <option key={n.id} value={n.id}>{n.label}</option>)}
+              </select>
+              <input value={ircNick} onChange={(e) => setIrcNick(e.target.value)} placeholder="nickname" style={{ ...inputStyle, height: 40, fontSize: 16, fontWeight: "bold", color: retro.blue }} />
+              <input type="password" value={ircPw} onChange={(e) => setIrcPw(e.target.value)} placeholder="NickServ password (optional)" style={{ ...inputStyle, height: 40, fontSize: 16 }} />
+              <button onClick={connectIrc} disabled={ircBusy || !ircNick.trim()} style={{ ...btnStyle, height: 42, color: retro.greenDeep, border: `2px solid ${retro.green}`, opacity: ircBusy ? 0.6 : 1 }}>{ircBusy ? "Connecting…" : `Connect to ${findNetwork(ircNetId).label}`}</button>
+            </div>
+          ) : (
+            <div style={{ padding: "0 0 8px" }}>
+              <div style={{ fontSize: 11, color: retro.inkMuted, padding: "0 12px 6px" }}>{net.label} · {ircConnected.nick}</div>
+              {ircChannels.map((c) => (
+                <div key={c} onClick={() => setIrcView(c)} style={{ padding: "10px 14px", cursor: "pointer", borderBottom: `1px solid ${retro.hairline}`, color: retro.blue, fontWeight: "bold", fontSize: 15 }}>{c}</div>
+              ))}
+              <div style={{ display: "flex", gap: 5, padding: "8px 12px" }}>
+                <input value={ircJoinInput} onChange={(e) => setIrcJoinInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && joinIrc(ircJoinInput)} placeholder="#channel" style={{ ...inputStyle, flex: 1, minWidth: 0, height: 40, fontSize: 16 }} />
+                <button onClick={() => joinIrc(ircJoinInput)} style={{ ...btnStyle, height: 40, padding: "0 12px" }}>Join</button>
+              </div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, padding: "0 12px 8px" }}>
+                {net.suggested.map((c) => <span key={c} onClick={() => joinIrc(c)} style={chip}>{c}</span>)}
+              </div>
+            </div>
+          )}
+
+          {/* ── SIGNOFF rooms ────────────────────────────────── */}
+          <div style={section}>SIGNOFF Rooms</div>
           {rooms.map((r) => (
             <div key={r.name} onClick={() => joinRoom(r.name)} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 14px", cursor: "pointer", borderBottom: `1px solid ${retro.hairline}` }}>
               <span style={{ color: retro.blue, fontWeight: "bold", fontSize: 15 }}># {r.name}</span>
               <span style={{ fontSize: 11, color: retro.inkMuted }}>{r.participants?.length ?? 0}</span>
             </div>
           ))}
-        </div>
-        <div style={{ display: "flex", gap: 5, padding: 8, borderTop: `1px solid ${retro.hairline}` }}>
-          <input value={newBuddy} onChange={(e) => setNewBuddy(e.target.value)} onKeyDown={(e) => e.key === "Enter" && joinRoom(newBuddy.trim())} placeholder="room name…" style={{ ...inputStyle, flex: 1, minWidth: 0, height: 40, fontSize: 16 }} />
-          <button onClick={() => joinRoom(newBuddy.trim())} style={{ ...btnStyle, height: 40, padding: "0 14px" }}>Join</button>
+          <div style={{ display: "flex", gap: 5, padding: "8px 12px" }}>
+            <input value={roomInput} onChange={(e) => setRoomInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && joinRoom(roomInput.trim())} placeholder="new room name…" style={{ ...inputStyle, flex: 1, minWidth: 0, height: 40, fontSize: 16 }} />
+            <button onClick={() => joinRoom(roomInput.trim())} style={{ ...btnStyle, height: 40, padding: "0 12px" }}>Join</button>
+          </div>
         </div>
       </RetroWindow>
     );
@@ -262,7 +358,7 @@ export function MobileShell() {
         {TABS.map((t) => {
           const active = tab === t.key;
           return (
-            <div key={t.key} onClick={() => { setTab(t.key); if (t.key === "buddies") setDmTarget(null); if (t.key === "channels") { setRoom(null); roomRef.current = null; } }}
+            <div key={t.key} onClick={() => { setTab(t.key); if (t.key === "buddies") setDmTarget(null); if (t.key === "channels") { setRoom(null); roomRef.current = null; setIrcView(null); } }}
               style={{ flex: 1, minHeight: 52, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 3, cursor: "pointer", borderRadius: 8, background: active ? retro.selection : "transparent" }}>
               <span style={{ fontSize: 18, color: active ? retro.blue : retro.inkSoft, fontFamily: t.icon === "#" ? retro.fontBrand : "inherit" }}>{t.icon}</span>
               <span style={{ fontSize: 11, fontWeight: "bold", color: retro.inkSoft }}>{t.label}</span>
