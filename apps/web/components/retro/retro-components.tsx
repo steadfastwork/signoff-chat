@@ -109,22 +109,34 @@ const noiseBurst = (t0: number, dur: number, lp: number, vol: number): void => {
   }
 };
 
+// Mute gates (persisted by the caller via localStorage) — "Buddy sounds" covers
+// message blips, "Door sounds" covers sign on/off. Preview buttons pass force.
+let _buddyMuted = false;
+let _doorMuted = false;
 export const sounds = {
-  msgIn: () => {
+  setMuted: (o: { buddy?: boolean; door?: boolean }) => {
+    if (o.buddy !== undefined) _buddyMuted = o.buddy;
+    if (o.door !== undefined) _doorMuted = o.door;
+  },
+  msgIn: (force = false) => {
+    if (_buddyMuted && !force) return;
     sweep(660, 660, 0, 0.09, "sine", 0.09);
     sweep(1046, 1046, 0.09, 0.22, "sine", 0.09);
     sweep(2092, 2092, 0.09, 0.12, "sine", 0.02);
   },
-  msgOut: () => {
+  msgOut: (force = false) => {
+    if (_buddyMuted && !force) return;
     sweep(880, 880, 0, 0.07, "sine", 0.06);
     sweep(587, 587, 0.07, 0.16, "sine", 0.06);
   },
-  doorOpen: () => {
+  doorOpen: (force = false) => {
+    if (_doorMuted && !force) return;
     noiseBurst(0, 0.05, 2200, 0.05);
     for (let k = 0; k < 7; k++) sweep(85 + k * 16, 105 + k * 16, 0.05 + k * 0.075, 0.11, "sawtooth", 0.028);
     sweep(500, 700, 0.62, 0.05, "triangle", 0.03);
   },
-  doorSlam: () => {
+  doorSlam: (force = false) => {
+    if (_doorMuted && !force) return;
     sweep(150, 48, 0, 0.28, "sine", 0.22);
     noiseBurst(0, 0.16, 750, 0.22);
     noiseBurst(0.1, 0.12, 420, 0.09);

@@ -82,13 +82,41 @@ export function MobileShell() {
   const [text, setText] = useState("");
   const [format, setFormat] = useState<RetroMessageFormat>({ color: retro.ink });
 
+  // setup / my info
+  const [bio, setBio] = useState("");
+  const [bioDraft, setBioDraft] = useState("");
+  const [editingBio, setEditingBio] = useState(false);
+  const [buddySounds, setBuddySounds] = useState(true);
+  const [doorSounds, setDoorSounds] = useState(true);
+
   const now = () => new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 
   useEffect(() => {
     try {
       setSaved(JSON.parse(localStorage.getItem("signoff_away_presets") || "[]"));
     } catch {}
+    // sound prefs
+    try {
+      const b = localStorage.getItem("signoff_snd_buddy") !== "0";
+      const d = localStorage.getItem("signoff_snd_door") !== "0";
+      setBuddySounds(b); setDoorSounds(d); sounds.setMuted({ buddy: !b, door: !d });
+    } catch {}
   }, []);
+
+  // load my profile (bio) once signed in
+  useEffect(() => {
+    if (!me) return;
+    (async () => {
+      try { const j = await (await fetch("/api/user/profile")).json(); setBio(j.bio || ""); setBioDraft(j.bio || ""); } catch {}
+    })();
+  }, [me]);
+
+  function toggleBuddySounds() { const v = !buddySounds; setBuddySounds(v); sounds.setMuted({ buddy: !v }); try { localStorage.setItem("signoff_snd_buddy", v ? "1" : "0"); } catch {} }
+  function toggleDoorSounds() { const v = !doorSounds; setDoorSounds(v); sounds.setMuted({ door: !v }); try { localStorage.setItem("signoff_snd_door", v ? "1" : "0"); } catch {} }
+  async function saveBio() {
+    const b = bioDraft.trim().slice(0, 160); setBio(b); setEditingBio(false);
+    await fetch("/api/user/profile", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ bio: b }) }).catch(() => {});
+  }
 
   const loadBuddies = useCallback(async () => {
     try {
@@ -418,10 +446,48 @@ export function MobileShell() {
   } else {
     body = (
       <RetroWindow title="Setup" badge style={fullWin}>
-        <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 14 }}>
-          <div style={{ fontSize: 14, color: retro.ink }}>Signed on as <b style={{ color: retro.blue }}>{me}</b></div>
-          <div style={{ fontSize: 12, color: retro.inkMuted, fontFamily: retro.fontMono }}>Server: oscar.signoff.chat:5190 · TOC2<br />Messages route through the SIGNOFF gateway.</div>
-          <button onClick={() => signOut({ callbackUrl: "/login" })} style={{ ...btnStyle, height: 44, color: retro.redDeep, border: `2px solid ${retro.red}` }}>Sign Off</button>
+        <div style={{ flex: 1, overflowY: "auto", background: retro.well, padding: 12, display: "flex", flexDirection: "column", gap: 12 }}>
+          {/* ── My Info ─────────────────────────────────────── */}
+          <div style={{ background: "#fff", border: `1px solid ${retro.hairline}`, borderRadius: 6, padding: 12 }}>
+            <div style={{ fontSize: 12, fontWeight: "bold", color: retro.inkSoft, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 10 }}>My Info</div>
+            <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+              <div style={{ width: 52, height: 52, borderRadius: 6, background: retro.gradient, color: retro.gold, fontFamily: retro.fontBrand, fontSize: 22, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{(me || "?").slice(0, 2).toUpperCase()}</div>
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <div style={{ fontSize: 17, fontWeight: "bold", color: retro.blue }}>{me}</div>
+                {!editingBio ? (
+                  <div onClick={() => { setBioDraft(bio); setEditingBio(true); }} style={{ fontSize: 13, fontStyle: "italic", color: bio ? retro.inkSoft : retro.inkMuted, fontFamily: retro.fontMsg, cursor: "pointer" }}>{bio || "tap to add a profile line…"}</div>
+                ) : (
+                  <div style={{ display: "flex", gap: 6, marginTop: 4 }}>
+                    <input value={bioDraft} maxLength={160} onChange={(e) => setBioDraft(e.target.value)} onKeyDown={(e) => e.key === "Enter" && saveBio()} autoFocus placeholder="profile line" style={{ ...inputStyle, flex: 1, minWidth: 0, height: 34, fontSize: 16 }} />
+                    <button onClick={saveBio} style={{ ...btnStyle, height: 34, padding: "0 12px" }}>Save</button>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* ── Sounds ──────────────────────────────────────── */}
+          <div style={{ background: "#fff", border: `1px solid ${retro.hairline}`, borderRadius: 6, padding: 12 }}>
+            <div style={{ fontSize: 12, fontWeight: "bold", color: retro.inkSoft, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 10 }}>Sounds</div>
+            <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14, color: retro.ink, marginBottom: 8 }}>
+              <input type="checkbox" checked={buddySounds} onChange={toggleBuddySounds} /> Buddy sounds (message blips)
+            </label>
+            <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14, color: retro.ink, marginBottom: 12 }}>
+              <input type="checkbox" checked={doorSounds} onChange={toggleDoorSounds} /> Door sounds on sign on / off
+            </label>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button onClick={() => sounds.doorOpen(true)} style={{ ...btnStyle, flex: 1, height: 40 }}>▶ door open</button>
+              <button onClick={() => sounds.doorSlam(true)} style={{ ...btnStyle, flex: 1, height: 40 }}>▶ door slam</button>
+            </div>
+          </div>
+
+          {/* ── Connection ──────────────────────────────────── */}
+          <div style={{ background: "#fff", border: `1px solid ${retro.hairline}`, borderRadius: 6, padding: 12 }}>
+            <div style={{ fontSize: 12, fontWeight: "bold", color: retro.inkSoft, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>Connection</div>
+            <div style={{ fontSize: 12, color: retro.inkMuted, fontFamily: retro.fontMono, lineHeight: 1.5 }}>Signed on as <b style={{ color: retro.blue }}>{me}</b><br />Server: oscar.signoff.chat · TOC2<br />Messages route through the SIGNOFF gateway.</div>
+          </div>
+
+          <button onClick={() => { sounds.doorSlam(); signOut({ callbackUrl: "/login" }); }} style={{ ...btnStyle, height: 46, color: retro.redDeep, border: `2px solid ${retro.red}` }}>Sign Off</button>
         </div>
       </RetroWindow>
     );
