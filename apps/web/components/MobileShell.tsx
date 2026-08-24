@@ -29,7 +29,8 @@ import {
 } from "@/components/retro/retro-components";
 
 type Tab = "buddies" | "channels" | "away" | "setup";
-type Presence = { name: string; online: boolean };
+type Presence = { name: string; online: boolean; away?: boolean; group?: string };
+const presenceStatus = (p: Presence): RetroBuddy["status"] => (p.away ? "AWAY" : p.online ? "ONLINE" : "OFFLINE");
 
 export function MobileShell() {
   const isMobile = useIsMobile();
@@ -39,6 +40,9 @@ export function MobileShell() {
 
   // buddies + DM
   const [buddies, setBuddies] = useState<RetroBuddy[]>([]);
+  const buddiesRef = useRef<RetroBuddy[]>([]);
+  buddiesRef.current = buddies;
+  const acceptedRef = useRef<Set<string>>(new Set());
   const [newBuddy, setNewBuddy] = useState("");
   const [dmTarget, setDmTarget] = useState<string | null>(null);
   const dmTargetRef = useRef<string | null>(null);
@@ -99,6 +103,7 @@ export function MobileShell() {
   const [myStatus, setMyStatus] = useState<"Online" | "Away" | "Invisible" | "Offline">("Online");
   const [helpOpen, setHelpOpen] = useState(false);
   const [infoFor, setInfoFor] = useState<string | null>(null); // buddy info dialog
+  const [pendingAccept, setPendingAccept] = useState<{ from: string; message: string } | null>(null);
 
   const now = () => new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 
@@ -164,7 +169,7 @@ export function MobileShell() {
   const loadBuddies = useCallback(async () => {
     try {
       const j = await (await fetch("/api/buddies")).json();
-      setBuddies(((j.buddies as Presence[]) ?? []).map((p) => ({ screenname: p.name, status: p.online ? "ONLINE" : "OFFLINE" }) as RetroBuddy).sort(sortB));
+      setBuddies(((j.buddies as Presence[]) ?? []).map((p) => ({ screenname: p.name, status: presenceStatus(p), group: p.group }) as RetroBuddy).sort(sortB));
     } catch {}
   }, []);
   const loadRooms = useCallback(async () => {
@@ -188,9 +193,20 @@ export function MobileShell() {
     const onIM = (m: { from: string; message: string }) => {
       setDmByBuddy((p) => ({ ...p, [m.from]: [...(p[m.from] ?? []), { screenname: m.from, text: m.message, time: now() }] }));
       sounds.msgIn();
+      // AIM-style gating: a message from someone not on your buddy list prompts an
+      // Accept dialog (unless already accepted / it's the open DM / you opted out).
+      const k = m.from.toLowerCase();
+      const known = buddiesRef.current.some((b) => b.screenname.toLowerCase() === k);
+      let optedOut = false; try { optedOut = localStorage.getItem("signoff_accept_dontask") === "1"; } catch {}
+      if (!known && !optedOut && !acceptedRef.current.has(k) && dmTargetRef.current?.toLowerCase() !== k) {
+        setPendingAccept({ from: m.from, message: m.message });
+      }
     };
-    const onBuddy = (b: { name: string; online: boolean }) =>
-      setBuddies((p) => [...p.filter((x) => x.screenname.toLowerCase() !== b.name.toLowerCase()), { screenname: b.name, status: b.online ? "ONLINE" : "OFFLINE" } as RetroBuddy].sort(sortB));
+    const onBuddy = (b: Presence) =>
+      setBuddies((p) => {
+        const prev = p.find((x) => x.screenname.toLowerCase() === b.name.toLowerCase());
+        return [...p.filter((x) => x.screenname.toLowerCase() !== b.name.toLowerCase()), { screenname: b.name, status: presenceStatus(b), group: b.group ?? prev?.group } as RetroBuddy].sort(sortB);
+      });
     const onChat = (m: { roomId: number; from: string; message: string }) => {
       if (m.roomId === roomRef.current) setRoomMsgs((p) => [...p, { screenname: m.from, text: m.message, time: now() }]);
     };
@@ -378,14 +394,19 @@ export function MobileShell() {
   } else if (tab === "buddies") {
     // favorites + client-side grouping, matching the approved mock
     const withFav = buddies.map((b) => ({ ...b, favorite: favorites.includes(b.screenname) }));
-    const primary = groupOrder[0] || "Buddies";
-    const buckets = groupOrder.map((g) => ({
+    // Groups come from the server (OSCAR SSI) merged with any client-made ones;
+    // a manual move (groupOf) overrides the server's group for that buddy.
+    const serverGroups = Array.from(new Set(buddies.map((b) => b.group).filter(Boolean) as string[]));
+    const allGroups = Array.from(new Set([...groupOrder, ...serverGroups]));
+    const primary = allGroups[0] || "Buddies";
+    const groupFor = (b: RetroBuddy) => groupOf[b.screenname.toLowerCase()] || b.group || primary;
+    const buckets = allGroups.map((g) => ({
       g,
       items: withFav
-        .filter((b) => (groupOf[b.screenname.toLowerCase()] || primary) === g)
+        .filter((b) => groupFor(b) === g)
         .sort((a, c) => (c.favorite ? 1 : 0) - (a.favorite ? 1 : 0) || sortB(a, c)),
     }));
-    const multi = groupOrder.length > 1;
+    const multi = allGroups.length > 1;
     body = (
       <RetroWindow title={`${me || "…"}'s Buddy List`} badge style={fullWin}>
         {/* menu bar (per mock) */}
@@ -428,7 +449,7 @@ export function MobileShell() {
                     <div style={{ flex: 1, minWidth: 0 }}><BuddyRow buddy={b} onClick={() => setDmTarget(b.screenname)} onStar={() => toggleFavorite(b.screenname)} /></div>
                     {multi && (
                       <select value={groupOf[b.screenname.toLowerCase()] || primary} onChange={(e) => moveToGroup(b.screenname, e.target.value)} onClick={(e) => e.stopPropagation()} style={{ ...inputStyle, height: 26, fontSize: 11, marginRight: 8, padding: "0 4px" }}>
-                        {groupOrder.map((gg) => <option key={gg} value={gg}>{gg}</option>)}
+                        {allGroups.map((gg) => <option key={gg} value={gg}>{gg}</option>)}
                       </select>
                     )}
                   </div>
@@ -661,6 +682,31 @@ export function MobileShell() {
             </div>
             <div onClick={toggleBuddySounds} style={{ margin: "8px 14px 0", minHeight: 44, display: "flex", alignItems: "center", gap: 8, padding: "0 14px", background: "#fdfcf9", border: `1px solid ${retro.inputBorder}`, borderRadius: 4, cursor: "pointer", fontSize: 13, color: retro.inkSoft }}>
               <span style={{ width: 15, height: 15, background: "#fff", border: `1px solid ${retro.inkMuted}`, borderRadius: 2, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: "bold", color: retro.blue }}>{buddySounds ? "✓" : ""}</span>Sounds on
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Accept Message dialog (IM from a non-buddy) */}
+      {pendingAccept && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 90, background: "rgba(25,30,60,0.5)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+          <div style={{ width: "100%", maxWidth: 322, background: retro.well, border: `1px solid ${retro.border}`, borderRadius: 3, boxShadow: "0 20px 50px rgba(10,15,40,0.5)" }}>
+            <div style={{ background: "#fdfcf9", color: retro.ink, fontWeight: "bold", fontSize: 15, padding: "10px 14px", display: "flex", alignItems: "center", borderBottom: `1px solid ${retro.hairline}`, borderRadius: "3px 3px 0 0" }}><span style={{ flex: 1 }}>Accept Message</span><span onClick={() => setPendingAccept(null)} style={{ color: retro.inkMuted, cursor: "pointer", padding: "2px 4px" }}>✕</span></div>
+            <div style={{ padding: "16px 16px 14px", textAlign: "center", fontSize: 13, color: retro.inkSoft }}>
+              <div>User</div>
+              <div style={{ fontWeight: "bold", fontSize: 15, margin: "3px 0", color: snColor(pendingAccept.from) }}>&quot;{pendingAccept.from}&quot;</div>
+              <div>has sent you a message. Would you like to accept it?</div>
+              <div style={{ display: "flex", gap: 10, justifyContent: "center", margin: "16px 0 6px" }}>
+                <button onClick={() => { acceptedRef.current.add(pendingAccept.from.toLowerCase()); setDmTarget(pendingAccept.from); setTab("buddies"); setPendingAccept(null); }} style={{ ...btnStyle, minWidth: 98, height: 44, fontWeight: "bold", color: retro.greenDeep, border: `1px solid ${retro.green}` }}>Yes</button>
+                <button onClick={() => setPendingAccept(null)} style={{ ...btnStyle, minWidth: 98, height: 44, fontWeight: "bold" }}>No</button>
+              </div>
+              <div style={{ display: "flex", gap: 10, justifyContent: "center", marginTop: 6 }}>
+                <button onClick={() => { const f = pendingAccept.from; fetch(`/api/users/${encodeURIComponent(f)}/block`, { method: "POST" }).catch(() => {}); setDmByBuddy((p) => { const n = { ...p }; delete n[f]; return n; }); setPendingAccept(null); }} style={{ ...btnStyle, minWidth: 82, height: 38, fontSize: 12, color: retro.redDeep }}>Block…</button>
+              </div>
+              <div onClick={() => { try { localStorage.setItem("signoff_accept_dontask", "1"); } catch {} setPendingAccept(null); }} style={{ display: "flex", alignItems: "center", gap: 6, minHeight: 36, cursor: "pointer", fontSize: 12, marginTop: 10, color: retro.inkSoft }}>
+                <span style={{ width: 15, height: 15, background: "#fff", border: `1px solid ${retro.inkMuted}`, borderRadius: 2 }} />Don&apos;t display this dialog again.
+              </div>
+              <div style={{ fontSize: 11, color: retro.inkMuted, textAlign: "left", marginTop: 8, lineHeight: 1.5 }}>SIGNOFF admins will never ask for your password or recovery phrase.</div>
             </div>
           </div>
         </div>

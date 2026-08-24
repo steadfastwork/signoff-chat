@@ -505,6 +505,7 @@ export interface RetroBuddy {
   status: "ONLINE" | "AWAY" | "IDLE" | "INVISIBLE" | "OFFLINE";
   isGoldMember?: boolean;
   favorite?: boolean;
+  group?: string;
 }
 
 export function BuddyRow({ buddy, selected, onClick, onStar }: { buddy: RetroBuddy; selected?: boolean; onClick?: () => void; onStar?: () => void }) {

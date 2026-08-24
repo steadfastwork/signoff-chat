@@ -74,4 +74,6 @@ export interface BuddyPresence {
   warnLevel: number;
   idleMinutes: number;
   userClass: string;
+  away?: boolean;
+  group?: string;
 }

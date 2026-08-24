@@ -44,6 +44,8 @@ export interface BuddyUpdate {
   warnLevel: number;
   idleMinutes: number;
   userClass: string;
+  away: boolean; // AIM "unavailable" (U) flag in the user class
+  group?: string; // buddy-list group from the saved SSI list (CONFIG2)
 }
 
 export interface ChatMessage {
@@ -209,12 +211,16 @@ export class TocClient extends EventEmitter {
       case "UPDATE_BUDDY2": {
         // UPDATE_BUDDY:<name>:<online T/F>:<evil>:<signon>:<idle>:<uc>
         const p = cmd.split(":");
+        const uc = (p[6] || "").trim();
+        const prev = this.roster.get((p[1] || "").toLowerCase());
         const update: BuddyUpdate = {
           name: p[1],
           online: (p[2] || "F").toUpperCase() === "T",
           warnLevel: parseInt(p[3] || "0", 10) || 0,
           idleMinutes: parseInt(p[5] || "0", 10) || 0,
-          userClass: (p[6] || "").trim(),
+          userClass: uc,
+          away: uc.includes("U"), // AIM unavailable/away flag
+          group: prev?.group, // UPDATE_BUDDY carries no group — keep the CONFIG2 one
         };
         this.roster.set(update.name.toLowerCase(), update);
         this.emit("buddy", update);
@@ -268,14 +274,19 @@ export class TocClient extends EventEmitter {
       case "CONFIG":
       case "CONFIG2": {
         // Saved buddy list sent at signon. Format: lines "g:<group>" / "b:<name>[:alias…]".
-        // Seed the roster (offline until an UPDATE_BUDDY reports presence).
+        // Seed the roster (offline until an UPDATE_BUDDY reports presence) and
+        // remember each buddy's group so the UI can render real SSI groups.
+        let currentGroup = "Buddies";
         for (const line of cmd.split("\n")) {
-          if (line.startsWith("b:")) {
+          if (line.startsWith("g:")) {
+            currentGroup = line.slice(2).trim() || "Buddies";
+          } else if (line.startsWith("b:")) {
             const name = line.slice(2).split(":")[0].trim();
             const key = name.toLowerCase();
-            if (name && !this.roster.has(key)) {
-              this.roster.set(key, { name, online: false, warnLevel: 0, idleMinutes: 0, userClass: "" });
-            }
+            if (!name) continue;
+            const prev = this.roster.get(key);
+            if (prev) prev.group = currentGroup;
+            else this.roster.set(key, { name, online: false, warnLevel: 0, idleMinutes: 0, userClass: "", away: false, group: currentGroup });
           }
         }
         break;
@@ -296,7 +307,7 @@ export class TocClient extends EventEmitter {
     // OSCAR only emits UPDATE_BUDDY for presence changes / online buddies.
     for (const n of names) {
       const key = n.toLowerCase();
-      if (!this.roster.has(key)) this.roster.set(key, { name: n, online: false, warnLevel: 0, idleMinutes: 0, userClass: "" });
+      if (!this.roster.has(key)) this.roster.set(key, { name: n, online: false, warnLevel: 0, idleMinutes: 0, userClass: "", away: false });
     }
     if (names.length) this.sendData(`toc_add_buddy ${names.join(" ")}`);
   }
