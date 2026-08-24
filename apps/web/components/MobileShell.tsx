@@ -22,6 +22,7 @@ import {
   retro,
   snColor,
   sounds,
+  unlockAudio,
   type RetroBuddy,
   type RetroMessage,
   type RetroMessageFormat,
@@ -116,6 +117,11 @@ export function MobileShell() {
       const order = JSON.parse(localStorage.getItem("signoff_group_order") || "null");
       if (Array.isArray(order) && order.length) setGroupOrder(order);
     } catch {}
+    // Unlock audio on the first user gesture (mobile browsers gate it otherwise).
+    const un = () => { unlockAudio(); window.removeEventListener("pointerdown", un); window.removeEventListener("touchend", un); };
+    window.addEventListener("pointerdown", un, { once: false });
+    window.addEventListener("touchend", un, { once: false });
+    return () => { window.removeEventListener("pointerdown", un); window.removeEventListener("touchend", un); };
   }, []);
 
   function toggleFavorite(name: string) {

@@ -52,12 +52,46 @@ export const snColor = (screenname: string): string => {
 };
 
 // ---------------------------------------------------------------------------
-// Sound engine (WebAudio, no assets) — door open/slam + message chimes
+// Sound engine — real door WAV samples (public/sounds) + WebAudio message chimes.
+// Mobile browsers start the AudioContext suspended and gate <audio> until the
+// first user gesture; unlockAudio() (called on first tap) resumes/primes both.
 // ---------------------------------------------------------------------------
 let _ctx: AudioContext | undefined;
-const ctx = (): AudioContext =>
-  (_ctx ||= new (window.AudioContext ||
-    (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)());
+const ctx = (): AudioContext => {
+  _ctx ||= new (window.AudioContext ||
+    (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
+  if (_ctx.state === "suspended") _ctx.resume().catch(() => {});
+  return _ctx;
+};
+
+// Real door samples (play via HTMLAudioElement so they work like any media clip).
+let _doorOpenEl: HTMLAudioElement | undefined;
+let _doorSlamEl: HTMLAudioElement | undefined;
+function doorEls() {
+  if (typeof window === "undefined") return;
+  if (!_doorOpenEl) { _doorOpenEl = new Audio("/sounds/door-open.wav"); _doorOpenEl.preload = "auto"; }
+  if (!_doorSlamEl) { _doorSlamEl = new Audio("/sounds/door-slam.wav"); _doorSlamEl.preload = "auto"; }
+}
+function playFile(el?: HTMLAudioElement): boolean {
+  if (!el) return false;
+  try { el.currentTime = 0; const p = el.play(); if (p && typeof p.catch === "function") p.catch(() => {}); return true; } catch { return false; }
+}
+
+let _unlocked = false;
+export function unlockAudio() {
+  if (_unlocked || typeof window === "undefined") return;
+  _unlocked = true;
+  try { ctx(); } catch { /* ignore */ }
+  doorEls();
+  // Prime the <audio> elements inside the gesture: play muted so later
+  // programmatic plays (sign-on/off) aren't blocked by autoplay policy.
+  for (const el of [_doorOpenEl, _doorSlamEl]) {
+    if (!el) continue;
+    el.muted = true;
+    const p = el.play();
+    if (p && typeof p.then === "function") p.then(() => { el.pause(); el.currentTime = 0; el.muted = false; }).catch(() => { el.muted = false; });
+  }
+}
 
 const sweep = (
   f0: number,
@@ -131,17 +165,21 @@ export const sounds = {
   },
   doorOpen: (force = false) => {
     if (_doorMuted && !force) return;
-    // hinge creak: a wobbling tone that rises as the door swings open…
+    doorEls();
+    if (playFile(_doorOpenEl)) return; // real sample
+    // synth fallback: hinge creak → latch → chime
     for (let k = 0; k < 11; k++) sweep(110 + k * 10, 122 + k * 10, k * 0.042, 0.07, "sawtooth", 0.032);
-    // …then the latch clicks and a soft chime confirms the sign-on.
     noiseBurst(0.5, 0.03, 3200, 0.06);
     sweep(660, 990, 0.55, 0.08, "triangle", 0.035);
   },
   doorSlam: (force = false) => {
     if (_doorMuted && !force) return;
-    sweep(200, 42, 0, 0.2, "sine", 0.3); // heavy pitch-drop thud
-    noiseBurst(0, 0.13, 950, 0.32); // impact
-    noiseBurst(0.09, 0.09, 500, 0.14); // frame rattle
+    doorEls();
+    if (playFile(_doorSlamEl)) return; // real sample
+    // synth fallback: heavy thud + impact + frame rattle
+    sweep(200, 42, 0, 0.2, "sine", 0.3);
+    noiseBurst(0, 0.13, 950, 0.32);
+    noiseBurst(0.09, 0.09, 500, 0.14);
     sweep(110, 38, 0.1, 0.22, "triangle", 0.1);
   },
   tick: () => sweep(780, 780, 0, 0.1, "triangle", 0.04),
