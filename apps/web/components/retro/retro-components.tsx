@@ -131,16 +131,18 @@ export const sounds = {
   },
   doorOpen: (force = false) => {
     if (_doorMuted && !force) return;
-    noiseBurst(0, 0.05, 2200, 0.05);
-    for (let k = 0; k < 7; k++) sweep(85 + k * 16, 105 + k * 16, 0.05 + k * 0.075, 0.11, "sawtooth", 0.028);
-    sweep(500, 700, 0.62, 0.05, "triangle", 0.03);
+    // hinge creak: a wobbling tone that rises as the door swings open…
+    for (let k = 0; k < 11; k++) sweep(110 + k * 10, 122 + k * 10, k * 0.042, 0.07, "sawtooth", 0.032);
+    // …then the latch clicks and a soft chime confirms the sign-on.
+    noiseBurst(0.5, 0.03, 3200, 0.06);
+    sweep(660, 990, 0.55, 0.08, "triangle", 0.035);
   },
   doorSlam: (force = false) => {
     if (_doorMuted && !force) return;
-    sweep(150, 48, 0, 0.28, "sine", 0.22);
-    noiseBurst(0, 0.16, 750, 0.22);
-    noiseBurst(0.1, 0.12, 420, 0.09);
-    sweep(95, 40, 0.09, 0.2, "triangle", 0.08);
+    sweep(200, 42, 0, 0.2, "sine", 0.3); // heavy pitch-drop thud
+    noiseBurst(0, 0.13, 950, 0.32); // impact
+    noiseBurst(0.09, 0.09, 500, 0.14); // frame rattle
+    sweep(110, 38, 0.1, 0.22, "triangle", 0.1);
   },
   tick: () => sweep(780, 780, 0, 0.1, "triangle", 0.04),
 };
@@ -464,11 +466,16 @@ export interface RetroBuddy {
   screenname: string;
   status: "ONLINE" | "AWAY" | "IDLE" | "INVISIBLE" | "OFFLINE";
   isGoldMember?: boolean;
+  favorite?: boolean;
 }
 
-export function BuddyRow({ buddy, selected, onClick }: { buddy: RetroBuddy; selected?: boolean; onClick?: () => void }) {
+export function BuddyRow({ buddy, selected, onClick, onStar }: { buddy: RetroBuddy; selected?: boolean; onClick?: () => void; onStar?: () => void }) {
   const off = buddy.status === "OFFLINE" || buddy.status === "INVISIBLE";
   const away = buddy.status === "AWAY";
+  const fav = buddy.favorite || buddy.isGoldMember;
+  const starTap = onStar
+    ? (e: React.MouseEvent) => { e.stopPropagation(); onStar(); }
+    : undefined;
   return (
     <div
       onClick={onClick}
@@ -476,8 +483,8 @@ export function BuddyRow({ buddy, selected, onClick }: { buddy: RetroBuddy; sele
         display: "flex",
         alignItems: "center",
         gap: 8,
-        minHeight: 30,
-        padding: "0 10px 0 26px",
+        minHeight: 34,
+        padding: "0 12px 0 26px",
         cursor: "pointer",
         background: selected ? retro.selection : "transparent",
         fontFamily: retro.fontUI,
@@ -485,23 +492,27 @@ export function BuddyRow({ buddy, selected, onClick }: { buddy: RetroBuddy; sele
     >
       <span
         style={{
-          width: 9,
-          height: 9,
+          width: 10,
+          height: 10,
           borderRadius: "50%",
           background: off ? "transparent" : away ? retro.amber : retro.green,
           border: `1px solid ${off ? "#c9c6bc" : "transparent"}`,
+          flexShrink: 0,
         }}
       />
       <span
         style={{
-          fontSize: 13.5,
+          fontSize: 15,
           ...(off ? { color: "#b5b2a8", fontStyle: "italic" } : { color: snColor(buddy.screenname), fontWeight: "bold" }),
         }}
       >
         {buddy.screenname}
       </span>
-      {buddy.isGoldMember && <span style={{ color: retro.goldDim, fontSize: 12 }}>★</span>}
-      {away && <span style={{ fontSize: 10, fontStyle: "italic", color: "#b08020", marginLeft: "auto" }}>away</span>}
+      {fav && <span onClick={starTap} style={{ color: retro.goldDim, fontSize: 14, cursor: onStar ? "pointer" : "default" }}>★</span>}
+      <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
+        {away && <span style={{ fontSize: 12, fontStyle: "italic", color: "#b08020" }}>away</span>}
+        {!fav && onStar && <span onClick={starTap} style={{ color: "#cfccc2", fontSize: 14, cursor: "pointer" }}>☆</span>}
+      </span>
     </div>
   );
 }

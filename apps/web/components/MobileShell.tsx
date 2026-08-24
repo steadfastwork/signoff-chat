@@ -89,6 +89,13 @@ export function MobileShell() {
   const [buddySounds, setBuddySounds] = useState(true);
   const [doorSounds, setDoorSounds] = useState(true);
 
+  // buddy list — favorites + client-side groups (localStorage)
+  const [favorites, setFavorites] = useState<string[]>([]);
+  const [groupOf, setGroupOf] = useState<Record<string, string>>({}); // screenname(lower) -> group
+  const [groupOrder, setGroupOrder] = useState<string[]>(["Buddies"]);
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  const [statusOpen, setStatusOpen] = useState(false);
+
   const now = () => new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 
   useEffect(() => {
@@ -101,7 +108,27 @@ export function MobileShell() {
       const d = localStorage.getItem("signoff_snd_door") !== "0";
       setBuddySounds(b); setDoorSounds(d); sounds.setMuted({ buddy: !b, door: !d });
     } catch {}
+    // buddy list prefs
+    try {
+      setFavorites(JSON.parse(localStorage.getItem("signoff_favorites") || "[]"));
+      setGroupOf(JSON.parse(localStorage.getItem("signoff_buddy_groups") || "{}"));
+      const order = JSON.parse(localStorage.getItem("signoff_group_order") || "null");
+      if (Array.isArray(order) && order.length) setGroupOrder(order);
+    } catch {}
   }, []);
+
+  function toggleFavorite(name: string) {
+    setFavorites((p) => { const n = p.includes(name) ? p.filter((x) => x !== name) : [...p, name]; try { localStorage.setItem("signoff_favorites", JSON.stringify(n)); } catch {} return n; });
+  }
+  function addGroup() {
+    const name = (typeof window !== "undefined" ? window.prompt("New group name:") : "")?.trim();
+    if (!name || groupOrder.includes(name)) return;
+    setGroupOrder((p) => { const n = [...p, name]; try { localStorage.setItem("signoff_group_order", JSON.stringify(n)); } catch {} return n; });
+  }
+  function moveToGroup(name: string, group: string) {
+    setGroupOf((p) => { const n = { ...p, [name.toLowerCase()]: group }; try { localStorage.setItem("signoff_buddy_groups", JSON.stringify(n)); } catch {} return n; });
+  }
+  function toggleCollapse(g: string) { setCollapsed((p) => ({ ...p, [g]: !p[g] })); }
 
   // load my profile (bio) once signed in
   useEffect(() => {
@@ -327,14 +354,71 @@ export function MobileShell() {
       </RetroWindow>
     );
   } else if (tab === "buddies") {
+    // favorites + client-side grouping, matching the approved mock
+    const withFav = buddies.map((b) => ({ ...b, favorite: favorites.includes(b.screenname) }));
+    const primary = groupOrder[0] || "Buddies";
+    const buckets = groupOrder.map((g) => ({
+      g,
+      items: withFav
+        .filter((b) => (groupOf[b.screenname.toLowerCase()] || primary) === g)
+        .sort((a, c) => (c.favorite ? 1 : 0) - (a.favorite ? 1 : 0) || sortB(a, c)),
+    }));
+    const multi = groupOrder.length > 1;
     body = (
       <RetroWindow title={`${me || "…"}'s Buddy List`} badge style={fullWin}>
-        {away && <div style={{ padding: 8 }}><AwayBanner message={awayActive || "(away)"} onBack={() => setAwayStatus("")} /></div>}
-        <div style={{ padding: "6px 10px", borderBottom: `1px solid ${retro.hairline}`, fontSize: 11, color: retro.inkSoft }}>Buddies ({online}/{buddies.length})</div>
-        <div style={{ flex: 1, overflowY: "auto", background: retro.well }}>
-          {buddies.length === 0 && <div style={{ padding: "12px 14px", fontSize: 13, color: retro.inkMuted, fontStyle: "italic", fontFamily: retro.fontMsg }}>no buddies yet — add one below</div>}
-          {buddies.map((b) => <BuddyRow key={b.screenname} buddy={b} onClick={() => { setDmTarget(b.screenname); }} />)}
+        {/* header: avatar · screenname · status · bell */}
+        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", borderBottom: `1px solid ${retro.hairline}` }}>
+          <div style={{ width: 44, height: 44, borderRadius: 6, background: retro.gradient, color: retro.gold, fontFamily: retro.fontBrand, fontSize: 18, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{(me || "?").slice(0, 2).toUpperCase()}</div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 17, fontWeight: "bold", color: retro.blue }}>{me} <span style={{ color: retro.goldDim }}>★</span></div>
+            <div style={{ position: "relative", display: "inline-block", marginTop: 2 }}>
+              <button onClick={() => setStatusOpen((v) => !v)} style={{ ...btnStyle, height: 28, padding: "0 10px", fontSize: 13, display: "flex", alignItems: "center", gap: 6 }}>
+                <span style={{ width: 9, height: 9, borderRadius: "50%", background: away ? retro.amber : retro.green }} /> {away ? "Away" : "Online"} ▾
+              </button>
+              {statusOpen && (
+                <div style={{ position: "absolute", top: 30, left: 0, zIndex: 5, background: "#fff", border: `1px solid ${retro.inputBorder}`, borderRadius: 6, boxShadow: "0 4px 14px rgba(10,15,40,0.2)", minWidth: 130 }}>
+                  <div onClick={() => { setStatusOpen(false); if (away) setAwayStatus(""); }} style={{ padding: "9px 12px", fontSize: 14, cursor: "pointer", display: "flex", alignItems: "center", gap: 8 }}><span style={{ width: 9, height: 9, borderRadius: "50%", background: retro.green }} /> Online</div>
+                  <div onClick={() => { setStatusOpen(false); setTab("away"); }} style={{ padding: "9px 12px", fontSize: 14, cursor: "pointer", display: "flex", alignItems: "center", gap: 8, borderTop: `1px solid ${retro.hairline}` }}><span style={{ width: 9, height: 9, borderRadius: "50%", background: retro.amber }} /> Away…</div>
+                </div>
+              )}
+            </div>
+          </div>
+          <button onClick={toggleBuddySounds} title="notification sounds" style={{ ...btnStyle, width: 52, height: 46, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 1, color: buddySounds ? retro.ink : retro.inkMuted }}>
+            <span style={{ fontSize: 16 }}>{buddySounds ? "🔔" : "🔕"}</span>
+            <span style={{ fontSize: 10 }}>{buddySounds ? "on" : "off"}</span>
+          </button>
         </div>
+
+        {away && <div style={{ padding: 8 }}><AwayBanner message={awayActive || "(away)"} onBack={() => setAwayStatus("")} /></div>}
+
+        <div style={{ flex: 1, overflowY: "auto", background: retro.well, paddingBottom: 8 }}>
+          {buddies.length === 0 && <div style={{ padding: "12px 14px", fontSize: 13, color: retro.inkMuted, fontStyle: "italic", fontFamily: retro.fontMsg }}>no buddies yet — add one below</div>}
+          {buckets.map(({ g, items }) => {
+            const on = items.filter((b) => b.status === "ONLINE").length;
+            const isCol = collapsed[g];
+            return (
+              <div key={g}>
+                <div onClick={() => toggleCollapse(g)} style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 12px 4px", cursor: "pointer" }}>
+                  <span style={{ fontSize: 11, color: retro.inkSoft }}>{isCol ? "▸" : "▾"}</span>
+                  <span style={{ fontSize: 14, fontWeight: "bold", color: retro.ink }}>{g}</span>
+                  <span style={{ fontSize: 12, color: retro.inkMuted }}>({on}/{items.length})</span>
+                </div>
+                {!isCol && items.map((b) => (
+                  <div key={b.screenname} style={{ display: "flex", alignItems: "center" }}>
+                    <div style={{ flex: 1, minWidth: 0 }}><BuddyRow buddy={b} onClick={() => setDmTarget(b.screenname)} onStar={() => toggleFavorite(b.screenname)} /></div>
+                    {multi && (
+                      <select value={groupOf[b.screenname.toLowerCase()] || primary} onChange={(e) => moveToGroup(b.screenname, e.target.value)} onClick={(e) => e.stopPropagation()} style={{ ...inputStyle, height: 26, fontSize: 11, marginRight: 8, padding: "0 4px" }}>
+                        {groupOrder.map((gg) => <option key={gg} value={gg}>{gg}</option>)}
+                      </select>
+                    )}
+                  </div>
+                ))}
+              </div>
+            );
+          })}
+          <div onClick={addGroup} style={{ padding: "10px 12px", fontSize: 13, color: retro.inkMuted, fontFamily: retro.fontMono, cursor: "pointer" }}>+ new group</div>
+        </div>
+
         <div style={{ display: "flex", gap: 5, padding: 8, borderTop: `1px solid ${retro.hairline}` }}>
           <input value={newBuddy} onChange={(e) => setNewBuddy(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addBuddy()} placeholder="add buddy…" style={{ ...inputStyle, flex: 1, minWidth: 0, height: 40, fontSize: 16 }} />
           <button onClick={addBuddy} style={{ ...btnStyle, height: 40, padding: "0 14px" }}>Add</button>
@@ -423,7 +507,8 @@ export function MobileShell() {
         <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 10, overflowY: "auto" }}>
           {away && <AwayBanner message={awayActive || "(away)"} onBack={() => setAwayStatus("")} />}
           <div style={{ fontSize: 14, color: retro.ink }}>Enter new Away message:</div>
-          <textarea value={awayInput} onChange={(e) => setAwayInput(e.target.value)} rows={4} placeholder="I am away from my computer right now." style={{ ...inputStyle, padding: 10, fontSize: 16, fontFamily: retro.fontMsg, resize: "none", height: "auto" }} />
+          <FormatToolbar format={format} onChange={setFormat} onSmiley={() => setAwayInput(awayInput + " :-)")} />
+          <textarea value={awayInput} onChange={(e) => setAwayInput(e.target.value)} rows={4} placeholder="I am away from my computer right now." style={{ ...inputStyle, padding: 10, fontSize: 16, fontFamily: retro.fontMsg, resize: "none", height: "auto", color: format.color, fontWeight: format.bold ? "bold" : "normal", fontStyle: format.italic ? "italic" : "normal", textDecoration: format.underline ? "underline" : "none" }} />
           <div style={{ fontSize: 12, color: retro.inkMuted, fontFamily: retro.fontMono }}>Special Characters:<br />%n = screen name of buddy<br />%d = current date<br />%t = current time</div>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: retro.inkSoft }}>
