@@ -63,6 +63,8 @@ export const gateway = {
   ircPart: (screenname: string, network: string, channel: string) => call("/irc/part", { screenname, network, channel }),
   ircDisconnect: (screenname: string, network: string) => call("/irc/disconnect", { screenname, network }),
   ircStatus: (screenname: string) => call<{ networks: { network: string; nick: string; channels: string[] }[] }>("/irc/status", { screenname }),
+  ircList: (screenname: string, network: string, filter?: string) =>
+    call<{ channels: { channel: string; users: number; topic: string }[] }>("/irc/list", { screenname, network, filter }),
 };
 
 export interface BuddyPresence {

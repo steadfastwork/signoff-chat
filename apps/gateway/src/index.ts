@@ -217,6 +217,12 @@ const server = http.createServer(async (req, res) => {
         for (const c of Array.isArray(body.channels) ? body.channels.map(String) : []) irc.join(c);
         return send(200, { ok: true, nick: irc.nick });
       }
+      case "/irc/list": {
+        const irc = requireSession(sn).irc.get(String(body.network || ""));
+        if (!irc) throw new HttpError(409, "not connected to that network");
+        const channels = await irc.list(body.filter ? String(body.filter) : undefined);
+        return send(200, { channels });
+      }
       case "/irc/join": {
         const irc = requireSession(sn).irc.get(String(body.network || ""));
         if (!irc) throw new HttpError(409, "not connected to that network");

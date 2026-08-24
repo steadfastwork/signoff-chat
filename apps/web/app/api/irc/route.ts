@@ -35,6 +35,8 @@ export async function POST(req: NextRequest) {
         return NextResponse.json(await gateway.ircDisconnect(sn, String(body.network || "")));
       case "status":
         return NextResponse.json(await gateway.ircStatus(sn));
+      case "list":
+        return NextResponse.json(await gateway.ircList(sn, String(body.network || ""), body.filter ? String(body.filter) : undefined));
       default:
         return NextResponse.json({ error: "unknown action" }, { status: 400 });
     }

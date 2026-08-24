@@ -40,6 +40,18 @@ export default function IrcPage() {
   const [channelInput, setChannelInput] = useState("");
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
+  const [browseOpen, setBrowseOpen] = useState(false);
+  const [browseResults, setBrowseResults] = useState<{ channel: string; users: number; topic: string }[]>([]);
+  const [browseFilter, setBrowseFilter] = useState("");
+  const [browseLoading, setBrowseLoading] = useState(false);
+
+  async function browse() {
+    setBrowseOpen(true); setBrowseLoading(true); setBrowseResults([]);
+    try {
+      const j = await (await fetch("/api/irc", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "list", network: net.label }) })).json();
+      setBrowseResults(Array.isArray(j.channels) ? j.channels : []);
+    } catch {} finally { setBrowseLoading(false); }
+  }
 
   const now = () => new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
   const push = (chan: string, m: RetroMessage) => setByChannel((prev) => ({ ...prev, [chan]: [...(prev[chan] ?? []), m] }));
@@ -150,6 +162,7 @@ export default function IrcPage() {
         <div style={{ display: "flex", gap: 5, padding: 8, borderTop: `1px solid ${retro.hairline}` }}>
           <input value={channelInput} onChange={(e) => setChannelInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && joinChannel(channelInput)} placeholder="#channel" style={{ ...inputStyle, flex: 1, minWidth: 0, height: 30, fontSize: 12 }} />
           <button onClick={() => joinChannel(channelInput)} style={{ ...btnStyle, height: 30, padding: "0 8px" }}>Join</button>
+          <button onClick={browse} style={{ ...btnStyle, height: 30, padding: "0 8px" }}>Browse</button>
         </div>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 5, padding: "0 8px 8px" }}>
           {net.suggested.map((c) => (
@@ -175,6 +188,31 @@ export default function IrcPage() {
           <SendButton onClick={send} />
         </div>
       </RetroWindow>
+
+      {browseOpen && (
+        <div onClick={() => setBrowseOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 70, background: "rgba(20,25,50,0.6)", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+          <div onClick={(e) => e.stopPropagation()}>
+            <RetroWindow title={`Browse Channels — ${net.label}`} badge onClose={() => setBrowseOpen(false)} width={480} style={{ maxHeight: "80vh" }}>
+              <div style={{ padding: 8, borderBottom: `1px solid ${retro.hairline}` }}>
+                <input value={browseFilter} onChange={(e) => setBrowseFilter(e.target.value)} placeholder="search channels…" style={{ ...inputStyle, width: "100%", height: 34 }} />
+              </div>
+              <div style={{ overflowY: "auto", maxHeight: "60vh", background: retro.well }}>
+                {browseLoading && <div style={{ padding: 16, fontStyle: "italic", color: retro.inkMuted, fontFamily: retro.fontMsg }}>listing channels…</div>}
+                {!browseLoading && browseResults.length === 0 && <div style={{ padding: 16, fontStyle: "italic", color: retro.inkMuted, fontFamily: retro.fontMsg }}>no channels returned</div>}
+                {browseResults
+                  .filter((c) => { const q = browseFilter.toLowerCase(); return !q || c.channel.toLowerCase().includes(q) || c.topic.toLowerCase().includes(q); })
+                  .slice(0, 300)
+                  .map((c) => (
+                    <div key={c.channel} onClick={() => { joinChannel(c.channel); setBrowseOpen(false); }} style={{ padding: "6px 12px", borderBottom: `1px solid ${retro.hairline}`, cursor: "pointer" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: retro.blue, fontWeight: "bold" }}>{c.channel}</span><span style={{ fontSize: 11, color: retro.inkMuted }}>{c.users}</span></div>
+                      {c.topic && <div style={{ fontSize: 11.5, color: retro.inkSoft, fontFamily: retro.fontMsg, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.topic}</div>}
+                    </div>
+                  ))}
+              </div>
+            </RetroWindow>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

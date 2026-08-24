@@ -77,6 +77,9 @@ export class IrcClient extends EventEmitter {
   private saslPassword?: string;
   private channels = new Map<string, Set<string>>(); // channel -> nicks
   private namesAccum = new Map<string, string[]>();
+  // Channel LIST browsing (RPL_LIST 322 → RPL_LISTEND 323).
+  private listAccum: { channel: string; users: number; topic: string }[] = [];
+  private pendingList?: { resolve: (v: { channel: string; users: number; topic: string }[]) => void; timer: NodeJS.Timeout };
 
   constructor(network: string, host: string, port: number, useTLS: boolean, nick: string) {
     super();
@@ -244,6 +247,22 @@ export class IrcClient extends EventEmitter {
         }
         return;
       }
+      case "322": {
+        // RPL_LIST: <nick> <channel> <# users> :<topic>
+        if (this.listAccum.length < 5000) {
+          this.listAccum.push({ channel: params[1] ?? "", users: parseInt(params[2] ?? "0", 10) || 0, topic: params[3] ?? "" });
+        }
+        return;
+      }
+      case "323": {
+        // RPL_LISTEND
+        if (this.pendingList) {
+          clearTimeout(this.pendingList.timer);
+          this.pendingList.resolve(this.listAccum.slice());
+          this.pendingList = undefined;
+        }
+        return;
+      }
       case "NOTICE": {
         this.emit("system", { network: this.network, text: params[1] ?? "" });
         return;
@@ -265,6 +284,20 @@ export class IrcClient extends EventEmitter {
   }
   getChannels(): string[] {
     return Array.from(this.channels.keys());
+  }
+
+  /** Run LIST (optionally filtered) and return channels sorted by popularity. */
+  list(filter?: string): Promise<{ channel: string; users: number; topic: string }[]> {
+    return new Promise((resolve) => {
+      this.listAccum = [];
+      const finish = () => resolve(this.listAccum.slice().sort((a, b) => b.users - a.users).slice(0, 500));
+      const timer = setTimeout(() => {
+        this.pendingList = undefined;
+        finish();
+      }, 10000);
+      this.pendingList = { resolve: () => finish(), timer };
+      this.write(filter ? `LIST ${filter}` : "LIST");
+    });
   }
   isRegistered() {
     return this.registered;

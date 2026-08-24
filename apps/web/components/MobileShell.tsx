@@ -64,6 +64,11 @@ export function MobileShell() {
   ircViewRef.current = ircView;
   const [ircMsgs, setIrcMsgs] = useState<Record<string, RetroMessage[]>>({});
   const [ircBusy, setIrcBusy] = useState(false);
+  // channel browser
+  const [browseOpen, setBrowseOpen] = useState(false);
+  const [browseResults, setBrowseResults] = useState<{ channel: string; users: number; topic: string }[]>([]);
+  const [browseFilter, setBrowseFilter] = useState("");
+  const [browseLoading, setBrowseLoading] = useState(false);
 
   // away
   const [away, setAway] = useState(false);
@@ -191,6 +196,15 @@ export function MobileShell() {
     await fetch("/api/irc", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "join", network: net.label, channel: c }) }).catch(() => {});
     setIrcChannels((p) => (p.includes(c) ? p : [...p, c])); setIrcJoinInput(""); setIrcView(c); sounds.doorOpen();
   }
+  async function browseChannels() {
+    if (!ircConnected) return;
+    setBrowseOpen(true); setBrowseLoading(true); setBrowseResults([]);
+    try {
+      const net = findNetwork(ircConnected.netId);
+      const j = await (await fetch("/api/irc", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "list", network: net.label }) })).json();
+      setBrowseResults(Array.isArray(j.channels) ? j.channels : []);
+    } catch {} finally { setBrowseLoading(false); }
+  }
   async function sendIrc() {
     const body = text.trim(); if (!body || !ircView || !ircConnected) return; setText("");
     const net = findNetwork(ircConnected.netId);
@@ -280,9 +294,13 @@ export function MobileShell() {
               {ircChannels.map((c) => (
                 <div key={c} onClick={() => setIrcView(c)} style={{ padding: "10px 14px", cursor: "pointer", borderBottom: `1px solid ${retro.hairline}`, color: retro.blue, fontWeight: "bold", fontSize: 15 }}>{c}</div>
               ))}
+              {Object.keys(ircMsgs).filter((k) => !k.startsWith("#") && k !== "*server*").map((nick) => (
+                <div key={nick} onClick={() => setIrcView(nick)} style={{ padding: "10px 14px", cursor: "pointer", borderBottom: `1px solid ${retro.hairline}`, color: snColor(nick), fontWeight: "bold", fontSize: 15 }}>✉ {nick}</div>
+              ))}
               <div style={{ display: "flex", gap: 5, padding: "8px 12px" }}>
                 <input value={ircJoinInput} onChange={(e) => setIrcJoinInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && joinIrc(ircJoinInput)} placeholder="#channel" style={{ ...inputStyle, flex: 1, minWidth: 0, height: 40, fontSize: 16 }} />
                 <button onClick={() => joinIrc(ircJoinInput)} style={{ ...btnStyle, height: 40, padding: "0 12px" }}>Join</button>
+                <button onClick={browseChannels} style={{ ...btnStyle, height: 40, padding: "0 12px" }}>Browse</button>
               </div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 6, padding: "0 12px 8px" }}>
                 {net.suggested.map((c) => <span key={c} onClick={() => joinIrc(c)} style={chip}>{c}</span>)}
@@ -353,6 +371,33 @@ export function MobileShell() {
   return (
     <div className="retro-desktop" style={{ position: "fixed", inset: 0, zIndex: 60, display: "flex", flexDirection: "column", paddingTop: "env(safe-area-inset-top,0px)" }}>
       <div style={{ flex: 1, minHeight: 0, padding: 8, display: "flex" }}>{body}</div>
+
+      {browseOpen && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 70, background: retro.desktop, padding: 8, display: "flex" }} className="retro-desktop">
+          <RetroWindow title={`Browse Channels — ${findNetwork(ircConnected?.netId ?? "libera").label}`} badge onClose={() => setBrowseOpen(false)} style={fullWin}>
+            <div style={{ padding: 8, borderBottom: `1px solid ${retro.hairline}` }}>
+              <input value={browseFilter} onChange={(e) => setBrowseFilter(e.target.value)} placeholder="search channels…" style={{ ...inputStyle, width: "100%", height: 40, fontSize: 16 }} />
+            </div>
+            <div style={{ flex: 1, overflowY: "auto", background: retro.well }}>
+              {browseLoading && <div style={{ padding: 16, fontFamily: retro.fontMsg, fontStyle: "italic", color: retro.inkMuted }}>listing channels…</div>}
+              {!browseLoading && browseResults.length === 0 && <div style={{ padding: 16, fontFamily: retro.fontMsg, fontStyle: "italic", color: retro.inkMuted }}>no channels returned</div>}
+              {browseResults
+                .filter((c) => { const q = browseFilter.toLowerCase(); return !q || c.channel.toLowerCase().includes(q) || c.topic.toLowerCase().includes(q); })
+                .slice(0, 300)
+                .map((c) => (
+                  <div key={c.channel} onClick={() => { joinIrc(c.channel); setBrowseOpen(false); }} style={{ padding: "8px 12px", borderBottom: `1px solid ${retro.hairline}`, cursor: "pointer" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between" }}>
+                      <span style={{ color: retro.blue, fontWeight: "bold" }}>{c.channel}</span>
+                      <span style={{ fontSize: 11, color: retro.inkMuted }}>{c.users}</span>
+                    </div>
+                    {c.topic && <div style={{ fontSize: 11.5, color: retro.inkSoft, fontFamily: retro.fontMsg, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.topic}</div>}
+                  </div>
+                ))}
+            </div>
+          </RetroWindow>
+        </div>
+      )}
+
       {/* Bottom tab bar */}
       <div style={{ display: "flex", gap: 4, padding: "6px 8px calc(8px + env(safe-area-inset-bottom,0px))", background: retro.chrome, borderTop: `1px solid ${retro.border}`, borderRadius: "14px 14px 0 0", margin: "0 6px", boxShadow: "0 -6px 20px rgba(10,15,40,0.25)" }}>
         {TABS.map((t) => {
