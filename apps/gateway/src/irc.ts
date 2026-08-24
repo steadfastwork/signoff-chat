@@ -75,6 +75,7 @@ export class IrcClient extends EventEmitter {
   private buf = "";
   private registered = false;
   private saslPassword?: string;
+  private capReqSent = false;
   private channels = new Map<string, Set<string>>(); // channel -> nicks
   private namesAccum = new Map<string, string[]>();
   // Channel LIST browsing (RPL_LIST 322 → RPL_LISTEND 323).
@@ -143,8 +144,21 @@ export class IrcClient extends EventEmitter {
       // ── SASL PLAIN (only when a password was provided) ──────────────────
       case "CAP": {
         const sub = params[1];
-        if (sub === "LS" && (params[2] ?? "").split(" ").includes("sasl")) {
-          this.write("CAP REQ :sasl");
+        if (sub === "LS") {
+          // CAP LS 302 caps can carry values (`sasl=PLAIN,EXTERNAL`) and can be
+          // split across lines: `CAP * LS * :...` means more follow. Strip the
+          // `=value` and detect a cap *named* sasl in whichever field holds caps.
+          const more = params[2] === "*"; // continuation marker
+          const capStr = more ? params[3] ?? "" : params[2] ?? "";
+          const caps = capStr.split(" ").map((c) => c.split("=")[0]);
+          if (this.saslPassword && !this.capReqSent && caps.includes("sasl")) {
+            this.capReqSent = true;
+            this.write("CAP REQ :sasl");
+          } else if (!more && !this.capReqSent) {
+            // LS finished and sasl isn't available → end negotiation so
+            // registration can complete instead of hanging to timeout.
+            this.write("CAP END");
+          }
         } else if (sub === "ACK") {
           this.write("AUTHENTICATE PLAIN");
         } else if (sub === "NAK") {
