@@ -316,7 +316,7 @@ export interface RetroMessage {
   format?: RetroMessageFormat;
 }
 
-export function MessageLog({ messages, me, height = 220 }: { messages: RetroMessage[]; me: string; height?: number }) {
+export function MessageLog({ messages, me, height = 220 }: { messages: RetroMessage[]; me: string; height?: number | string }) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (ref.current) ref.current.scrollTop = ref.current.scrollHeight;

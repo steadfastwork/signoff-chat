@@ -228,7 +228,7 @@ export function MobileShell() {
     body = (
       <RetroWindow title={`${dmTarget} — Direct Message`} onBack={() => setDmTarget(null)} style={fullWin}>
         <div style={{ margin: "8px 10px", flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
-          <MessageLog messages={msgs} me={me} height={9999} />
+          <MessageLog messages={msgs} me={me} height="100%" />
         </div>
         <div style={{ padding: "0 10px 6px" }}><FormatToolbar format={format} onChange={setFormat} onSmiley={() => setText(text + " :-)")} /></div>
         <div style={{ display: "flex", gap: 7, padding: "0 10px 10px" }}>
@@ -256,7 +256,7 @@ export function MobileShell() {
     const msgs = ircMsgs[ircView] ?? [];
     body = (
       <RetroWindow title={`${findNetwork(ircConnected?.netId ?? "libera").label}: ${ircView}`} onBack={() => setIrcView(null)} style={fullWin}>
-        <div style={{ margin: "8px 10px", flex: 1, minHeight: 0 }}><MessageLog messages={msgs} me={ircConnected?.nick ?? me} height={9999} /></div>
+        <div style={{ margin: "8px 10px", flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}><MessageLog messages={msgs} me={ircConnected?.nick ?? me} height="100%" /></div>
         <div style={{ display: "flex", gap: 7, padding: "0 10px 10px" }}>
           <input value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === "Enter" && sendIrc()} placeholder={`message ${ircView}…`} style={{ ...inputStyle, flex: 1, minWidth: 0, height: 40, fontSize: 16 }} />
           <SendButton onClick={sendIrc} />
@@ -267,7 +267,7 @@ export function MobileShell() {
     body = (
       <RetroWindow title={`Chat Room: ${room.name}`} onBack={() => { setRoom(null); roomRef.current = null; }} style={fullWin}>
         <div style={{ fontSize: 10.5, color: retro.inkMuted, fontFamily: retro.fontMono, padding: "4px 12px", borderBottom: `1px solid ${retro.hairline}` }}>{roomWho.length} people here{roomWho.length ? ": " + roomWho.slice(0, 8).join(", ") : ""}</div>
-        <div style={{ margin: "8px 10px", flex: 1, minHeight: 0 }}><MessageLog messages={roomMsgs} me={me} height={9999} /></div>
+        <div style={{ margin: "8px 10px", flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}><MessageLog messages={roomMsgs} me={me} height="100%" /></div>
         <div style={{ display: "flex", gap: 7, padding: "0 10px 10px" }}>
           <input value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === "Enter" && sendRoom()} placeholder={`say something…`} style={{ ...inputStyle, flex: 1, minWidth: 0, height: 40, fontSize: 16 }} />
           <SendButton onClick={sendRoom} />

@@ -261,13 +261,13 @@ const server = http.createServer(async (req, res) => {
         return send(200, { ok: true });
       }
       case "/irc/disconnect": {
-        const s2 = requireSession(sn);
+        const s2 = ircSessionFor(sn);
         s2.irc.get(String(body.network || ""))?.close();
         s2.irc.delete(String(body.network || ""));
         return send(200, { ok: true });
       }
       case "/irc/status": {
-        const s2 = requireSession(sn);
+        const s2 = ircSessionFor(sn);
         const networks = Array.from(s2.irc.entries()).map(([network, c]) => ({ network, nick: c.nick, channels: c.getChannels() }));
         return send(200, { networks });
       }
