@@ -216,7 +216,7 @@ export function MobileShell() {
     try {
       const r = await fetch("/api/irc", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "connect", network: net.label, host: net.host, port: net.port, tls: net.tls, nick, saslPassword: ircPw.trim() || undefined }) });
       const j = await r.json().catch(() => ({}));
-      if (r.ok) { setIrcConnected({ netId: net.id, nick: j.nick || nick }); setIrcPw(""); sounds.doorOpen(); }
+      if (r.ok) { setIrcConnected({ netId: net.id, nick: j.nick || nick }); setIrcPw(""); sounds.doorOpen(); setTimeout(syncIrc, 3500); /* pick up a NickServ nick-reclaim */ }
       else if (r.status === 401 || r.status === 409) setIrcError("your session expired — pull down to refresh, then sign in again");
       else setIrcError(j.error || `couldn't connect to ${net.label}`);
     } catch {

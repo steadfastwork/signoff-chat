@@ -71,6 +71,7 @@ export class IrcClient extends EventEmitter {
   private port: number;
   private useTLS: boolean;
   nick: string;
+  private wantedNick: string; // the nick the user asked for (pre-433 fallback)
   private sock?: tls.TLSSocket | net.Socket;
   private buf = "";
   private registered = false;
@@ -89,6 +90,7 @@ export class IrcClient extends EventEmitter {
     this.port = port;
     this.useTLS = useTLS;
     this.nick = nick;
+    this.wantedNick = nick;
   }
 
   private write(line: string) {
@@ -189,7 +191,24 @@ export class IrcClient extends EventEmitter {
         clearTimeout(to);
         done();
         this.emit("registered");
+        // If 433 forced us onto a suffixed nick, try to reclaim the real one.
+        // GHOST kills a lingering session (usually our own ghost from a gateway
+        // restart); RELEASE frees a NickServ-enforced hold. Both no-op harmlessly
+        // if not applicable. Then take the nick back.
+        if (this.nick !== this.wantedNick && this.saslPassword) {
+          this.write(`PRIVMSG NickServ :GHOST ${this.wantedNick} ${this.saslPassword}`);
+          this.write(`PRIVMSG NickServ :RELEASE ${this.wantedNick} ${this.saslPassword}`);
+          setTimeout(() => { if (this.nick !== this.wantedNick) this.write(`NICK ${this.wantedNick}`); }, 2500);
+        }
         return;
+      case "NICK": {
+        // Track our own nick changes (e.g. a successful reclaim above).
+        if (nickOf(prefix) === this.nick) {
+          this.nick = params[0] ?? this.nick;
+          this.emit("system", { network: this.network, text: `you are now known as ${this.nick}` });
+        }
+        return;
+      }
       case "433": {
         // nick in use → append underscore and retry (only before registration)
         if (!this.registered) {
