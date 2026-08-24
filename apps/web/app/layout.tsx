@@ -1,7 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { IBM_Plex_Mono, VT323, DM_Sans, DM_Serif_Display, Plus_Jakarta_Sans } from "next/font/google";
 import "./globals.css";
-import "@/components/radical/tokens.css";
 import { SessionProvider } from "@/components/SessionProvider";
 import { PresenceProvider } from "@/components/PresenceProvider";
 import { ThemeProvider, ThemeScript } from "@/components/ThemeProvider";
