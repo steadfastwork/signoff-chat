@@ -196,11 +196,16 @@ export interface RetroWindowProps {
   children?: ReactNode;
   width?: number | string;
   style?: CSSProperties;
+  // Draggable-window support (desktop multi-window). When provided, the titlebar
+  // becomes the drag handle; the parent owns position/z-index via `style`.
+  onTitleMouseDown?: (e: React.MouseEvent) => void;
+  onFocus?: () => void;
 }
 
-export function RetroWindow({ title, badge = false, onClose, onBack, children, width, style }: RetroWindowProps) {
+export function RetroWindow({ title, badge = false, onClose, onBack, children, width, style, onTitleMouseDown, onFocus }: RetroWindowProps) {
   return (
     <div
+      onMouseDown={onFocus}
       style={{
         width,
         maxWidth: "100%", // never overflow narrow / mobile viewports
@@ -216,6 +221,7 @@ export function RetroWindow({ title, badge = false, onClose, onBack, children, w
       }}
     >
       <div
+        onMouseDown={onTitleMouseDown}
         style={{
           background: retro.chrome,
           color: retro.ink,
@@ -228,6 +234,7 @@ export function RetroWindow({ title, badge = false, onClose, onBack, children, w
           borderBottom: `1px solid ${retro.hairline}`,
           borderRadius: "4px 4px 0 0",
           userSelect: "none",
+          cursor: onTitleMouseDown ? "move" : undefined,
         }}
       >
         {onBack && (
@@ -252,7 +259,7 @@ export function RetroWindow({ title, badge = false, onClose, onBack, children, w
         )}
         <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{title}</span>
         {onClose && (
-          <span onClick={onClose} style={{ color: retro.inkMuted, fontSize: 12, padding: "2px 5px", cursor: "pointer" }}>
+          <span onMouseDown={(e) => e.stopPropagation()} onClick={onClose} style={{ color: retro.inkMuted, fontSize: 12, padding: "2px 5px", cursor: "pointer" }}>
             ✕
           </span>
         )}
