@@ -375,7 +375,7 @@ export interface RetroMessage {
   format?: RetroMessageFormat;
 }
 
-export function MessageLog({ messages, me, height = 220 }: { messages: RetroMessage[]; me: string; height?: number | string }) {
+export function MessageLog({ messages, me, height = 220, formatText }: { messages: RetroMessage[]; me: string; height?: number | string; formatText?: (text: string) => ReactNode }) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (ref.current) ref.current.scrollTop = ref.current.scrollHeight;
@@ -410,7 +410,7 @@ export function MessageLog({ messages, me, height = 220 }: { messages: RetroMess
                   textDecoration: m.format?.underline ? "underline" : "none",
                 }}
               >
-                {m.text}
+                {formatText ? formatText(m.text) : m.text}
               </span>
             </div>
             {m.time && (

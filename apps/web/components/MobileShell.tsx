@@ -10,6 +10,7 @@ import { useIsMobile } from "@/lib/hooks/useIsMobile";
 import { soketiClient } from "@/lib/soketi";
 import { gatewayUserChannel } from "@/lib/gatewayChannel";
 import { IRC_NETWORKS, findNetwork, findNetworkByLabel } from "@/lib/ircNetworks";
+import { IrcText } from "@/components/retro/irc-text";
 import {
   RetroWindow,
   BuddyRow,
@@ -355,7 +356,7 @@ export function MobileShell() {
         case "topic": await api({ action: "raw", line: `TOPIC ${ircView}${arg ? ` :${arg}` : ""}` }); return;
         case "whois": if (arg) { sys(ircView, `whois ${arg}…`); await api({ action: "raw", line: `WHOIS ${arg}` }); } return;
         case "raw": case "quote": if (arg) await api({ action: "raw", line: arg }); return;
-        default: sys(ircView, `unknown command: /${cmd}`); return;
+        default: await api({ action: "raw", line: `${cmd.toUpperCase()}${arg ? ` ${arg}` : ""}` }); sys(ircView, `sent: /${cmd} ${arg}`.trim()); return;
       }
     }
 
@@ -470,7 +471,7 @@ export function MobileShell() {
     const msgs = ircMsgs[ircView] ?? [];
     body = (
       <RetroWindow title={`${findNetwork(ircConnected?.netId ?? "libera").label}: ${ircView}`} onBack={() => setIrcView(null)} style={fullWin}>
-        <div style={{ margin: "8px 10px", flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}><MessageLog messages={msgs} me={ircConnected?.nick ?? me} height="100%" /></div>
+        <div style={{ margin: "8px 10px", flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}><MessageLog messages={msgs} me={ircConnected?.nick ?? me} height="100%" formatText={(t) => <IrcText text={t} />} /></div>
         <div style={{ display: "flex", gap: 7, padding: "0 10px 10px" }}>
           <input value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === "Enter" && sendIrc()} placeholder={`message ${ircView}…`} style={{ ...inputStyle, flex: 1, minWidth: 0, height: 40, fontSize: 16 }} />
           <SendButton onClick={sendIrc} />

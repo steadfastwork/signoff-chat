@@ -7,6 +7,8 @@ import { useSession } from "next-auth/react";
 import { soketiClient } from "@/lib/soketi";
 import { gatewayUserChannel } from "@/lib/gatewayChannel";
 import { IRC_NETWORKS, findNetwork } from "@/lib/ircNetworks";
+import { IRC_PALETTE, withMircColor } from "@/lib/irc-format";
+import { IrcText } from "@/components/retro/irc-text";
 import {
   RetroWindow,
   MessageLog,
@@ -18,6 +20,8 @@ import {
   sounds,
   type RetroMessage,
 } from "@/components/retro/retro-components";
+
+const renderIrc = (t: string) => <IrcText text={t} />;
 
 // v1 preset network.
 
@@ -44,6 +48,15 @@ export default function IrcPage() {
   const [browseResults, setBrowseResults] = useState<{ channel: string; users: number; topic: string }[]>([]);
   const [browseFilter, setBrowseFilter] = useState("");
   const [browseLoading, setBrowseLoading] = useState(false);
+  // User's own text color (mIRC code), persisted. null = default ink.
+  const [color, setColor] = useState<number | null>(null);
+  useEffect(() => {
+    try { const v = localStorage.getItem("signoff_irc_color"); if (v) setColor(parseInt(v, 10)); } catch {}
+  }, []);
+  function pickColor(code: number | null) {
+    setColor(code);
+    try { code == null ? localStorage.removeItem("signoff_irc_color") : localStorage.setItem("signoff_irc_color", String(code)); } catch {}
+  }
 
   async function browse() {
     setBrowseOpen(true); setBrowseLoading(true); setBrowseResults([]);
@@ -111,13 +124,51 @@ export default function IrcPage() {
     setChannelInput("");
   }
 
+  const api = (payload: Record<string, unknown>) =>
+    fetch("/api/irc", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...payload, network: net.label }) }).catch(() => {});
+  const sys = (chan: string, t: string) => push(chan, { screenname: "sys", text: "", time: now(), sys: `— ${t} —` });
+
   async function send() {
     const body = text.trim();
-    if (!body || !active || active === "*") return;
+    if (!body) return;
     setText("");
-    push(active, { screenname: myNick, text: body, time: now() }); // IRC doesn't echo own msgs
     sounds.msgOut();
-    fetch("/api/irc", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "send", network: net.label, target: active, message: body }) }).catch(() => {});
+
+    // Slash-commands — full IRC access. Anything not special-cased goes raw, so
+    // every server command works (/whois, /mode, /kick, /topic, /list, …).
+    if (body.startsWith("/") && !body.startsWith("//")) {
+      const sp = body.indexOf(" ");
+      const cmd = (sp === -1 ? body.slice(1) : body.slice(1, sp)).toLowerCase();
+      const arg = sp === -1 ? "" : body.slice(sp + 1).trim();
+      const soh = String.fromCharCode(1);
+      switch (cmd) {
+        case "me":
+          if (active.startsWith("#") || !active.startsWith("*")) { push(active, { screenname: myNick, text: `* ${myNick} ${arg}`, time: now() }); await api({ action: "raw", line: `PRIVMSG ${active} :${soh}ACTION ${arg}${soh}` }); }
+          return;
+        case "msg": case "query": {
+          const s2 = arg.indexOf(" "); const to = s2 === -1 ? arg : arg.slice(0, s2); const m = s2 === -1 ? "" : arg.slice(s2 + 1);
+          if (!to) { sys(active || "*", "usage: /msg <nick> <message>"); return; }
+          push(to, { screenname: myNick, text: m, time: now() }); setChannels((p) => (p.includes(to) ? p : [...p, to])); setActive(to);
+          if (m) await api({ action: "send", target: to, message: m });
+          return;
+        }
+        case "join": case "j": if (arg) await joinChannel(arg.replace(/^#?/, "#")); return;
+        case "part": case "leave": { const c = arg || active; await api({ action: "part", channel: c }); setChannels((p) => p.filter((x) => x !== c)); if (active === c) setActive("*"); return; }
+        case "nick": if (arg) await api({ action: "raw", line: `NICK ${arg}` }); return;
+        case "topic": await api({ action: "raw", line: `TOPIC ${active}${arg ? ` :${arg}` : ""}` }); return;
+        case "raw": case "quote": if (arg) await api({ action: "raw", line: arg }); return;
+        default:
+          // Pass through as a raw IRC command (uppercased verb).
+          await api({ action: "raw", line: `${cmd.toUpperCase()}${arg ? ` ${arg}` : ""}` });
+          if (active) sys(active, `sent: /${cmd} ${arg}`.trim());
+          return;
+      }
+    }
+
+    if (!active || active === "*") return;
+    const msg = body.startsWith("//") ? body.slice(1) : body; // // escapes a leading slash
+    push(active, { screenname: myNick, text: withMircColor(msg, color), time: now() }); // IRC doesn't echo own msgs
+    await api({ action: "send", target: active, message: withMircColor(msg, color) });
   }
 
   if (!connected) {
@@ -173,7 +224,7 @@ export default function IrcPage() {
 
       <RetroWindow title={active === "*" ? "Server" : `${net.label}: ${active}`} width={470}>
         <div style={{ display: "flex", gap: 8, padding: 8 }}>
-          <div style={{ flex: 1, minWidth: 0 }}><MessageLog messages={msgs} me={myNick} height={320} /></div>
+          <div style={{ flex: 1, minWidth: 0 }}><MessageLog messages={msgs} me={myNick} height={320} formatText={renderIrc} /></div>
           {active.startsWith("#") && (
             <div style={{ width: 120, border: `1px solid ${retro.wellBorder}`, borderRadius: 2, background: retro.well, overflowY: "auto", height: 320, padding: "4px 0" }}>
               <div style={{ fontSize: 10.5, color: retro.inkMuted, fontFamily: retro.fontMono, padding: "2px 8px", borderBottom: `1px solid ${retro.hairline}` }}>{chanNames.length} here</div>
@@ -183,8 +234,16 @@ export default function IrcPage() {
             </div>
           )}
         </div>
+        {/* Color picker — your outgoing text color (mIRC), remembered. */}
+        <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "0 8px 6px" }}>
+          <span style={{ fontSize: 11, color: retro.inkMuted, fontFamily: retro.fontUI }}>color:</span>
+          <span onClick={() => pickColor(null)} title="default" style={{ width: 18, height: 18, borderRadius: 3, background: "#fff", border: `2px solid ${color == null ? retro.blue : retro.inputBorder}`, cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 11, color: retro.inkMuted }}>✕</span>
+          {IRC_PALETTE.map((c) => (
+            <span key={c.code} onClick={() => pickColor(c.code)} title={c.label} style={{ width: 18, height: 18, borderRadius: 3, background: c.hex, border: `2px solid ${color === c.code ? retro.blue : "rgba(0,0,0,0.2)"}`, cursor: "pointer" }} />
+          ))}
+        </div>
         <div style={{ display: "flex", gap: 7, padding: "0 8px 8px" }}>
-          <input value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === "Enter" && send()} placeholder={active.startsWith("#") ? `message ${active}…` : "join a channel to chat…"} disabled={!active.startsWith("#")} style={{ ...inputStyle, flex: 1, minWidth: 0, height: 38 }} />
+          <input value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === "Enter" && send()} placeholder={active.startsWith("#") ? `message ${active}…  (/help-style commands work)` : "type a /command, or /join #channel…"} style={{ ...inputStyle, flex: 1, minWidth: 0, height: 38, color: color != null ? (IRC_PALETTE.find((p) => p.code === color)?.hex ?? undefined) : undefined }} />
           <SendButton onClick={send} />
         </div>
       </RetroWindow>
