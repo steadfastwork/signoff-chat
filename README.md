@@ -62,7 +62,7 @@ locally and point the gateway at it.
 npm run dev -w @signoff/gateway
 ```
 
-**3. Web app** (`apps/web`, env in `apps/web/.env.local`)
+**3. Web app** (`apps/web`): copy [`apps/web/.env.example`](apps/web/.env.example) to `apps/web/.env.local`
 
 | Variable | Description |
 | --- | --- |
@@ -72,16 +72,18 @@ npm run dev -w @signoff/gateway
 | `GATEWAY_URL`, `GATEWAY_SECRET` | Where your gateway runs, plus the shared secret |
 | `PUSHER_APP_ID`, `PUSHER_KEY`, `PUSHER_SECRET`, `PUSHER_CLUSTER` | Same Pusher app as the gateway |
 | `NEXT_PUBLIC_PUSHER_KEY`, `NEXT_PUBLIC_PUSHER_CLUSTER` | Same values, exposed to the browser |
-| `CRON_SECRET` | Optional; protects the cron routes |
+| `EMAIL_PEPPER` | `openssl rand -hex 32`; required in production, never change it after launch |
+| `RATE_LIMIT_SALT`, `CRON_SECRET` | Optional; IP-hash salt and cron-route protection |
 | `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` | Optional; rate limiting is off when unset |
+| `CLOUDFLARE_TURNSTILE_SECRET_KEY`, `NEXT_PUBLIC_CLOUDFLARE_TURNSTILE_SITE_KEY` | Optional; bot check on sign-up and login |
 
 ```bash
 npm run db:push -w @signoff/web   # create the schema
 npm run dev -w @signoff/web       # http://localhost:3000
 ```
 
-> `apps/web/.env.example` and `lib/env.ts` still list variables from an earlier version of the app
-> (Stripe, UploadThing, Soketi, …). The tables above are what the current code actually reads.
+The desktop app loads `https://www.signoff.chat` by default; set `SIGNOFF_APP_URL` to point it at a
+local server instead.
 
 ## Project docs
 

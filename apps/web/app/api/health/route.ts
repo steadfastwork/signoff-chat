@@ -16,22 +16,23 @@ export async function GET() {
     dbStatus = "error";
   }
 
-  // Check Soketi configuration (env vars present)
-  const soketiStatus =
-    process.env.SOKETI_APP_ID &&
-    process.env.SOKETI_APP_KEY &&
-    process.env.SOKETI_APP_SECRET &&
-    process.env.SOKETI_HOST
+  // Check real-time (Pusher) + gateway configuration (env vars present)
+  const realtimeStatus =
+    process.env.PUSHER_APP_ID &&
+    process.env.PUSHER_KEY &&
+    process.env.PUSHER_SECRET &&
+    process.env.GATEWAY_URL &&
+    process.env.GATEWAY_SECRET
       ? "configured"
       : "missing_config";
 
-  const allHealthy = dbStatus === "connected" && soketiStatus === "configured";
+  const allHealthy = dbStatus === "connected" && realtimeStatus === "configured";
 
   return NextResponse.json(
     {
       status: allHealthy ? "ok" : "degraded",
       db:     dbStatus,
-      soketi: soketiStatus,
+      realtime: realtimeStatus,
       timestamp: new Date().toISOString(),
     },
     { status: allHealthy ? 200 : 503 }

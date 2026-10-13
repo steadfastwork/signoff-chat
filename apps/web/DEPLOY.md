@@ -102,7 +102,7 @@ openssl rand -hex 32
    ```
    prisma generate && prisma migrate deploy && next build
    ```
-4. Add all environment variables from `.env.production.example` under **Settings → Environment Variables**.
+4. Add all environment variables from `.env.example` under **Settings → Environment Variables**.
    - Set scope to **Production** for live keys and **Preview** for test keys.
 
 ---
