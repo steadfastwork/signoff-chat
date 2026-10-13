@@ -1,137 +1,101 @@
 # Signoff Chat
 
-A retro-styled, terminal-aesthetic social chat app. Features a global feed, direct messaging, buddy list with live presence, and profile management.
+**A retro instant messenger for the browser. Sign on to AIM/ICQ and IRC from one classic early-2000s buddy-list UI.**
 
-## Tech Stack
+[Try it at www.signoff.chat](https://www.signoff.chat) · MIT licensed
 
-- **Frontend:** Next.js 14 (App Router), TypeScript, Tailwind CSS, IBM Plex Mono + VT323 fonts
-- **Backend:** Next.js API routes, Prisma ORM, PostgreSQL
-- **Real-time:** Pusher (live presence, buddy status, post/DM streaming)
-- **Auth:** NextAuth.js with credentials provider
-- **File Storage:** Uploadthing (profile images)
+Signoff Chat brings back the buddy list, away messages and door sounds, backed by real protocols.
+Accounts live on a hosted [open-oscar-server](https://github.com/mk6i/open-oscar-server), so you can
+chat from the web app or sign on with a vintage AIM client and talk to the same people.
 
----
+## Features
 
-## Prerequisites
+- 🟢 **Buddy list with live presence**: online, away, idle and warning levels
+- 💬 **Real-time one-on-one IMs**, with away messages and auto-replies
+- 🏠 **Chat rooms**
+- 🌐 **IRC** on real networks (Libera.Chat, OFTC, EsperNet, Rizon, Undernet) over TLS
+- 🚪 **The sounds**: door open and slam, message chime, buddy sign-on
+- 🖥️ **Web, desktop (Electron) and mobile (Expo)** clients
 
-- Node.js 18+
-- PostgreSQL database (local or hosted, e.g. Supabase, Neon, Railway)
-- Pusher account — create a Channels app at [pusher.com](https://pusher.com)
-- Uploadthing account — create an app at [uploadthing.com](https://uploadthing.com)
+## How it works
 
----
+```
+Browser ─HTTP▶ Next.js API ─HTTP (shared secret)▶ Gateway ─TOC▶ open-oscar-server  ◀── vintage AIM clients (:5190)
+                                                     │  └────IRC (TLS)▶ Libera, OFTC, …
+Browser ◀────────── Pusher (WebSocket) ◀─────────────┘  relays IMs, presence, IRC events
+```
 
-## Local Setup
+- **`apps/web`**: Next.js 14 app (UI and API routes), NextAuth credentials sign-in, Prisma + Postgres for
+  message history, profiles and IRC configs. Deployed on Vercel.
+- **`apps/gateway`**: a small Node/TypeScript service that holds one live OSCAR (TOC2) session per
+  signed-in user, plus their IRC connections, and relays inbound events to Pusher. Deployed on Fly.io.
+  The browser never talks to it directly. See [`apps/gateway/README.md`](apps/gateway/README.md).
+- **`infra/oscar`**: Fly.io config for open-oscar-server, the source of truth for AIM/ICQ identity,
+  buddies and presence. See [`infra/oscar/README.md`](infra/oscar/README.md).
+- **`apps/desktop`** (Electron) and **`apps/mobile`** (Expo): thin shells around the web app.
+- **`packages/*`**: shared types, validators, config and API client.
 
-### 1. Clone and install
+## Running it yourself
+
+You need Node 18+, a Postgres database, a [Pusher Channels](https://pusher.com) app, and somewhere
+to run the gateway and an open-oscar-server (the configs here target [Fly.io](https://fly.io)).
 
 ```bash
+git clone https://github.com/steadfastwork/signoff-chat.git
 cd signoff-chat
 npm install
 ```
 
-### 2. Configure environment variables
+**1. OSCAR server**: follow [`infra/oscar/README.md`](infra/oscar/README.md), or run open-oscar-server
+locally and point the gateway at it.
 
-```bash
-cp .env.example .env
-```
-
-Edit `.env` and fill in all values:
+**2. Gateway** (`apps/gateway`)
 
 | Variable | Description |
-|---|---|
-| `DATABASE_URL` | PostgreSQL connection string |
-| `NEXTAUTH_SECRET` | Random secret — run `openssl rand -base64 32` |
-| `NEXTAUTH_URL` | Your app URL (`http://localhost:3000` for local) |
-| `PUSHER_APP_ID` | From Pusher dashboard |
-| `PUSHER_KEY` | From Pusher dashboard |
-| `PUSHER_SECRET` | From Pusher dashboard |
-| `PUSHER_CLUSTER` | From Pusher dashboard (e.g. `us2`) |
-| `NEXT_PUBLIC_PUSHER_KEY` | Same as `PUSHER_KEY` |
-| `NEXT_PUBLIC_PUSHER_CLUSTER` | Same as `PUSHER_CLUSTER` |
-| `UPLOADTHING_SECRET` | From Uploadthing dashboard |
-| `UPLOADTHING_APP_ID` | From Uploadthing dashboard |
-
-### 3. Set up the database
-
-Push the Prisma schema to your database:
+| --- | --- |
+| `GATEWAY_SECRET` | Shared secret; must match the web app |
+| `PUSHER_APP_ID`, `PUSHER_KEY`, `PUSHER_SECRET`, `PUSHER_CLUSTER` | From your Pusher dashboard |
+| `OSCAR_HOST`, `OSCAR_TOC_PORT`, `OSCAR_API_URL` | Where the OSCAR server's TOC port and management API live |
+| `PORT` | Defaults to `8787` |
 
 ```bash
-npm run db:push
+npm run dev -w @signoff/gateway
 ```
 
-### 4. Run the dev server
+**3. Web app** (`apps/web`, env in `apps/web/.env.local`)
+
+| Variable | Description |
+| --- | --- |
+| `DATABASE_URL` | Postgres connection string |
+| `NEXTAUTH_SECRET` | `openssl rand -base64 32` |
+| `NEXTAUTH_URL` | e.g. `http://localhost:3000` |
+| `GATEWAY_URL`, `GATEWAY_SECRET` | Where your gateway runs, plus the shared secret |
+| `PUSHER_APP_ID`, `PUSHER_KEY`, `PUSHER_SECRET`, `PUSHER_CLUSTER` | Same Pusher app as the gateway |
+| `NEXT_PUBLIC_PUSHER_KEY`, `NEXT_PUBLIC_PUSHER_CLUSTER` | Same values, exposed to the browser |
+| `CRON_SECRET` | Optional; protects the cron routes |
+| `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` | Optional; rate limiting is off when unset |
 
 ```bash
-npm run dev
+npm run db:push -w @signoff/web   # create the schema
+npm run dev -w @signoff/web       # http://localhost:3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000).
+> `apps/web/.env.example` and `lib/env.ts` still list variables from an earlier version of the app
+> (Stripe, UploadThing, Soketi, …). The tables above are what the current code actually reads.
 
----
+## Project docs
 
-## Available Scripts
+- [`SECURITY.md`](SECURITY.md): rate limiting, input sanitization, access control
+- [`PRIVACY-ARCHITECTURE.md`](PRIVACY-ARCHITECTURE.md): what's stored and how
+- [`apps/desktop/DESKTOP-BUILD.md`](apps/desktop/DESKTOP-BUILD.md) and [`apps/mobile/APPSTORE.md`](apps/mobile/APPSTORE.md): building the native clients
 
-| Script | Description |
-|---|---|
-| `npm run dev` | Start dev server |
-| `npm run build` | Generate Prisma client + production build |
-| `npm run start` | Start production server |
-| `npm run db:push` | Push schema to database (no migration files) |
-| `npm run db:studio` | Open Prisma Studio |
-| `npm run db:generate` | Re-generate Prisma client |
+## Contributing
 
----
+Issues and pull requests are welcome. For anything big, open an issue first so we can talk it through.
 
-## Project Structure
+## License
 
-```
-signoff-chat/
-├── app/
-│   ├── api/
-│   │   ├── auth/[...nextauth]/   # NextAuth handler
-│   │   ├── buddies/              # Add/remove/list buddies
-│   │   ├── messages/[userId]/    # Direct messages
-│   │   ├── posts/                # Feed posts
-│   │   │   └── [postId]/comments/
-│   │   ├── profile/              # User profile CRUD
-│   │   ├── pusher/auth/          # Pusher channel auth
-│   │   └── uploadthing/          # File upload handler
-│   ├── dm/[userId]/              # Direct message page
-│   ├── login/                    # Sign-in page
-│   ├── profile/                  # Profile edit page
-│   ├── register/                 # Registration page
-│   └── page.tsx                  # Global feed (home)
-├── components/
-│   ├── Avatar.tsx
-│   ├── BuddyList.tsx             # Live presence sidebar
-│   ├── CommentSection.tsx        # Real-time comments
-│   ├── DirectMessagePanel.tsx    # Real-time DM chat
-│   ├── Feed.tsx                  # Global post feed
-│   ├── Navbar.tsx
-│   ├── NewPostForm.tsx
-│   ├── PostCard.tsx
-│   └── SessionProvider.tsx
-├── lib/
-│   ├── auth.ts                   # NextAuth config
-│   ├── prisma.ts                 # Prisma client singleton
-│   ├── pusher.ts                 # Pusher server + client
-│   ├── uploadthing.ts            # Uploadthing helpers
-│   └── utils.ts                  # cn(), formatTimestamp(), etc.
-├── prisma/
-│   └── schema.prisma
-├── types/
-│   └── next-auth.d.ts            # Session type augmentation
-└── .env.example
-```
+[MIT](LICENSE) © Steadfast Work LLC
 
----
-
-## Features
-
-- **Register / Login** — username + password credentials
-- **Global Feed** — post updates (up to 500 chars), real-time via Pusher
-- **Comments** — threaded comments on posts, live-streamed
-- **Direct Messages** — private 1:1 chat with real-time delivery
-- **Buddy List** — add buddies, see who's online via Pusher presence channels
-- **Profile** — edit display name, bio, upload profile photo via Uploadthing
+AIM and ICQ are trademarks of their respective owners. Signoff Chat is an independent project and is
+not affiliated with or endorsed by them.
